@@ -1,0 +1,21 @@
+{
+  "name": "aetherlife",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "test": "turbo run test --continue",
+    "dev": "pnpm docker:up && turbo run dev --filter=@aetherlife/web --filter=@aetherlife/game-server",
+    "dev:ai": "cd apps/ai-gateway && uv run uvicorn app.main:app --reload --port 8000",
+    "docker:up": "docker compose -f infra/docker-compose.yml --profile infra up -d",
+    "docker:up:full": "docker compose -f infra/docker-compose.yml --profile full up -d",
+    "verify:stack": "pnpm docker:up:full && pnpm turbo build && pnpm turbo test && curl -sf http://127.0.0.1:8000/health"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.0",
+    "typescript": "^5.7.2"
+  }
+}
