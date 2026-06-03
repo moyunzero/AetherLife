@@ -8,13 +8,15 @@
   "scripts": {
     "build": "turbo run build",
     "test": "turbo run test --continue",
-    "dev": "pnpm docker:up && turbo run dev --filter=@aetherlife/web --filter=@aetherlife/game-server",
+    "dev": "turbo run dev --filter=@aetherlife/web --filter=@aetherlife/game-server",
     "dev:ai": "cd apps/ai-gateway && uv run uvicorn app.main:app --reload --port 8000",
-    "docker:up": "docker compose -f infra/docker-compose.yml --profile infra up -d",
-    "docker:up:full": "docker compose -f infra/docker-compose.yml --profile full up -d",
-    "verify:stack": "pnpm docker:up:full && pnpm turbo build && pnpm turbo test && curl -sf http://127.0.0.1:8000/health"
+    "docker:ai": "docker compose -f infra/docker-compose.yml up -d ai-gateway",
+    "verify:cloud": "node scripts/verify-cloud.mjs",
+    "verify": "pnpm turbo build && pnpm turbo test && pnpm verify:cloud"
   },
   "devDependencies": {
+    "postgres": "^3.4.7",
+    "redis": "^4.7.0",
     "turbo": "^2.3.0",
     "typescript": "^5.7.2"
   }

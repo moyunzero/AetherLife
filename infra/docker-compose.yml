@@ -1,44 +1,8 @@
+# Optional: run ai-gateway in a container. Postgres/Redis use Supabase + Upstash (.env).
 services:
-  postgres:
-    image: postgres:16-alpine
-    profiles: [infra, full]
-    environment:
-      POSTGRES_USER: aether
-      POSTGRES_PASSWORD: aether
-      POSTGRES_DB: aetherlife
-    ports:
-      - "127.0.0.1:5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U aether -d aetherlife"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  redis:
-    image: redis:7-alpine
-    profiles: [infra, full]
-    ports:
-      - "127.0.0.1:6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-
   ai-gateway:
-    profiles: [full]
     build:
       context: ..
       dockerfile: apps/ai-gateway/Dockerfile
     ports:
       - "127.0.0.1:8000:8000"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-
-volumes:
-  pgdata:
