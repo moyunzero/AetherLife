@@ -12,6 +12,9 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "echo ok"
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.8"
   }
 }
