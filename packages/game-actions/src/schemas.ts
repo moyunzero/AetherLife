@@ -30,11 +30,20 @@ export const waitActionSchema = z
   })
   .strict();
 
+export const transferActionSchema = z
+  .object({
+    type: z.literal("transfer"),
+    itemId: z.string().min(1),
+    toNpcId: z.string().min(1),
+  })
+  .strict();
+
 export const GameActionSchema = z.discriminatedUnion("type", [
   moveActionSchema,
   interactActionSchema,
   speakActionSchema,
   waitActionSchema,
+  transferActionSchema,
 ]);
 
 export type GameAction = z.infer<typeof GameActionSchema>;
@@ -44,4 +53,5 @@ export const actionSchemasByType = {
   interact: interactActionSchema,
   speak: speakActionSchema,
   wait: waitActionSchema,
+  transfer: transferActionSchema,
 } as const;

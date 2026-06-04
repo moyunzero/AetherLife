@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1749014400000,
+      "tag": "0001_npc_memory",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1749100800000,
+      "tag": "0002_mutation_audit",
+      "breakpoints": true
+    }
+  ]
+}

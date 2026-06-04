@@ -12,6 +12,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "export:tools": "pnpm run build && node scripts/export-tool-schemas.mjs",
     "test": "vitest run"
   },
   "dependencies": {

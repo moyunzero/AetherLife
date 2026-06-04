@@ -11,11 +11,15 @@
   },
   "dependencies": {
     "@aetherlife/game-actions": "workspace:*",
+    "@aetherlife/npc-memory": "workspace:*",
     "@aetherlife/shared": "workspace:*",
-    "express": "^4.21.2"
+    "bullmq": "^5.78.0",
+    "express": "^4.21.2",
+    "ioredis": "^5.11.0"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
+    "@types/node": "^25.9.1",
     "@types/supertest": "^6.0.2",
     "supertest": "^7.0.0",
     "tsx": "^4.19.2",

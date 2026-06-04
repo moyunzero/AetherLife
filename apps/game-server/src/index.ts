@@ -1,6 +1,12 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { safeParseGameAction } from "@aetherlife/game-actions";
 import { DEFAULT_PORTS } from "@aetherlife/shared";
+import { createRoomsRouter, createInternalRoomsRouter } from "./routes/rooms.js";
+import { createChatRouter } from "./routes/chat.js";
+import { createNpcMemoryRouter } from "./routes/npc-memory.js";
+import { createAuditRouter } from "./routes/audit.js";
+import { createInternalJobsRouter } from "./routes/internal.js";
+import { createInternalMemoriesRouter } from "./routes/internal-memories.js";
 
 function formatZodError(error: { issues: Array<{ path: (string | number)[]; message: string }> }) {
   return error.issues.map((issue) => ({
@@ -11,23 +17,28 @@ function formatZodError(error: { issues: Array<{ path: (string | number)[]; mess
 
 export function createApp(): Express {
   const app = express();
+  const json = express.json({ limit: "16kb" });
 
   app.get("/health", (_req, res) => {
     res.json({ status: "ok", service: "game-server" });
   });
 
-  app.post(
-    "/actions/validate",
-    express.json({ limit: "16kb" }),
-    (req, res) => {
-      const parsed = safeParseGameAction(req.body);
-      if (!parsed.success) {
-        res.status(400).json({ ok: false, error: formatZodError(parsed.error) });
-        return;
-      }
-      res.json({ ok: true, action: parsed.data });
-    },
-  );
+  app.post("/actions/validate", json, (req, res) => {
+    const parsed = safeParseGameAction(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ ok: false, error: formatZodError(parsed.error) });
+      return;
+    }
+    res.json({ ok: true, action: parsed.data });
+  });
+
+  app.use("/rooms", json, createRoomsRouter());
+  app.use("/rooms", json, createAuditRouter());
+  app.use("/rooms", json, createNpcMemoryRouter());
+  app.use("/rooms", json, createChatRouter());
+  app.use("/internal/rooms", json, createInternalRoomsRouter());
+  app.use("/internal/rooms", json, createInternalMemoriesRouter());
+  app.use("/internal/jobs", json, createInternalJobsRouter());
 
   app.use(
     (
@@ -64,6 +75,9 @@ const isMain =
   process.argv[1] === fileURLToPath(import.meta.url) &&
   process.env.NODE_ENV !== "test";
 
+import { loadRootEnv } from "./load-env.js";
+
 if (isMain && process.env.VITEST !== "true") {
+  loadRootEnv();
   startServer();
 }

@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { ACTION_TYPES, toOpenAIToolDefinitions } from "./tools.js";
 
 describe("toOpenAIToolDefinitions", () => {
-  it("returns exactly four OpenAI-compatible tools", () => {
+  it("returns exactly five OpenAI-compatible tools", () => {
     const tools = toOpenAIToolDefinitions();
-    expect(tools).toHaveLength(4);
+    expect(tools).toHaveLength(5);
 
     for (const tool of tools) {
       expect(tool.type).toBe("function");

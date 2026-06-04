@@ -1,0 +1,94 @@
+import json
+from typing import Any
+
+from langchain_core.messages import HumanMessage, SystemMessage
+
+from src.graph.state import GraphState
+
+NPC_SYSTEM_PROMPT = """你是「以太人生」中的 NPC 助手。
+
+行为规则：
+1. 先用自然语言直接回应玩家（问候、闲聊、澄清意图）。
+2. 玩家要求移动、开门、拿东西、等待等物理行为时，必须在同一轮调用 move / interact / wait 工具；不要只用文字说「我现在就去…」。
+3. 不要口头声称已经完成某个动作；若需要改变世界状态，必须调用对应工具。
+4. 可用 speak 工具对玩家说话（targetId 使用 "player"），或在回复文本中直接回答；但 speak 不能代替 move / interact。
+5. 以房间 JSON 快照为准，不要编造不存在的状态或坐标。"""
+
+
+def format_memory_summary(
+    *,
+    latest_bulk: str | None,
+    latest_reflection: str | None,
+    retrieved: list[dict[str, Any]] | None,
+) -> str:
+    bulk = (latest_bulk or "").strip() or "(none)"
+    reflection = (latest_reflection or "").strip() or "(none)"
+
+    lines = [
+        "Bulk summary:",
+        bulk,
+        "",
+        "Reflection:",
+        reflection,
+        "",
+        "Retrieved memories:",
+    ]
+
+    items = retrieved or []
+    if not items:
+        lines.append("- (none)")
+    else:
+        for item in items:
+            text = (item.get("text") or "").strip()
+            score = item.get("score")
+            suffix = f" (score: {score:.3f})" if isinstance(score, (int, float)) else ""
+            lines.append(f"- {text}{suffix}")
+
+    return "\n".join(lines)
+
+
+def build_room_constraints(room: dict[str, Any]) -> str:
+    width = int(room.get("width") or 8)
+    height = int(room.get("height") or 8)
+    max_x = max(0, width - 1)
+    max_y = max(0, height - 1)
+    lines = [
+        f"6. 房间网格 {width}×{height}，合法坐标 x∈[0,{max_x}]，y∈[0,{max_y}]，越界 move 会失败。",
+    ]
+    lines.append("7. 房间 NPC（id / 名字 / 坐标 / 背包）：")
+    for npc in room.get("npcs") or []:
+        npc_id = npc.get("id")
+        if not npc_id:
+            continue
+        inventory = npc.get("inventory") or []
+        inv_text = ", ".join(inventory) if inventory else "(empty)"
+        lines.append(
+            f"   - {npc_id} {npc.get('name')} @ ({npc.get('x')},{npc.get('y')}) inventory=[{inv_text}]"
+        )
+    for obj in room.get("objects") or []:
+        oid = obj.get("id")
+        if not oid:
+            continue
+        lines.append(
+            f"   - {oid} ({obj.get('kind')}) 位于 ({obj.get('x')},{obj.get('y')})，state={obj.get('state')}"
+        )
+    lines.append("8. 开门/交互：interact + objectId（如上表 id，默认门为 door-1）。")
+    lines.append("9. 移动：move + 合法 x,y。")
+    lines.append("10. 物品转移：transfer + itemId + toNpcId（只能转出自己背包中的物品）。")
+    return "\n".join(lines)
+
+
+def build_turn_messages(state: GraphState) -> list[SystemMessage | HumanMessage]:
+    memory = (state.get("memory_summary") or "").strip()
+    room = state.get("room_snapshot") or {}
+    room_json = json.dumps(room, ensure_ascii=False)
+    if len(room_json) > 1500:
+        room_json = room_json[:1500] + "…"
+
+    system_text = f"{NPC_SYSTEM_PROMPT}\n{build_room_constraints(room)}"
+    if memory:
+        system_text = f"{system_text}\n\nMemory summary:\n{memory}"
+
+    player_message = state.get("player_message") or ""
+    human_text = f"Player message: {player_message}\n\nRoom snapshot (JSON):\n{room_json}"
+    return [SystemMessage(content=system_text), HumanMessage(content=human_text)]

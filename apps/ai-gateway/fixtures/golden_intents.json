@@ -1,0 +1,125 @@
+{
+  "_comment": "Golden NL parse cases. Do not map Chinese NPC names to ids (D-11).",
+  "cases": [
+    {
+      "id": "zh-move-1",
+      "message": "走到 3,4",
+      "expected": { "type": "move", "x": 3, "y": 4 }
+    },
+    {
+      "id": "zh-move-2",
+      "message": "移动到 (5, 2)",
+      "expected": { "type": "move", "x": 5, "y": 2 }
+    },
+    {
+      "id": "zh-move-3",
+      "message": "请走到坐标 1,1",
+      "expected": { "type": "move", "x": 1, "y": 1 }
+    },
+    {
+      "id": "en-move-1",
+      "message": "move to 7, 8",
+      "expected": { "type": "move", "x": 7, "y": 8 }
+    },
+    {
+      "id": "en-move-2",
+      "message": "go to 0, 9",
+      "expected": { "type": "move", "x": 0, "y": 9 }
+    },
+    {
+      "id": "en-move-3",
+      "message": "Move to 2, 3 please",
+      "expected": { "type": "move", "x": 2, "y": 3 }
+    },
+    {
+      "id": "zh-interact-1",
+      "message": "打开 door-1",
+      "expected": { "type": "interact", "objectId": "door-1" }
+    },
+    {
+      "id": "zh-interact-2",
+      "message": "与 chest-a 互动",
+      "expected": { "type": "interact", "objectId": "chest-a" }
+    },
+    {
+      "id": "en-interact-1",
+      "message": "interact lever-2",
+      "expected": { "type": "interact", "objectId": "lever-2" }
+    },
+    {
+      "id": "en-interact-2",
+      "message": "use door-main",
+      "expected": { "type": "interact", "objectId": "door-main" }
+    },
+    {
+      "id": "zh-speak-1",
+      "message": "对 npc-2 说你好",
+      "expected": { "type": "speak", "targetId": "npc-2", "content": "你好" }
+    },
+    {
+      "id": "zh-speak-2",
+      "message": "跟 player-1 打个招呼",
+      "expected": { "type": "speak", "targetId": "player-1", "content": "打个招呼" }
+    },
+    {
+      "id": "en-speak-1",
+      "message": "tell npc-3 we need help",
+      "expected": { "type": "speak", "targetId": "npc-3", "content": "we need help" }
+    },
+    {
+      "id": "en-speak-2",
+      "message": "speak to guard-1 about the key",
+      "expected": { "type": "speak", "targetId": "guard-1", "content": "about the key" }
+    },
+    {
+      "id": "zh-wait-1",
+      "message": "等待 5 秒",
+      "expected": { "type": "wait", "durationMs": 5000 }
+    },
+    {
+      "id": "zh-wait-2",
+      "message": "先等一下",
+      "expected": { "type": "wait", "durationMs": 1000 }
+    },
+    {
+      "id": "en-wait-1",
+      "message": "wait for 2000ms",
+      "expected": { "type": "wait", "durationMs": 2000 }
+    },
+    {
+      "id": "en-wait-2",
+      "message": "hold on a moment",
+      "expected": { "type": "wait", "durationMs": 1000 }
+    },
+    {
+      "id": "zh-transfer-1",
+      "message": "把 key-1 交给 npc-2",
+      "expected": { "type": "transfer", "itemId": "key-1", "toNpcId": "npc-2" }
+    },
+    {
+      "id": "zh-transfer-2",
+      "message": "递给 npc-2 物品 potion-3",
+      "expected": { "type": "transfer", "itemId": "potion-3", "toNpcId": "npc-2" }
+    },
+    {
+      "id": "en-transfer-1",
+      "message": "transfer sword-1 to npc-2",
+      "expected": { "type": "transfer", "itemId": "sword-1", "toNpcId": "npc-2" }
+    },
+    {
+      "id": "en-transfer-2",
+      "message": "give coin-5 to npc-2",
+      "expected": { "type": "transfer", "itemId": "coin-5", "toNpcId": "npc-2" }
+    },
+    {
+      "id": "zh-mixed-1",
+      "message": "路昂走到 4,4",
+      "expected": { "type": "move", "x": 4, "y": 4 }
+    },
+    {
+      "id": "en-mixed-1",
+      "message": "open portal-gate now",
+      "expected": { "type": "interact", "objectId": "portal-gate" }
+    }
+  ]
+}

@@ -5,3 +5,13 @@ export const DEFAULT_PORTS = {
   gameServer: 2567,
   aiGateway: 8000,
 } as const;
+
+export {
+  createDefaultRoom,
+  findNpc,
+  type GameObject,
+  type NpcState,
+  type ObjectState,
+  type PlayerState,
+  type RoomState,
+} from "./room.js";

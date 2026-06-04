@@ -30,6 +30,12 @@ describe("GameActionSchema", () => {
     });
   });
 
+  it("parses valid transfer", () => {
+    expect(
+      parseGameAction({ type: "transfer", itemId: "key-1", toNpcId: "npc-2" }),
+    ).toEqual({ type: "transfer", itemId: "key-1", toNpcId: "npc-2" });
+  });
+
   it("rejects unknown type", () => {
     expect(() => parseGameAction({ type: "fly", x: 0, y: 0 })).toThrow();
   });

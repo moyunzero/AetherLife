@@ -1,7 +1,7 @@
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { actionSchemasByType } from "./schemas.js";
 
-export const ACTION_TYPES = ["move", "interact", "speak", "wait"] as const;
+export const ACTION_TYPES = ["move", "interact", "speak", "wait", "transfer"] as const;
 
 export type ActionType = (typeof ACTION_TYPES)[number];
 
@@ -10,6 +10,7 @@ const DESCRIPTIONS: Record<ActionType, string> = {
   interact: "Interact with an object in the world by id.",
   speak: "Speak to a target NPC or player.",
   wait: "Wait for a duration in milliseconds before the next action.",
+  transfer: "Transfer an item from your inventory to another NPC in the room.",
 };
 
 function normalizeParameters(raw: Record<string, unknown>): Record<string, unknown> {
