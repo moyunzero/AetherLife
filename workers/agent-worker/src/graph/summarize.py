@@ -37,6 +37,7 @@ def maybe_bulk_summarize(
     memory_count: int,
     *,
     npc_id: str = "npc-1",
+    player_id: str = "__legacy__",
 ) -> bool:
     if memory_count < settings.summarize_threshold:
         return False
@@ -47,6 +48,7 @@ def maybe_bulk_summarize(
         room_id,
         limit=settings.summarize_batch_size,
         npc_id=npc_id,
+        player_id=player_id,
     )
     if not batch:
         return False
@@ -61,6 +63,7 @@ def maybe_bulk_summarize(
         summary,
         mark_ids,
         npc_id=npc_id,
+        player_id=player_id,
         source_count=len(mark_ids),
     )
     return True

@@ -1,8 +1,12 @@
+import time
 from typing import Any
 
 import httpx
 
 from src.config import Settings
+
+_RETRYABLE_HTTP = frozenset({502, 503, 504})
+_MEMORY_CONTEXT_TIMEOUT_S = 45.0
 
 
 def _game_headers(settings: Settings) -> dict[str, str]:
@@ -12,20 +16,48 @@ def _game_headers(settings: Settings) -> dict[str, str]:
     return headers
 
 
+def _get_with_retry(
+    client: httpx.Client,
+    url: str,
+    *,
+    params: dict[str, str] | None = None,
+    headers: dict[str, str] | None = None,
+    timeout: float,
+    attempts: int = 3,
+) -> httpx.Response:
+    last: httpx.HTTPStatusError | None = None
+    for attempt in range(attempts):
+        res = client.get(url, params=params, headers=headers, timeout=timeout)
+        try:
+            res.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code not in _RETRYABLE_HTTP or attempt >= attempts - 1:
+                raise
+            last = exc
+            time.sleep(1 + attempt)
+            continue
+        return res
+    if last is not None:
+        raise last
+    raise RuntimeError("retry loop exited without response")
+
+
 def fetch_memory_context(
     client: httpx.Client,
     settings: Settings,
     room_id: str,
     player_message: str,
+    *,
     npc_id: str = "npc-1",
+    player_id: str = "__legacy__",
 ) -> dict[str, Any]:
-    res = client.get(
+    res = _get_with_retry(
+        client,
         f"{settings.game_server_url}/internal/rooms/{room_id}/memory-context",
-        params={"playerMessage": player_message, "npcId": npc_id},
+        params={"playerMessage": player_message, "npcId": npc_id, "playerId": player_id},
         headers=_game_headers(settings),
-        timeout=30.0,
+        timeout=_MEMORY_CONTEXT_TIMEOUT_S,
     )
-    res.raise_for_status()
     return res.json()
 
 
@@ -36,10 +68,11 @@ def fetch_recent_memories(
     *,
     limit: int = 5,
     npc_id: str = "npc-1",
+    player_id: str = "__legacy__",
 ) -> list[dict[str, Any]]:
     res = client.get(
         f"{settings.game_server_url}/internal/rooms/{room_id}/recent-memories",
-        params={"limit": limit, "npcId": npc_id},
+        params={"limit": limit, "npcId": npc_id, "playerId": player_id},
         headers=_game_headers(settings),
         timeout=30.0,
     )
@@ -56,10 +89,11 @@ def fetch_oldest_memories(
     *,
     limit: int = 50,
     npc_id: str = "npc-1",
+    player_id: str = "__legacy__",
 ) -> list[dict[str, Any]]:
     res = client.get(
         f"{settings.game_server_url}/internal/rooms/{room_id}/oldest-memories",
-        params={"limit": limit, "npcId": npc_id},
+        params={"limit": limit, "npcId": npc_id, "playerId": player_id},
         headers=_game_headers(settings),
         timeout=30.0,
     )
@@ -76,9 +110,10 @@ def append_npc_memory(
     text: str,
     *,
     npc_id: str = "npc-1",
+    player_id: str = "__legacy__",
     importance: int | None = None,
 ) -> None:
-    body: dict[str, Any] = {"text": text, "role": "npc", "npcId": npc_id}
+    body: dict[str, Any] = {"text": text, "role": "npc", "npcId": npc_id, "playerId": player_id}
     if importance is not None:
         body["importance"] = importance
     res = client.post(
@@ -97,10 +132,11 @@ def store_reflection(
     text: str,
     *,
     npc_id: str = "npc-1",
+    player_id: str = "__legacy__",
 ) -> None:
     res = client.post(
         f"{settings.game_server_url}/internal/rooms/{room_id}/reflect",
-        json={"text": text, "npcId": npc_id},
+        json={"text": text, "npcId": npc_id, "playerId": player_id},
         headers=_game_headers(settings),
         timeout=30.0,
     )
@@ -115,6 +151,7 @@ def store_bulk_summary(
     mark_ids: list[str],
     *,
     npc_id: str = "npc-1",
+    player_id: str = "__legacy__",
     source_count: int | None = None,
 ) -> None:
     res = client.post(
@@ -122,6 +159,7 @@ def store_bulk_summary(
         json={
             "text": text,
             "npcId": npc_id,
+            "playerId": player_id,
             "markIds": mark_ids,
             "sourceCount": source_count or len(mark_ids),
         },

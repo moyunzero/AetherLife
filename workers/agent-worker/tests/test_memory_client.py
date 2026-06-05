@@ -4,6 +4,32 @@ from src.config import Settings
 from src.memory.client import append_npc_memory, fetch_memory_context
 
 
+def test_fetch_memory_context_retries_transient_502():
+    settings = Settings(game_server_url="http://test")
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(502, json={"ok": False, "error": "bad gateway"})
+        return httpx.Response(
+            200,
+            json={
+                "ok": True,
+                "memoryCount": 1,
+                "retrieved": [],
+                "latestBulkSummary": None,
+                "latestReflection": None,
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    with httpx.Client(transport=transport) as client:
+        ctx = fetch_memory_context(client, settings, "default", "hello")
+    assert ctx["memoryCount"] == 1
+    assert calls["n"] == 2
+
+
 def test_fetch_memory_context_parses_reflection(monkeypatch):
     settings = Settings(game_server_url="http://test")
 

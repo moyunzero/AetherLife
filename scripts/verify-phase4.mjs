@@ -1,3 +1,5 @@
+import { assertE2eNoMock } from "./lib/e2e-policy.mjs";
+
 const baseUrl =
   process.env.GAME_SERVER_URL ||
   `http://127.0.0.1:${process.env.GAME_SERVER_PORT || "2567"}`;
@@ -29,6 +31,7 @@ async function requestOk(path, options = {}) {
 }
 
 async function main() {
+  assertE2eNoMock("verify:phase4");
   console.log(`verify:phase4 → ${baseUrl}`);
 
   await requestOk(`/rooms/${roomId}/reset`, { method: "POST" });

@@ -4,15 +4,21 @@ import { createApp } from "./index.js";
 import { clearAllRooms } from "./room/store.js";
 import { MemoryService } from "./memory/service.js";
 import { clearMockJobs, getMockJob } from "./queue/npc-turn.js";
+import { clearJobRegistry } from "./colyseus/job-registry.js";
+import { clearColyseusRoomRegistry } from "./colyseus/room-registry.js";
 import { clearJobSubscribers, peekBufferedJobEvents } from "./sse/hub.js";
 
 describe("game-server", () => {
   const app = createApp();
 
   beforeEach(() => {
+    delete process.env.DATABASE_URL;
+    delete process.env.REDIS_URL;
     clearAllRooms();
     clearMockJobs();
     clearJobSubscribers();
+    clearJobRegistry();
+    clearColyseusRoomRegistry();
     MemoryService.resetForTests();
   });
 
@@ -186,6 +192,25 @@ describe("game-server", () => {
     expect(res.status).toBe(404);
   });
 
+  it("memory counts are isolated per X-Player-Id", async () => {
+    const playerA = "player-alpha01";
+    const playerB = "player-bravo001";
+
+    await request(app).post("/rooms/default/reset").set("X-Player-Id", playerA);
+    await request(app).post("/rooms/default/reset").set("X-Player-Id", playerB);
+
+    await request(app)
+      .post("/rooms/default/chat")
+      .set("X-Player-Id", playerA)
+      .send({ message: "hello from A", npcId: "npc-1" });
+
+    const stateA = await request(app).get("/rooms/default/state").set("X-Player-Id", playerA);
+    const stateB = await request(app).get("/rooms/default/state").set("X-Player-Id", playerB);
+
+    expect(stateA.body.memoryCounts["npc-1"]).toBe(1);
+    expect(stateB.body.memoryCounts["npc-1"]).toBe(0);
+  });
+
   it("POST /rooms/default/chat buffers thinking for SSE replay (NLUI-04)", async () => {
     const chat = await request(app)
       .post("/rooms/default/chat")
@@ -229,7 +254,7 @@ describe("game-server", () => {
       .post("/rooms/default/apply-actions")
       .send({
         actingNpcId: "npc-1",
-        actions: [{ type: "move", x: 4, y: 4 }],
+        actions: [{ type: "move", x: 5, y: 5 }],
       });
     expect(apply.status).toBe(200);
 

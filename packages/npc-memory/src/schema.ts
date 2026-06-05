@@ -17,6 +17,7 @@ export const npcMemories = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     roomId: text("room_id").notNull(),
+    playerId: text("player_id").notNull().default("__legacy__"),
     npcId: text("npc_id").notNull().default("1"),
     text: text("text").notNull(),
     importance: real("importance").notNull().default(5),
@@ -25,7 +26,12 @@ export const npcMemories = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    index("npc_memories_room_npc_created").on(table.roomId, table.npcId, table.createdAt),
+    index("npc_memories_room_player_npc_created").on(
+      table.roomId,
+      table.playerId,
+      table.npcId,
+      table.createdAt,
+    ),
   ],
 );
 
@@ -34,6 +40,7 @@ export const memorySummaries = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     roomId: text("room_id").notNull(),
+    playerId: text("player_id").notNull().default("__legacy__"),
     npcId: text("npc_id").notNull().default("1"),
     kind: text("kind").notNull(),
     text: text("text").notNull(),
@@ -41,7 +48,12 @@ export const memorySummaries = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    index("memory_summaries_room_npc_created").on(table.roomId, table.npcId, table.createdAt),
+    index("memory_summaries_room_player_npc_created").on(
+      table.roomId,
+      table.playerId,
+      table.npcId,
+      table.createdAt,
+    ),
   ],
 );
 

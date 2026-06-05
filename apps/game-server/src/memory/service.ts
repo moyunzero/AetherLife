@@ -24,6 +24,7 @@ export type NpcMemoryDebug = {
 type MemoryRow = {
   id: string;
   roomId: string;
+  playerId: string;
   npcId: string;
   text: string;
   importance: number;
@@ -35,6 +36,7 @@ type MemoryRow = {
 type SummaryRow = {
   id: string;
   roomId: string;
+  playerId: string;
   npcId: string;
   kind: SummaryKind;
   text: string;
@@ -55,6 +57,7 @@ class TestMemoryBackend {
 
   async appendMemory(input: {
     roomId: string;
+    playerId: string;
     npcId: string;
     text: string;
     importance: number;
@@ -64,6 +67,7 @@ class TestMemoryBackend {
     this.memories.push({
       id,
       roomId: input.roomId,
+      playerId: input.playerId,
       npcId: input.npcId,
       text: input.text,
       importance: input.importance,
@@ -76,6 +80,7 @@ class TestMemoryBackend {
 
   async searchSimilar(input: {
     roomId: string;
+    playerId: string;
     npcId: string;
     queryEmbedding: number[];
     k: number;
@@ -88,12 +93,15 @@ class TestMemoryBackend {
       .filter(
         (m) =>
           m.roomId === input.roomId &&
+          m.playerId === input.playerId &&
           m.npcId === input.npcId &&
           !m.summarizedAt &&
           m.embedding.length > 0,
       )
       .map((m) => {
-        const sim = dot(m.embedding, input.queryEmbedding) / (norm(m.embedding) * norm(input.queryEmbedding));
+        const sim =
+          dot(m.embedding, input.queryEmbedding) /
+          (norm(m.embedding) * norm(input.queryEmbedding));
         const score = sim * (0.5 + m.importance / 20);
         return { text: m.text, score, importance: m.importance };
       })
@@ -101,14 +109,19 @@ class TestMemoryBackend {
       .slice(0, input.k);
   }
 
-  async countRaw(roomId: string, npcId: string) {
+  async countRaw(roomId: string, playerId: string, npcId: string) {
     return this.memories.filter(
-      (m) => m.roomId === roomId && m.npcId === npcId && !m.summarizedAt,
+      (m) =>
+        m.roomId === roomId &&
+        m.playerId === playerId &&
+        m.npcId === npcId &&
+        !m.summarizedAt,
     ).length;
   }
 
   async appendSummary(input: {
     roomId: string;
+    playerId: string;
     npcId: string;
     kind: SummaryKind;
     text: string;
@@ -118,6 +131,7 @@ class TestMemoryBackend {
     this.summaries.push({
       id,
       roomId: input.roomId,
+      playerId: input.playerId,
       npcId: input.npcId,
       kind: input.kind,
       text: input.text,
@@ -133,29 +147,44 @@ class TestMemoryBackend {
     }
   }
 
-  async deleteByRoom(roomId: string, npcId: string) {
-    this.memories = this.memories.filter((m) => !(m.roomId === roomId && m.npcId === npcId));
-    this.summaries = this.summaries.filter((s) => !(s.roomId === roomId && s.npcId === npcId));
+  async deleteForPlayer(roomId: string, playerId: string, npcId?: string) {
+    this.memories = this.memories.filter(
+      (m) =>
+        !(m.roomId === roomId && m.playerId === playerId && (!npcId || m.npcId === npcId)),
+    );
+    this.summaries = this.summaries.filter(
+      (s) =>
+        !(s.roomId === roomId && s.playerId === playerId && (!npcId || s.npcId === npcId)),
+    );
   }
 
-  latestSummary(roomId: string, npcId: string, kind: SummaryKind) {
+  latestSummary(roomId: string, playerId: string, npcId: string, kind: SummaryKind) {
     const rows = this.summaries
-      .filter((s) => s.roomId === roomId && s.npcId === npcId && s.kind === kind)
+      .filter(
+        (s) =>
+          s.roomId === roomId && s.playerId === playerId && s.npcId === npcId && s.kind === kind,
+      )
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     return rows[0]?.text ?? null;
   }
 
-  oldestBatch(roomId: string, npcId: string, limit: number) {
+  oldestBatch(roomId: string, playerId: string, npcId: string, limit: number) {
     return this.memories
-      .filter((m) => m.roomId === roomId && m.npcId === npcId && !m.summarizedAt)
+      .filter(
+        (m) =>
+          m.roomId === roomId && m.playerId === playerId && m.npcId === npcId && !m.summarizedAt,
+      )
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
       .slice(0, limit)
       .map((m) => ({ id: m.id, text: m.text }));
   }
 
-  recentBatch(roomId: string, npcId: string, limit: number) {
+  recentBatch(roomId: string, playerId: string, npcId: string, limit: number) {
     return this.memories
-      .filter((m) => m.roomId === roomId && m.npcId === npcId && !m.summarizedAt)
+      .filter(
+        (m) =>
+          m.roomId === roomId && m.playerId === playerId && m.npcId === npcId && !m.summarizedAt,
+      )
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
       .slice(0, limit)
       .map((m) => ({ id: m.id, text: m.text }));
@@ -236,27 +265,34 @@ export class MemoryService {
     testBackend = null;
   }
 
-  async appendPlayerMemory(roomId: string, text: string, npcId: string): Promise<void> {
+  async appendPlayerMemory(
+    roomId: string,
+    text: string,
+    npcId: string,
+    playerId: string,
+  ): Promise<void> {
     const line = text.startsWith("player:") ? text : `player: ${text}`;
     const importance = await scoreImportance(line);
     const embedding = await embedText(line);
-    await this.append({ roomId, npcId, text: line, importance, embedding });
+    await this.append({ roomId, playerId, npcId, text: line, importance, embedding });
   }
 
   async appendNpcMemory(
     roomId: string,
     text: string,
-    npcId = "npc-1",
+    npcId: string,
+    playerId: string,
     importance?: number,
   ): Promise<void> {
     const line = text.startsWith("npc:") ? text : `npc: ${text}`;
     const score = importance ?? (await scoreImportance(line));
     const embedding = await embedText(line);
-    await this.append({ roomId, npcId, text: line, importance: score, embedding });
+    await this.append({ roomId, playerId, npcId, text: line, importance: score, embedding });
   }
 
   private async append(input: {
     roomId: string;
+    playerId: string;
     npcId: string;
     text: string;
     importance: number;
@@ -269,23 +305,36 @@ export class MemoryService {
     await this.repo!.appendMemory(input);
   }
 
-  async getMemoryCount(roomId: string, npcId: string): Promise<number> {
-    if (this.test) return this.test.countRaw(roomId, npcId);
-    return this.repo!.countRaw({ roomId, npcId, unsummarizedOnly: true });
+  async getMemoryCount(roomId: string, npcId: string, playerId: string): Promise<number> {
+    if (this.test) return this.test.countRaw(roomId, playerId, npcId);
+    return this.repo!.countRaw({ roomId, playerId, npcId, unsummarizedOnly: true });
   }
 
-  async deleteAllForRoom(roomId: string, npcId: string): Promise<void> {
+  async deleteForPlayer(roomId: string, playerId: string): Promise<void> {
     if (this.test) {
-      await this.test.deleteByRoom(roomId, npcId);
+      await this.test.deleteForPlayer(roomId, playerId);
       return;
     }
-    await this.repo!.deleteByRoom({ roomId, npcId });
+    await this.repo!.deleteForPlayer({ roomId, playerId });
+  }
+
+  async deleteForPlayerNpc(
+    roomId: string,
+    playerId: string,
+    npcId: string,
+  ): Promise<void> {
+    if (this.test) {
+      await this.test.deleteForPlayer(roomId, playerId, npcId);
+      return;
+    }
+    await this.repo!.deleteForPlayer({ roomId, playerId, npcId });
   }
 
   async buildMemoryContext(
     roomId: string,
     playerMessage: string,
-    npcId = "npc-1",
+    npcId: string,
+    playerId: string,
   ): Promise<MemoryContext> {
     const start = Date.now();
     const queryEmbedding = await embedText(playerMessage);
@@ -293,25 +342,26 @@ export class MemoryService {
     if (this.test) {
       const retrieved = await this.test.searchSimilar({
         roomId,
+        playerId,
         npcId,
         queryEmbedding,
         k: 5,
       });
       return {
-        memoryCount: await this.test.countRaw(roomId, npcId),
+        memoryCount: await this.test.countRaw(roomId, playerId, npcId),
         retrieved,
-        latestBulkSummary: this.test.latestSummary(roomId, npcId, "bulk"),
-        latestReflection: this.test.latestSummary(roomId, npcId, "reflection"),
+        latestBulkSummary: this.test.latestSummary(roomId, playerId, npcId, "bulk"),
+        latestReflection: this.test.latestSummary(roomId, playerId, npcId, "reflection"),
         timingMs: Date.now() - start,
       };
     }
 
     const repo = this.repo!;
     const [retrieved, memoryCount, latestBulkSummary, latestReflection] = await Promise.all([
-      repo.searchSimilar({ roomId, npcId, queryEmbedding, k: 5 }),
-      repo.countRaw({ roomId, npcId, unsummarizedOnly: true }),
-      repo.getLatestSummaryByKind({ roomId, npcId, kind: "bulk" }),
-      repo.getLatestSummaryByKind({ roomId, npcId, kind: "reflection" }),
+      repo.searchSimilar({ roomId, playerId, npcId, queryEmbedding, k: 5 }),
+      repo.countRaw({ roomId, playerId, npcId, unsummarizedOnly: true }),
+      repo.getLatestSummaryByKind({ roomId, playerId, npcId, kind: "bulk" }),
+      repo.getLatestSummaryByKind({ roomId, playerId, npcId, kind: "reflection" }),
     ]);
 
     return {
@@ -323,12 +373,17 @@ export class MemoryService {
     };
   }
 
-  async storeReflection(roomId: string, text: string, npcId: string): Promise<void> {
+  async storeReflection(
+    roomId: string,
+    text: string,
+    npcId: string,
+    playerId: string,
+  ): Promise<void> {
     if (this.test) {
-      await this.test.appendSummary({ roomId, npcId, kind: "reflection", text });
+      await this.test.appendSummary({ roomId, playerId, npcId, kind: "reflection", text });
       return;
     }
-    await this.repo!.appendSummary({ roomId, npcId, kind: "reflection", text });
+    await this.repo!.appendSummary({ roomId, playerId, npcId, kind: "reflection", text });
   }
 
   async storeBulkSummary(
@@ -336,25 +391,43 @@ export class MemoryService {
     text: string,
     sourceCount: number,
     markIds: string[],
-    npcId = "npc-1",
+    npcId: string,
+    playerId: string,
   ): Promise<void> {
     if (this.test) {
-      await this.test.appendSummary({ roomId, npcId, kind: "bulk", text, sourceCount });
+      await this.test.appendSummary({
+        roomId,
+        playerId,
+        npcId,
+        kind: "bulk",
+        text,
+        sourceCount,
+      });
       await this.test.markSummarized(markIds);
       return;
     }
-    await this.repo!.appendSummary({ roomId, npcId, kind: "bulk", text, sourceCount });
+    await this.repo!.appendSummary({ roomId, playerId, npcId, kind: "bulk", text, sourceCount });
     await this.repo!.markSummarized(markIds);
   }
 
-  async getOldestUnsummarizedBatch(roomId: string, limit: number, npcId: string) {
-    if (this.test) return this.test.oldestBatch(roomId, npcId, limit);
-    return this.repo!.getOldestUnsummarizedBatch({ roomId, npcId, limit });
+  async getOldestUnsummarizedBatch(
+    roomId: string,
+    limit: number,
+    npcId: string,
+    playerId: string,
+  ) {
+    if (this.test) return this.test.oldestBatch(roomId, playerId, npcId, limit);
+    return this.repo!.getOldestUnsummarizedBatch({ roomId, playerId, npcId, limit });
   }
 
-  async getRecentUnsummarized(roomId: string, limit: number, npcId: string) {
-    if (this.test) return this.test.recentBatch(roomId, npcId, limit);
-    return this.repo!.getRecentUnsummarized({ roomId, npcId, limit });
+  async getRecentUnsummarized(
+    roomId: string,
+    limit: number,
+    npcId: string,
+    playerId: string,
+  ) {
+    if (this.test) return this.test.recentBatch(roomId, playerId, npcId, limit);
+    return this.repo!.getRecentUnsummarized({ roomId, playerId, npcId, limit });
   }
 
   async recordMutationAudit(input: {
@@ -383,20 +456,24 @@ export class MemoryService {
     return this.repo!.listMutationAudits({ roomId, limit });
   }
 
-  async getNpcMemoryDebug(roomId: string, npcId: string): Promise<NpcMemoryDebug> {
+  async getNpcMemoryDebug(
+    roomId: string,
+    npcId: string,
+    playerId: string,
+  ): Promise<NpcMemoryDebug> {
     if (this.test) {
       return {
-        memoryCount: await this.test.countRaw(roomId, npcId),
-        latestBulkSummary: this.test.latestSummary(roomId, npcId, "bulk"),
-        latestReflection: this.test.latestSummary(roomId, npcId, "reflection"),
+        memoryCount: await this.test.countRaw(roomId, playerId, npcId),
+        latestBulkSummary: this.test.latestSummary(roomId, playerId, npcId, "bulk"),
+        latestReflection: this.test.latestSummary(roomId, playerId, npcId, "reflection"),
       };
     }
 
     const repo = this.repo!;
     const [memoryCount, latestBulkSummary, latestReflection] = await Promise.all([
-      repo.countRaw({ roomId, npcId, unsummarizedOnly: true }),
-      repo.getLatestSummaryByKind({ roomId, npcId, kind: "bulk" }),
-      repo.getLatestSummaryByKind({ roomId, npcId, kind: "reflection" }),
+      repo.countRaw({ roomId, playerId, npcId, unsummarizedOnly: true }),
+      repo.getLatestSummaryByKind({ roomId, playerId, npcId, kind: "bulk" }),
+      repo.getLatestSummaryByKind({ roomId, playerId, npcId, kind: "reflection" }),
     ]);
 
     return { memoryCount, latestBulkSummary, latestReflection };

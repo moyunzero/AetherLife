@@ -1,3 +1,5 @@
+import { assertE2eRealLlm } from "./lib/e2e-policy.mjs";
+
 const baseUrl =
   process.env.GAME_SERVER_URL ||
   `http://127.0.0.1:${process.env.GAME_SERVER_PORT || "2567"}`;
@@ -39,8 +41,11 @@ async function seedMemories(count) {
 }
 
 async function main() {
-  if (!process.env.DATABASE_URL && process.env.LLM_MOCK !== "1") {
-    console.warn("verify:phase3 — DATABASE_URL unset; set LLM_MOCK=1 for CI-style mock embed only");
+  assertE2eRealLlm("verify:phase3");
+  if (!process.env.DATABASE_URL) {
+    throw new Error(
+      "verify:phase3 requires DATABASE_URL for real embed recall E2E. See docs/E2E-POLICY.md",
+    );
   }
 
   console.log(`verify:phase3 → ${baseUrl}`);

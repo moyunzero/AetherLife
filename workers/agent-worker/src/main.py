@@ -70,6 +70,7 @@ def process_job(client: httpx.Client, settings: Settings, payload: dict) -> None
     room_id = payload.get("roomId", "default")
     npc_id = payload.get("npcId", "npc-1")
     player_message = payload.get("playerMessage", "")
+    player_id = payload.get("playerId", "__legacy__")
 
     emit_job_event(client, settings, job_id, "thinking", {"status": "planning", "npcId": npc_id})
 
@@ -77,6 +78,7 @@ def process_job(client: httpx.Client, settings: Settings, payload: dict) -> None
         room_id=room_id,
         player_message=player_message,
         npc_id=npc_id,
+        player_id=player_id,
         settings=settings,
     )
     reply = audit_reply(result.get("reply") or "", result.get("tool_calls") or [])
@@ -116,7 +118,7 @@ def run_worker() -> None:
         file=sys.stderr,
     )
 
-    if settings.llm_mock:
+    if settings.llm_mock and not settings.redis_url:
         run_mock()
         return
 
@@ -133,7 +135,7 @@ def run_worker() -> None:
     try:
         setup_checkpointer(
             database_url=settings.database_url,
-            allow_memory_fallback=False,
+            allow_memory_fallback=settings.llm_mock,
         )
         print("PostgresSaver checkpointer ready", file=sys.stderr)
     except RuntimeError as exc:

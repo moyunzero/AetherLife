@@ -1,6 +1,9 @@
 node_modules
 dist
 .env
+
+# 本地技术笔记（不上传仓库）
+项目技术笔记/
 .turbo
 __pycache__
 .venv

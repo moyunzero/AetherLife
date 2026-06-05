@@ -1,4 +1,11 @@
 import type { Request, Response } from "express";
+import type { StatePatchPayload } from "@aetherlife/shared";
+import { COLYSEUS_SERVER_MESSAGES } from "@aetherlife/shared";
+import type { GameRoom } from "../colyseus/GameRoom.js";
+import { getJobEntry, unregisterJob } from "../colyseus/job-registry.js";
+import { getOrCreate, setState } from "../room/store.js";
+import { applyMapAndBumpVersion } from "../colyseus/version.js";
+import type { RoomState } from "@aetherlife/shared";
 
 export type JobEventType = "thinking" | "done" | "error";
 
@@ -28,7 +35,80 @@ function scheduleBufferCleanup(jobId: string): void {
   );
 }
 
+function sendToClient(
+  room: import("colyseus").Room,
+  sessionId: string,
+  type: string,
+  payload: unknown,
+): void {
+  const client = room.clients.find((c) => c.sessionId === sessionId);
+  if (client) client.send(type, payload);
+}
+
+function broadcastPatch(
+  room: import("colyseus").Room,
+  jobId: string,
+  patch: StatePatchPayload,
+): void {
+  room.broadcast(COLYSEUS_SERVER_MESSAGES.patch, { jobId, ...patch });
+}
+
+function applyDoneStateToRoom(roomId: string, room: import("colyseus").Room, state: RoomState): StatePatchPayload | null {
+  const colyseusRoom = room as unknown as GameRoom;
+  if (!colyseusRoom.state) return null;
+  setState(roomId, state);
+  const { state: mapState } = getOrCreate(roomId);
+  const { stateVersion, delta } = applyMapAndBumpVersion(
+    colyseusRoom.state as import("../colyseus/schema.js").GameRoomState,
+    mapState,
+  );
+  return { stateVersion, delta };
+}
+
+function routeColyseusEvent(jobId: string, type: JobEventType, data: unknown): void {
+  const entry = getJobEntry(jobId);
+  if (!entry) return;
+
+  const base =
+    typeof data === "object" && data !== null ? { jobId, ...data } : { jobId, data };
+  const { room, sessionId, roomId } = entry;
+
+  if (type === "thinking") {
+    if (sessionId) {
+      sendToClient(room, sessionId, COLYSEUS_SERVER_MESSAGES.thinking, base);
+    }
+    return;
+  }
+
+  if (type === "error") {
+    if (sessionId) {
+      sendToClient(room, sessionId, COLYSEUS_SERVER_MESSAGES.error, base);
+    }
+    return;
+  }
+
+  if (type === "done") {
+    const payload = base as Record<string, unknown>;
+    const npcId = typeof payload.npcId === "string" ? payload.npcId : undefined;
+    const snapshot = payload.state as RoomState | undefined;
+
+    if (snapshot && typeof snapshot === "object") {
+      const patch = applyDoneStateToRoom(roomId, room, snapshot);
+      if (patch) {
+        broadcastPatch(room, jobId, { ...patch, npcId });
+      }
+    }
+
+    if (sessionId) {
+      sendToClient(room, sessionId, COLYSEUS_SERVER_MESSAGES.done, base);
+    }
+    return;
+  }
+}
+
 export function emitJobEvent(jobId: string, type: JobEventType, data: unknown): void {
+  routeColyseusEvent(jobId, type, data);
+
   let buffer = eventBuffer.get(jobId);
   if (!buffer) {
     buffer = [];
@@ -44,7 +124,12 @@ export function emitJobEvent(jobId: string, type: JobEventType, data: unknown): 
   }
 
   if (TERMINAL_EVENTS.has(type)) {
+    const entry = getJobEntry(jobId);
+    if (entry?.room) {
+      (entry.room as unknown as GameRoom).clearSpeakInFlight?.(jobId);
+    }
     scheduleBufferCleanup(jobId);
+    unregisterJob(jobId);
   }
 }
 

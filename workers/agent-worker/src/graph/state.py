@@ -4,6 +4,7 @@ from typing import Any, TypedDict
 class GraphState(TypedDict, total=False):
     room_id: str
     npc_id: str
+    player_id: str
     player_message: str
     room_snapshot: dict[str, Any]
     memory_summary: str

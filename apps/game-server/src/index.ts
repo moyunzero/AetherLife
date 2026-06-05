@@ -7,6 +7,7 @@ import { createNpcMemoryRouter } from "./routes/npc-memory.js";
 import { createAuditRouter } from "./routes/audit.js";
 import { createInternalJobsRouter } from "./routes/internal.js";
 import { createInternalMemoriesRouter } from "./routes/internal-memories.js";
+import { attachColyseus } from "./colyseus/server.js";
 
 function formatZodError(error: { issues: Array<{ path: (string | number)[]; message: string }> }) {
   return error.issues.map((issue) => ({
@@ -62,11 +63,14 @@ export function createApp(): Express {
   return app;
 }
 
-export function startServer(port = Number(process.env.GAME_SERVER_PORT) || DEFAULT_PORTS.gameServer) {
+export async function startServer(
+  port = Number(process.env.GAME_SERVER_PORT) || DEFAULT_PORTS.gameServer,
+) {
   const app = createApp();
-  return app.listen(port, () => {
-    console.log(`game-server listening on ${port}`);
-  });
+  const { colyseus } = attachColyseus(app);
+  await colyseus.listen(port);
+  console.log(`game-server listening on ${port} (http+ws)`);
+  return colyseus;
 }
 
 import { fileURLToPath } from "node:url";
@@ -79,5 +83,5 @@ import { loadRootEnv } from "./load-env.js";
 
 if (isMain && process.env.VITEST !== "true") {
   loadRootEnv();
-  startServer();
+  void startServer();
 }

@@ -6,6 +6,7 @@ export type NpcTurnJobPayload = {
   roomId: string;
   jobId: string;
   npcId: string;
+  playerId: string;
   playerMessage: string;
   enqueuedAt: string;
 };
@@ -54,12 +55,14 @@ export async function addNpcTurnJob(input: {
   roomId: string;
   playerMessage: string;
   npcId: string;
+  playerId: string;
 }): Promise<string> {
   const jobId = randomUUID();
   const payload: NpcTurnJobPayload = {
     roomId: input.roomId,
     jobId,
     npcId: input.npcId,
+    playerId: input.playerId,
     playerMessage: input.playerMessage,
     enqueuedAt: new Date().toISOString(),
   };

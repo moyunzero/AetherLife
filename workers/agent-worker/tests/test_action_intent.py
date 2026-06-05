@@ -10,6 +10,7 @@ from src.graph.action_intent import (
 def test_player_requests_move():
     assert player_requests_move("移动到 (5,5)")
     assert player_requests_move("go to 3,3")
+    assert player_requests_move("你来我的左侧")
     assert not player_requests_move("你好吗？")
 
 

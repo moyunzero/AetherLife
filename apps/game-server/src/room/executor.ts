@@ -1,11 +1,74 @@
 import type { GameAction } from "@aetherlife/game-actions";
-import { findNpc, type RoomState } from "@aetherlife/shared";
+import {
+  buildMoveGrid,
+  findNearestWalkableCell,
+  findNpc,
+  type GridCell,
+  type RoomState,
+} from "@aetherlife/shared";
+
+export type ApplyGameActionOptions = {
+  /** All live player cells (Colyseus + map snapshot); defaults to map.player only. */
+  otherPlayerCells?: readonly GridCell[];
+  /** Initiating human's cell — prefer snapping to their 4-neighbors when target is blocked. */
+  moveAnchorCell?: GridCell;
+};
 
 export class ExecutorError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "ExecutorError";
   }
+}
+
+function snapNpcMoveDest(
+  map: RoomState,
+  requestedX: number,
+  requestedY: number,
+  otherPlayers: readonly GridCell[],
+  gridOpts: { excludeNpcId: string },
+  moveAnchor?: GridCell,
+): GridCell {
+  const grid = buildMoveGrid(map, otherPlayers, gridOpts);
+  if (!grid.isBlocked(requestedX, requestedY)) {
+    return { x: requestedX, y: requestedY };
+  }
+
+  if (moveAnchor) {
+    const neighbors = [
+      { x: moveAnchor.x, y: moveAnchor.y - 1 },
+      { x: moveAnchor.x, y: moveAnchor.y + 1 },
+      { x: moveAnchor.x - 1, y: moveAnchor.y },
+      { x: moveAnchor.x + 1, y: moveAnchor.y },
+    ].filter(
+      (c) =>
+        c.x >= 0 &&
+        c.y >= 0 &&
+        c.x < map.width &&
+        c.y < map.height &&
+        !grid.isBlocked(c.x, c.y),
+    );
+    if (neighbors.length > 0) {
+      neighbors.sort((a, b) => {
+        const da = Math.abs(a.x - requestedX) + Math.abs(a.y - requestedY);
+        const db = Math.abs(b.x - requestedX) + Math.abs(b.y - requestedY);
+        return da - db;
+      });
+      return neighbors[0]!;
+    }
+  }
+
+  const snapped = findNearestWalkableCell(
+    map,
+    requestedX,
+    requestedY,
+    otherPlayers,
+    gridOpts,
+  );
+  if (grid.isBlocked(snapped.x, snapped.y)) {
+    throw new ExecutorError("cell blocked");
+  }
+  return snapped;
 }
 
 function resolveActingNpc(room: RoomState, actingNpcId: string) {
@@ -20,6 +83,7 @@ export function applyGameAction(
   room: RoomState,
   action: GameAction,
   actingNpcId: string,
+  options?: ApplyGameActionOptions,
 ): { room: RoomState; events: string[] } {
   const next: RoomState = structuredClone(room);
   const acting = resolveActingNpc(next, actingNpcId);
@@ -35,9 +99,20 @@ export function applyGameAction(
       ) {
         throw new ExecutorError("move out of bounds");
       }
-      acting.x = action.x;
-      acting.y = action.y;
-      events.push(`${acting.id} moved to (${action.x}, ${action.y})`);
+      const otherPlayers =
+        options?.otherPlayerCells ?? [{ x: next.player.x, y: next.player.y }];
+      const gridOpts = { excludeNpcId: acting.id };
+      const dest = snapNpcMoveDest(
+        next,
+        action.x,
+        action.y,
+        otherPlayers,
+        gridOpts,
+        options?.moveAnchorCell,
+      );
+      acting.x = dest.x;
+      acting.y = dest.y;
+      events.push(`${acting.id} moved to (${dest.x}, ${dest.y})`);
       break;
     }
     case "interact": {

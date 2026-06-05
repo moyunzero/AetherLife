@@ -36,7 +36,7 @@ def test_normalize_tool_definition_flattens_definitions():
 def test_load_tools_for_binding_has_core_four():
     tools = load_tools_for_binding()
     names = {tool["function"]["name"] for tool in tools}
-    assert names == {"move", "interact", "speak", "wait"}
+    assert names == {"move", "interact", "speak", "wait", "transfer"}
     for tool in tools:
         assert tool["function"]["parameters"].get("type") == "object"
 

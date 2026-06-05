@@ -32,6 +32,11 @@ def is_auth_error(exc: BaseException) -> bool:
     return "401" in str(exc) or "403" in str(exc) or "invalid api key" in text
 
 
+def is_quota_error(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return "402" in str(exc) or "spend limit exceeded" in text
+
+
 def is_retryable_llm_error(exc: BaseException) -> bool:
     return is_rate_limit_error(exc) or is_provider_error(exc) or is_model_not_found_error(exc)
 
@@ -48,17 +53,31 @@ def retry_after_seconds(exc: BaseException, *, default: int = 30) -> int:
     return default
 
 
+def _http_status_hint(exc: BaseException) -> str:
+    for code in ("502", "503", "504"):
+        if code in str(exc):
+            return code
+    return "503"
+
+
 def format_llm_error(exc: BaseException) -> str:
+    if is_quota_error(exc):
+        return (
+            "OpenRouter API Key 已达 USD 消费上限（402）。"
+            "请在 openrouter.ai/settings/keys 提高限额、充值，或换用有余量的 Key / 非 :free 模型。"
+        )
     if is_rate_limit_error(exc):
         wait = retry_after_seconds(exc)
         return (
             f"OpenRouter 免费模型当前被限流（429），请约 {wait} 秒后重试，"
-            "或在 .env 更换 LLM_MODEL / LLM_MODEL_FALLBACKS。"
+            "或在 .env 更换 LLM_MODEL / LLM_MODEL_FALLBACKS；"
+            "也可充值 10 credits 解锁更高 free 配额。"
         )
     if is_provider_error(exc):
         name = provider_name(exc) or "上游"
+        code = _http_status_hint(exc)
         return (
-            f"OpenRouter 上游服务不可用（503，{name}），这是模型提供商故障，不是本地代码问题。"
+            f"OpenRouter 上游服务不可用（{code}，{name}），这是模型提供商故障，不是本地代码问题。"
             "请稍后重试，或改用 LLM_MODEL=openrouter/free。"
         )
     if is_model_not_found_error(exc):

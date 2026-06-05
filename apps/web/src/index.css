@@ -8,6 +8,10 @@
   --text-muted: #9a9284;
   --accent: #c9a227;
   --destructive: #b54a4a;
+  --muted: var(--text-muted);
+  --npc-tint: #8a7d5c;
+  --door-open: #6b8f5e;
+  --floor-blocked: #252219;
   --radius-sm: 4px;
   --radius-md: 8px;
   --shadow-soft: 0 8px 32px rgba(0, 0, 0, 0.35);
@@ -236,6 +240,82 @@ body {
   color: var(--text);
 }
 
+.room-player-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 12px;
+  padding: 8px 0;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.room-player-strip__name {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+}
+
+.sync-metrics-overlay {
+  position: fixed;
+  right: 8px;
+  bottom: 8px;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(28, 26, 23, 0.92);
+  pointer-events: none;
+}
+
+.reset-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 14, 12, 0.72);
+}
+
+.reset-confirm-dialog {
+  width: min(100%, 400px);
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.reset-confirm-dialog__title {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.reset-confirm-dialog__desc {
+  margin: 0 0 20px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted, var(--text));
+  opacity: 0.85;
+}
+
+.reset-confirm-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
 @media (max-width: 639px) {
   .chat-page {
     padding: 0 16px;
@@ -325,4 +405,160 @@ body {
   margin: 8px 0 0;
   color: var(--destructive);
   font-size: 13px;
+}
+
+.room-scene-panel {
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  min-height: 40vh;
+  max-height: 50vh;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.room-scene-panel__title {
+  margin: 0;
+  font-family: "Fraunces", serif;
+  font-size: 1rem;
+}
+
+.room-scene-panel__subtitle {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.room-scene-panel__hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.room-scene-panel__hint--warn {
+  color: var(--destructive);
+}
+
+.room-scene-panel__canvas {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  box-shadow: inset 0 0 48px rgba(15, 14, 12, 0.42);
+}
+
+.room-scene-panel__canvas canvas {
+  display: block;
+  margin: 0 auto;
+}
+
+.movement-panel {
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.movement-panel__title {
+  margin: 0 0 8px;
+  font-family: "Fraunces", serif;
+  font-size: 1rem;
+}
+
+.movement-panel__hint {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.movement-grid {
+  display: grid;
+  gap: 4px;
+}
+
+.movement-cell {
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-deep);
+  color: var(--text-muted);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.movement-cell--self {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.movement-cell--occupied:not(.movement-cell--self) {
+  background: var(--floor-blocked);
+}
+
+.movement-cell--npc {
+  border-color: var(--npc-tint);
+  color: var(--accent);
+  background: var(--surface);
+  font-size: 9px;
+  line-height: 1.1;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.movement-cell--door {
+  border-color: var(--accent);
+  color: var(--text-muted);
+  background: var(--bg-deep);
+  font-size: 10px;
+}
+
+.movement-legend {
+  list-style: none;
+  margin: 0 0 0.5rem;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.movement-legend__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-right: 0.35rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.movement-legend__badge--npc {
+  border: 1px solid var(--npc-tint);
+  color: var(--accent);
+  background: var(--surface);
+}
+
+.movement-legend__badge--door {
+  border: 1px solid var(--accent);
+  color: var(--text-muted);
+  background: var(--bg-deep);
+}
+
+.movement-panel__hint--warn {
+  color: var(--destructive);
+}
+
+.movement-cell:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }

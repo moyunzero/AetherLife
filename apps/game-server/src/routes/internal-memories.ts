@@ -1,6 +1,15 @@
 import { Router, type Request, type Response } from "express";
+import { resolvePlayerId } from "@aetherlife/shared";
 import { requireWorkerAuth } from "./internal.js";
 import { MemoryService } from "../memory/service.js";
+
+function playerIdFromInternal(req: Request): string {
+  const body = req.body as { playerId?: unknown } | undefined;
+  return resolvePlayerId(
+    typeof req.query.playerId === "string" ? req.query.playerId : undefined,
+    body?.playerId,
+  );
+}
 
 export function createInternalMemoriesRouter(): Router {
   const router = Router({ mergeParams: true });
@@ -10,6 +19,7 @@ export function createInternalMemoriesRouter(): Router {
     const { roomId } = req.params;
     const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
     const npcId = typeof req.body?.npcId === "string" ? req.body.npcId : "npc-1";
+    const playerId = playerIdFromInternal(req);
     const importance =
       typeof req.body?.importance === "number" ? req.body.importance : undefined;
 
@@ -20,7 +30,7 @@ export function createInternalMemoriesRouter(): Router {
 
     try {
       const service = MemoryService.getInstance();
-      await service.appendNpcMemory(roomId, text, npcId, importance);
+      await service.appendNpcMemory(roomId, text, npcId, playerId, importance);
       res.json({ ok: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : "append failed";
@@ -33,6 +43,7 @@ export function createInternalMemoriesRouter(): Router {
     const playerMessage =
       typeof req.query.playerMessage === "string" ? req.query.playerMessage : "";
     const npcId = typeof req.query.npcId === "string" ? req.query.npcId : "npc-1";
+    const playerId = playerIdFromInternal(req);
 
     if (!playerMessage.trim()) {
       res.status(400).json({ ok: false, error: "playerMessage query required" });
@@ -41,7 +52,12 @@ export function createInternalMemoriesRouter(): Router {
 
     try {
       const service = MemoryService.getInstance();
-      const context = await service.buildMemoryContext(roomId, playerMessage, npcId);
+      const context = await service.buildMemoryContext(
+        roomId,
+        playerMessage,
+        npcId,
+        playerId,
+      );
       res.json({ ok: true, ...context });
     } catch (err) {
       const message = err instanceof Error ? err.message : "context failed";
@@ -52,6 +68,7 @@ export function createInternalMemoriesRouter(): Router {
   router.get("/:roomId/recent-memories", async (req: Request, res: Response) => {
     const { roomId } = req.params;
     const npcId = typeof req.query.npcId === "string" ? req.query.npcId : "npc-1";
+    const playerId = playerIdFromInternal(req);
     const limit = Math.min(
       50,
       Math.max(1, Number.parseInt(String(req.query.limit ?? "5"), 10) || 5),
@@ -62,6 +79,7 @@ export function createInternalMemoriesRouter(): Router {
         roomId,
         limit,
         npcId,
+        playerId,
       );
       res.json({ ok: true, memories });
     } catch (err) {
@@ -73,6 +91,7 @@ export function createInternalMemoriesRouter(): Router {
   router.get("/:roomId/oldest-memories", async (req: Request, res: Response) => {
     const { roomId } = req.params;
     const npcId = typeof req.query.npcId === "string" ? req.query.npcId : "npc-1";
+    const playerId = playerIdFromInternal(req);
     const limit = Math.min(
       100,
       Math.max(1, Number.parseInt(String(req.query.limit ?? "50"), 10) || 50),
@@ -83,6 +102,7 @@ export function createInternalMemoriesRouter(): Router {
         roomId,
         limit,
         npcId,
+        playerId,
       );
       res.json({ ok: true, memories });
     } catch (err) {
@@ -95,6 +115,7 @@ export function createInternalMemoriesRouter(): Router {
     const { roomId } = req.params;
     const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
     const npcId = typeof req.body?.npcId === "string" ? req.body.npcId : "npc-1";
+    const playerId = playerIdFromInternal(req);
 
     if (!text) {
       res.status(400).json({ ok: false, error: "text required" });
@@ -102,7 +123,7 @@ export function createInternalMemoriesRouter(): Router {
     }
 
     try {
-      await MemoryService.getInstance().storeReflection(roomId, text, npcId);
+      await MemoryService.getInstance().storeReflection(roomId, text, npcId, playerId);
       res.json({ ok: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : "reflect failed";
@@ -114,6 +135,7 @@ export function createInternalMemoriesRouter(): Router {
     const { roomId } = req.params;
     const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
     const npcId = typeof req.body?.npcId === "string" ? req.body.npcId : "npc-1";
+    const playerId = playerIdFromInternal(req);
     const markIds = Array.isArray(req.body?.markIds)
       ? req.body.markIds.filter((id: unknown) => typeof id === "string")
       : [];
@@ -132,6 +154,7 @@ export function createInternalMemoriesRouter(): Router {
         sourceCount,
         markIds,
         npcId,
+        playerId,
       );
       res.json({ ok: true });
     } catch (err) {
@@ -142,10 +165,16 @@ export function createInternalMemoriesRouter(): Router {
 
   router.delete("/:roomId/memories", async (req: Request, res: Response) => {
     const { roomId } = req.params;
-    const npcId = typeof req.query.npcId === "string" ? req.query.npcId : "npc-1";
+    const npcId = typeof req.query.npcId === "string" ? req.query.npcId : undefined;
+    const playerId = playerIdFromInternal(req);
 
     try {
-      await MemoryService.getInstance().deleteAllForRoom(roomId, npcId);
+      const service = MemoryService.getInstance();
+      if (npcId) {
+        await service.deleteForPlayerNpc(roomId, playerId, npcId);
+      } else {
+        await service.deleteForPlayer(roomId, playerId);
+      }
       res.json({ ok: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : "delete failed";

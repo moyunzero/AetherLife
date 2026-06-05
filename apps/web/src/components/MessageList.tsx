@@ -1,18 +1,21 @@
-import type { ChatMessage, ChatStatus } from "../hooks/useNpcChat.js";
+import { sanitizeNpcReplyText } from "@aetherlife/shared";
+import type { ChatMessage } from "../hooks/useNpcChat.js";
 
 type Props = {
   messages: ChatMessage[];
-  status: ChatStatus;
+  thinkingNpcId: string | null;
+  activeNpcId: string;
   thinkingNpcName: string;
 };
 
 function formatNpcText(message: ChatMessage): string {
   if (message.role !== "npc") return message.text;
   const prefix = message.npcName ? `${message.npcName}：` : "";
-  return `${prefix}${message.text}`;
+  return `${prefix}${sanitizeNpcReplyText(message.text)}`;
 }
 
-export function MessageList({ messages, status, thinkingNpcName }: Props) {
+export function MessageList({ messages, thinkingNpcId, activeNpcId, thinkingNpcName }: Props) {
+  const showThinking = thinkingNpcId !== null && thinkingNpcId === activeNpcId;
   return (
     <div className="message-list">
       {messages.length === 0 && (
@@ -30,7 +33,7 @@ export function MessageList({ messages, status, thinkingNpcName }: Props) {
           </article>
         );
       })}
-      {status === "thinking" && (
+      {showThinking && (
         <article className="message message--thinking" aria-live="polite">
           <span className="thinking-bar" aria-hidden="true" />
           <p className="message__text">{thinkingNpcName}正在思考…</p>

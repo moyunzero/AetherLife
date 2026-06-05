@@ -71,7 +71,11 @@ def test_mock_turn_returns_move_tool_call(monkeypatch):
                 return type(
                     "R",
                     (),
-                    {"raise_for_status": lambda self: None, "json": lambda self: {"ok": True}},
+                    {
+                        "status_code": 200,
+                        "raise_for_status": lambda self: None,
+                        "json": lambda self: {"ok": True},
+                    },
                 )()
             actions = body.get("actions") or []
             acting = body.get("actingNpcId", "npc-1")
@@ -91,6 +95,7 @@ def test_mock_turn_returns_move_tool_call(monkeypatch):
                 "R",
                 (),
                 {
+                    "status_code": 200,
                     "raise_for_status": lambda self: None,
                     "json": lambda self: {
                         "state": {"npcs": npcs, "objects": [], "width": 8, "height": 8},
@@ -132,4 +137,7 @@ def test_run_npc_turn_uses_per_npc_thread_id(monkeypatch):
         settings=settings,
     )
 
-    assert captured["config"]["configurable"]["thread_id"] == "room:room-a:npc:npc-2"
+    assert (
+        captured["config"]["configurable"]["thread_id"]
+        == "room:room-a:player:__legacy__:npc:npc-2"
+    )

@@ -2,6 +2,19 @@
 
 AI 驱动的多人联机生活模拟 Web 游戏 — Phase 1 提供 monorepo、**Supabase + Upstash 云 dev 数据层**与 Core-4 action schema 基座。
 
+## For contributors & AI agents (VibeCoding)
+
+| Doc | Audience |
+|-----|----------|
+| **[AGENTS.md](./AGENTS.md)** | Cursor, Copilot, Codex, Claude — commands, boundaries, Colyseus rules, definition of done |
+| **[CONTRIBUTING.md](./CONTRIBUTING.md)** | 人类 + AI 协作流程、PR 建议 |
+| **[docs/ISSUE-LOG.md](./docs/ISSUE-LOG.md)** | 问题台账与防复发 Guardrails |
+| **[docs/E2E-POLICY.md](./docs/E2E-POLICY.md)** | E2E/UAT 真实 LLM + 游戏体验验收矩阵 |
+| **[CLAUDE.md](./CLAUDE.md)** | GSD 项目背景与技术栈 |
+| **[.github/copilot-instructions.md](./.github/copilot-instructions.md)** | GitHub Copilot → 指向 AGENTS.md |
+
+Cursor 另加载 [`.cursor/rules/Guidelines.mdc`](.cursor/rules/Guidelines.mdc)。
+
 ## Prerequisites
 
 - Node.js 20+
@@ -70,7 +83,7 @@ pnpm dev:stack
 - 浏览器：http://localhost:5173
 - 按 `Ctrl+C` 会一起停掉（`-k`）
 
-OpenRouter 限流或离线调试时，用 mock LLM：
+OpenRouter 限流或离线 **UI 调试**（非 E2E 验收，见 [docs/E2E-POLICY.md](./docs/E2E-POLICY.md)）：
 
 ```bash
 pnpm dev:stack:mock
@@ -92,7 +105,7 @@ pnpm dev:stack:mock
 | 只改前端 UI | `pnpm dev`（仅 web+gs；聊天需另起 ai+worker 才走 gateway） |
 | 只改 game-server API | `pnpm dev` |
 | 只改 gateway | `pnpm dev:ai` + 已有 gs/worker |
-| 只跑自动化验收 | `pnpm dev:ai` + `pnpm dev` + `pnpm dev:worker`，然后 `pnpm verify:phase5` |
+| 只跑自动化验收 | `pnpm dev:stack`（真实 LLM），然后 `pnpm verify:phaseN` — 见 [E2E-POLICY](./docs/E2E-POLICY.md) |
 | gateway 用 Docker | `pnpm docker:ai` 替代 `dev:ai`（无热重载） |
 
 ### 首次 / 拉代码后（只做一次）
@@ -114,7 +127,7 @@ cd apps/ai-gateway && uv sync --extra dev         # Phase 5
 | 2. 启动全栈 | `pnpm dev:stack` |
 | 3. 打开页面 | http://localhost:5173 |
 
-可选：OpenRouter 429 / 离线 → `pnpm dev:stack:mock`（worker 用 mock LLM，gateway 仍起）。
+可选：OpenRouter 429 / 离线 UI 调试 → `pnpm dev:stack:mock`（**不得**用于 `verify:phase*` / `uat:phase*`）。
 
 ### 端口与健康检查
 
@@ -169,7 +182,7 @@ Player free text → game-server enqueues `npc-turn` → Python `workers/agent-w
 | `OPENROUTER_API_KEY` | OpenRouter API key |
 | `GROQ_API_KEY` | Groq API key |
 | `AGNES_API_KEY` | Agnes API key |
-| `LLM_MOCK` | `1` for offline tests (no live LLM) |
+| `LLM_MOCK` | `1` for **unit tests only** (`pytest`/`vitest`)；**E2E 禁止** |
 | `DATABASE_URL` | Optional PostgresSaver checkpoints |
 | `LANGCHAIN_*` | Optional LangSmith tracing |
 | `INTERNAL_WORKER_TOKEN` | Optional Bearer token for `/internal/*` routes |
@@ -216,7 +229,8 @@ pnpm turbo build
 pnpm turbo test
 cd workers/agent-worker && LLM_MOCK=1 uv run pytest -q
 
-# game-server running with DATABASE_URL (or LLM_MOCK=1 for mock embed)
+# game-server + DATABASE_URL + 真实 embed（E2E 禁 mock，见 docs/E2E-POLICY.md）
+pnpm dev:stack
 pnpm verify:phase3
 pnpm verify:phase3 -- --seed-bulk=100   # MEM-03 bulk smoke
 ```
@@ -242,3 +256,40 @@ pnpm verify:phase5
 ```
 
 Env: `AI_GATEWAY_URL`, `GAME_SERVER_URL`, `INTERNAL_WORKER_TOKEN`（gateway → game-server）, optional `OPENAI_API_KEY`（Moderation）。
+
+### Verify Phase 6 (Colyseus)
+
+```bash
+pnpm install   # pulls colyseus + @colyseus/sdk
+pnpm turbo build --filter=@aetherlife/shared
+pnpm turbo test --filter=@aetherlife/game-server
+
+# game-server 单独监听 http+ws :2567，再：
+pnpm verify:phase6
+
+# 全栈 speak（真实 LLM worker，见 docs/E2E-POLICY.md）：
+pnpm dev:stack
+pnpm verify:phase6
+```
+
+Env: `GAME_SERVER_WS`（默认 `ws://127.0.0.1:2567`），Web 可选 `VITE_GAME_SERVER_WS`。
+
+### Verify Phase 7 (Phaser 4 room)
+
+```bash
+pnpm dev:stack   # 或至少 game-server + web
+pnpm verify:phase7
+```
+
+回退路径：`?phaserFallback=1` 或构建时 `VITE_PHASER_FORCE_FALLBACK=1`；`PHASER_FORCE_FALLBACK=1 pnpm verify:phase7` 会额外用 Playwright 检查回退 banner（需安装 playwright）。
+
+### Verify Phase 8 (Multiplayer room)
+
+```bash
+pnpm dev:stack   # 真实 worker；验收前 pkill 残留 LLM_MOCK worker
+pnpm verify:phase8
+pnpm verify:phase8:soak   # 可选：SOAK=1 默认 10min 四人在线 soak
+pnpm uat:phase8:playwright   # 浏览器 UAT + 截图
+```
+
+详见 [.planning/phases/08-multiplayer-room/08-VALIDATION.md](./.planning/phases/08-multiplayer-room/08-VALIDATION.md) 与 [docs/E2E-POLICY.md](./docs/E2E-POLICY.md)。

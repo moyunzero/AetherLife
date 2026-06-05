@@ -1,14 +1,47 @@
-import { FormEvent, KeyboardEvent, useEffect, useMemo, useState } from "react";
+import { createDefaultRoom, type RoomState } from "@aetherlife/shared";
+import {
+  FormEvent,
+  KeyboardEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { flushSync } from "react-dom";
+import { useColyseusRoom } from "./hooks/useColyseusRoom.js";
 import { useNpcChat } from "./hooks/useNpcChat.js";
+import { MovementPanel } from "./components/MovementPanel.js";
+import { PhaserGame, probePhaserBoot } from "./components/PhaserGame.js";
 import { MessageList } from "./components/MessageList.js";
 import { NpcTabBar } from "./components/NpcTabBar.js";
 import { RoomStatePanel } from "./components/RoomStatePanel.js";
 import { NpcMemoryPanel } from "./components/NpcMemoryPanel.js";
+import { SyncMetricsOverlay } from "./components/SyncMetricsOverlay.js";
+import { getMapRoomId } from "./lib/mapRoomId.js";
+import { subscribeTabPresence } from "./lib/playerSession.js";
+import { playerDisplayName } from "./lib/playerDisplayName.js";
 
 export function ChatPage() {
+  const mapRoomId = getMapRoomId();
+  const [duplicateTab, setDuplicateTab] = useState(false);
+  const [moveMap, setMoveMap] = useState<RoomState>(() => createDefaultRoom());
+  const {
+    room,
+    connected,
+    players,
+    sessionId,
+    error: colyseusError,
+    roomFull,
+    animating,
+    moveHint,
+    sendMove,
+    sendMoveTo,
+    syncMetrics,
+    remoteInterpMs,
+  } = useColyseusRoom(mapRoomId, moveMap);
   const {
     messages,
-    status,
     error,
     roomState,
     activeNpcId,
@@ -18,9 +51,59 @@ export function ChatPage() {
     refetchState,
     lastParsedIntent,
     parseError,
-  } = useNpcChat();
+    speakQueueBusy,
+    composerBusyForActiveNpc,
+    thinkingNpcId,
+  } = useNpcChat(room, mapRoomId);
   const [draft, setDraft] = useState("");
   const [stateUpdated, setStateUpdated] = useState(false);
+  const [npcMoveHint, setNpcMoveHint] = useState<string | null>(null);
+  /** After first roomState sync, NPC live moves may animate; load/reset always snap. */
+  const [npcWorldLive, setNpcWorldLive] = useState(false);
+  const prevNpcPosRef = useRef(new Map<string, { x: number; y: number }>());
+  /** True while POST /reset in flight — blocks enabling npcWorldLive on stale roomState. */
+  const awaitingResetRef = useRef(false);
+  /** First load only; reset re-enables live via performResetGame, not this effect. */
+  const initialNpcLiveDoneRef = useRef(false);
+  const [npcResetEpoch, setNpcResetEpoch] = useState(0);
+  const forcePhaserFallback =
+    import.meta.env.VITE_PHASER_FORCE_FALLBACK === "1" ||
+    (typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("phaserFallback") === "1");
+  const [bootPending, setBootPending] = useState(!forcePhaserFallback);
+  const [phaserOk, setPhaserOk] = useState(false);
+  const [bootOk, setBootOk] = useState(false);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const showSyncDebug =
+    import.meta.env.DEV ||
+    (typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("syncDebug") === "1");
+
+  useEffect(() => {
+    if (forcePhaserFallback) {
+      setBootPending(false);
+      return;
+    }
+    let cancelled = false;
+    void probePhaserBoot().then((ok) => {
+      if (cancelled) return;
+      setPhaserOk(ok);
+      setBootOk(ok);
+      setBootPending(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [forcePhaserFallback]);
+
+  const selectNpc = useCallback(
+    (npcId: string) => {
+      composerRef.current?.blur();
+      setActiveNpcId(npcId);
+    },
+    [setActiveNpcId],
+  );
 
   const npcs = useMemo(
     () =>
@@ -32,11 +115,69 @@ export function ChatPage() {
   );
 
   const activeNpcName =
-    npcs.find((npc) => npc.id === activeNpcId)?.name ?? "NPC";
+    npcs.find((npc) => npc.id === activeNpcId)?.name ??
+    (roomState ? "NPC" : "角色");
 
   useEffect(() => {
     void refetchState();
   }, [refetchState]);
+
+  useEffect(() => subscribeTabPresence(() => setDuplicateTab(true)), []);
+
+  useEffect(() => {
+    if (!roomState) return;
+    const moves: string[] = [];
+    if (npcWorldLive) {
+      for (const npc of roomState.npcs) {
+        const prev = prevNpcPosRef.current.get(npc.id);
+        if (prev && (prev.x !== npc.x || prev.y !== npc.y)) {
+          moves.push(`${npc.name} 移动到 (${npc.x}, ${npc.y})`);
+        }
+      }
+    }
+    for (const npc of roomState.npcs) {
+      prevNpcPosRef.current.set(npc.id, { x: npc.x, y: npc.y });
+    }
+    if (moves.length > 0) setNpcMoveHint(moves.join("；"));
+    setMoveMap(roomState);
+
+    if (npcWorldLive) return;
+    if (awaitingResetRef.current) return;
+    if (initialNpcLiveDoneRef.current) return;
+
+    const id = requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        initialNpcLiveDoneRef.current = true;
+        setNpcWorldLive(true);
+      }),
+    );
+    return () => cancelAnimationFrame(id);
+  }, [roomState, npcWorldLive]);
+
+  const performResetGame = useCallback(async () => {
+    prevNpcPosRef.current.clear();
+    setNpcMoveHint(null);
+    awaitingResetRef.current = true;
+    flushSync(() => setNpcWorldLive(false));
+    const nextState = await resetGame();
+    awaitingResetRef.current = false;
+    if (!nextState) return;
+    flushSync(() => {
+      setMoveMap(nextState);
+      setNpcResetEpoch((n) => n + 1);
+    });
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => setNpcWorldLive(true)),
+    );
+  }, [resetGame]);
+
+  useEffect(() => {
+    if (!npcMoveHint) return;
+    const t = window.setTimeout(() => setNpcMoveHint(null), 3000);
+    return () => window.clearTimeout(t);
+  }, [npcMoveHint]);
+
+  const sceneHint = moveHint ?? npcMoveHint;
 
   useEffect(() => {
     if (roomState) setStateUpdated(true);
@@ -45,7 +186,7 @@ export function ChatPage() {
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
     const text = draft;
-    if (!text.trim() || status === "thinking") return;
+    if (!text.trim() || composerBusyForActiveNpc) return;
     setDraft("");
     await sendMessage(text, activeNpcId);
   };
@@ -53,31 +194,152 @@ export function ChatPage() {
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      if (!draft.trim() || status === "thinking") return;
+      if (!draft.trim() || composerBusyForActiveNpc) return;
       const text = draft;
       setDraft("");
       void sendMessage(text, activeNpcId);
     }
   };
 
+  const sceneMapNpcs = roomState?.npcs ?? [];
+  const sceneMapObjects = roomState?.objects ?? moveMap.objects;
+
   return (
     <div className="chat-page">
       <header className="chat-header">
         <h1 className="chat-header__title">以太人生</h1>
-        <button type="button" className="btn btn--destructive" onClick={() => void resetGame()}>
+        <button
+          type="button"
+          className="btn btn--destructive"
+          data-testid="reset-game-open"
+          onClick={() => setResetConfirmOpen(true)}
+        >
           新游戏
         </button>
       </header>
 
+      {resetConfirmOpen ? (
+        <div
+          className="reset-confirm-backdrop"
+          role="presentation"
+          onClick={() => setResetConfirmOpen(false)}
+        >
+          <div
+            className="reset-confirm-dialog"
+            role="alertdialog"
+            aria-labelledby="reset-confirm-title"
+            aria-describedby="reset-confirm-desc"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="reset-confirm-title" className="reset-confirm-dialog__title">
+              开始新游戏？
+            </h2>
+            <p id="reset-confirm-desc" className="reset-confirm-dialog__desc">
+              将重置房间状态，并清空本浏览器中你与所有 NPC 的对话记忆（其他玩家不受影响）。
+            </p>
+            <div className="reset-confirm-dialog__actions">
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setResetConfirmOpen(false)}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="btn btn--destructive"
+                data-testid="reset-confirm-start"
+                onClick={() => {
+                  setResetConfirmOpen(false);
+                  void performResetGame();
+                }}
+              >
+                确认开始
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {npcs.length > 0 ? (
-        <NpcTabBar npcs={npcs} activeNpcId={activeNpcId} onSelect={setActiveNpcId} />
+        <NpcTabBar npcs={npcs} activeNpcId={activeNpcId} onSelect={selectNpc} />
       ) : null}
 
       <main className="chat-main">
+        {roomFull ? (
+          <div className="error-banner" data-testid="banner-room-full">
+            房间已满（最多 4 人同时在线），请关闭其他标签页或稍后再试。
+          </div>
+        ) : null}
+        {colyseusError && !roomFull ? <div className="error-banner">{colyseusError}</div> : null}
+        {speakQueueBusy ? (
+          <div className="error-banner" data-testid="banner-speak-queue">
+            该 NPC 正在响应其他玩家的指令，请稍候再试。
+          </div>
+        ) : null}
+        {duplicateTab ? (
+          <div className="error-banner">
+            检测到另一个标签页也在使用同一存档。同时游玩可能导致记忆与对话不同步，建议只保留一个标签页。
+          </div>
+        ) : null}
         {error ? <div className="error-banner">{error}</div> : null}
+        {bootPending ? (
+          <section className="room-scene-panel" data-testid="room-scene">
+            <h2 className="room-scene-panel__title">房间</h2>
+            <p className="room-scene-panel__subtitle">最多 4 人同房间 · 点选格子或 WASD 移动</p>
+            <p className="room-scene-panel__hint" data-testid="phaser-boot-loading">
+              地图加载中…
+            </p>
+          </section>
+        ) : !phaserOk ? (
+          <>
+            <p className="room-scene-panel__hint" data-testid="phaser-fallback-banner">
+              当前设备无法启用 2D 地图视图，已切换为网格地图。请更新浏览器或启用硬件加速后刷新。
+            </p>
+            <MovementPanel
+              connected={connected}
+              players={players}
+              sessionId={sessionId}
+              width={moveMap.width}
+              height={moveMap.height}
+              mapNpcs={sceneMapNpcs}
+              mapObjects={sceneMapObjects}
+              animating={animating}
+              moveHint={sceneHint}
+              onMove={sendMove}
+              onMoveTo={(x, y) => void sendMoveTo(x, y)}
+              fallbackMode
+            />
+          </>
+        ) : (
+          <PhaserGame
+            bootOk={bootOk}
+            connected={connected}
+            players={players}
+            sessionId={sessionId}
+            width={moveMap.width}
+            height={moveMap.height}
+            moveMap={moveMap}
+            mapNpcs={sceneMapNpcs}
+            mapObjects={sceneMapObjects}
+            animating={animating}
+            moveHint={sceneHint}
+            thinkingNpcId={thinkingNpcId}
+            npcAnimateMoves={npcWorldLive}
+            npcResetEpoch={npcResetEpoch}
+            remoteInterpMs={remoteInterpMs}
+            onMove={sendMove}
+            onMoveTo={(x, y) => void sendMoveTo(x, y)}
+            onBootFailed={() => {
+              setPhaserOk(false);
+              setBootOk(false);
+            }}
+          />
+        )}
         <MessageList
           messages={messages}
-          status={status}
+          thinkingNpcId={thinkingNpcId}
+          activeNpcId={activeNpcId}
           thinkingNpcName={activeNpcName}
         />
         {roomState ? (
@@ -88,7 +350,7 @@ export function ChatPage() {
           />
         ) : null}
         <NpcMemoryPanel
-          roomId="default"
+          roomId={mapRoomId}
           activeNpcId={activeNpcId}
           activeNpcName={activeNpcName}
           lastParsedIntent={lastParsedIntent}
@@ -98,22 +360,35 @@ export function ChatPage() {
 
       <form className="composer" onSubmit={onSubmit}>
         <textarea
+          ref={composerRef}
           className="composer__input"
           rows={2}
           placeholder={`你想让${activeNpcName}做什么？`}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={onKeyDown}
-          disabled={status === "thinking"}
+          disabled={composerBusyForActiveNpc || roomFull}
         />
         <button
           type="submit"
           className="btn btn--primary"
-          disabled={status === "thinking" || !draft.trim()}
+          disabled={composerBusyForActiveNpc || roomFull || !draft.trim()}
         >
           发送指令
         </button>
       </form>
+
+      {connected && players.length > 0 ? (
+        <div className="room-player-strip" data-testid="player-strip">
+          {players.slice(0, 4).map((p) => (
+            <span key={p.sessionId} className="room-player-strip__name">
+              {playerDisplayName(p.playerId, p.sessionId === sessionId)}
+            </span>
+          ))}
+        </div>
+      ) : null}
+
+      {showSyncDebug && connected ? <SyncMetricsOverlay metrics={syncMetrics} /> : null}
     </div>
   );
 }

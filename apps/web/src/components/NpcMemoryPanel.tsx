@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { playerApiHeaders } from "../lib/playerSession.js";
 
 type MemoryDebug = {
   memoryCount: number;
@@ -34,7 +35,9 @@ export function NpcMemoryPanel({
 
     void (async () => {
       try {
-        const res = await fetch(`${apiBase}/rooms/${roomId}/npc-memory/${activeNpcId}`);
+        const res = await fetch(`${apiBase}/rooms/${roomId}/npc-memory/${activeNpcId}`, {
+          headers: playerApiHeaders(),
+        });
         if (!res.ok) {
           throw new Error("加载记忆失败");
         }
@@ -55,7 +58,7 @@ export function NpcMemoryPanel({
 
   return (
     <details className="memory-panel">
-      <summary>{activeNpcName} 的记忆摘要</summary>
+      <summary>{activeNpcName} 记得关于你的事</summary>
       {error ? <p className="memory-panel__error">{error}</p> : null}
       {debug ? (
         <div className="memory-panel__body">

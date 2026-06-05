@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { findNpc } from "@aetherlife/shared";
 import { MemoryService } from "../memory/service.js";
+import { playerIdFromRequest } from "../http/player-id.js";
 import { getOrCreate } from "../room/store.js";
 
 export function createNpcMemoryRouter(): Router {
@@ -14,8 +15,13 @@ export function createNpcMemoryRouter(): Router {
       return;
     }
 
+    const playerId = playerIdFromRequest(req);
     try {
-      const debug = await MemoryService.getInstance().getNpcMemoryDebug(roomId, npcId);
+      const debug = await MemoryService.getInstance().getNpcMemoryDebug(
+        roomId,
+        npcId,
+        playerId,
+      );
       res.json(debug);
     } catch (err) {
       const message = err instanceof Error ? err.message : "npc memory failed";

@@ -10,6 +10,7 @@ export type SimilarMemory = {
 
 export type AppendMemoryInput = {
   roomId: string;
+  playerId: string;
   npcId?: string;
   text: string;
   importance: number;
@@ -31,6 +32,7 @@ export class MemoryRepository {
       .insert(npcMemories)
       .values({
         roomId: input.roomId,
+        playerId: input.playerId,
         npcId,
         text: input.text,
         importance: input.importance,
@@ -42,6 +44,7 @@ export class MemoryRepository {
 
   async searchSimilar(input: {
     roomId: string;
+    playerId: string;
     npcId?: string;
     queryEmbedding: number[];
     k?: number;
@@ -58,6 +61,7 @@ export class MemoryRepository {
           * (0.5 + COALESCE(importance, 5) / 20.0) AS score
       FROM npc_memories
       WHERE room_id = ${input.roomId}
+        AND player_id = ${input.playerId}
         AND npc_id = ${npcId}
         AND summarized_at IS NULL
         AND embedding IS NOT NULL
@@ -76,11 +80,16 @@ export class MemoryRepository {
 
   async countRaw(input: {
     roomId: string;
+    playerId: string;
     npcId?: string;
     unsummarizedOnly?: boolean;
   }): Promise<number> {
     const npcId = input.npcId ?? "1";
-    const conditions = [eq(npcMemories.roomId, input.roomId), eq(npcMemories.npcId, npcId)];
+    const conditions = [
+      eq(npcMemories.roomId, input.roomId),
+      eq(npcMemories.playerId, input.playerId),
+      eq(npcMemories.npcId, npcId),
+    ];
     if (input.unsummarizedOnly !== false) {
       conditions.push(isNull(npcMemories.summarizedAt));
     }
@@ -93,6 +102,7 @@ export class MemoryRepository {
 
   async appendSummary(input: {
     roomId: string;
+    playerId: string;
     npcId?: string;
     kind: SummaryKind;
     text: string;
@@ -103,6 +113,7 @@ export class MemoryRepository {
       .insert(memorySummaries)
       .values({
         roomId: input.roomId,
+        playerId: input.playerId,
         npcId,
         kind: input.kind,
         text: input.text,
@@ -120,18 +131,27 @@ export class MemoryRepository {
       .where(inArray(npcMemories.id, ids));
   }
 
-  async deleteByRoom(input: { roomId: string; npcId?: string }): Promise<void> {
-    const npcId = input.npcId ?? "1";
-    await this.db.delete(npcMemories).where(
-      and(eq(npcMemories.roomId, input.roomId), eq(npcMemories.npcId, npcId)),
-    );
-    await this.db.delete(memorySummaries).where(
-      and(eq(memorySummaries.roomId, input.roomId), eq(memorySummaries.npcId, npcId)),
-    );
+  async deleteForPlayer(input: { roomId: string; playerId: string; npcId?: string }): Promise<void> {
+    const npcId = input.npcId;
+    const memConditions = [
+      eq(npcMemories.roomId, input.roomId),
+      eq(npcMemories.playerId, input.playerId),
+    ];
+    const sumConditions = [
+      eq(memorySummaries.roomId, input.roomId),
+      eq(memorySummaries.playerId, input.playerId),
+    ];
+    if (npcId) {
+      memConditions.push(eq(npcMemories.npcId, npcId));
+      sumConditions.push(eq(memorySummaries.npcId, npcId));
+    }
+    await this.db.delete(npcMemories).where(and(...memConditions));
+    await this.db.delete(memorySummaries).where(and(...sumConditions));
   }
 
   async getLatestSummaryByKind(input: {
     roomId: string;
+    playerId: string;
     npcId?: string;
     kind: SummaryKind;
   }): Promise<string | null> {
@@ -142,6 +162,7 @@ export class MemoryRepository {
       .where(
         and(
           eq(memorySummaries.roomId, input.roomId),
+          eq(memorySummaries.playerId, input.playerId),
           eq(memorySummaries.npcId, npcId),
           eq(memorySummaries.kind, input.kind),
         ),
@@ -153,6 +174,7 @@ export class MemoryRepository {
 
   async getOldestUnsummarizedBatch(input: {
     roomId: string;
+    playerId: string;
     npcId?: string;
     limit: number;
   }): Promise<Array<{ id: string; text: string }>> {
@@ -163,6 +185,7 @@ export class MemoryRepository {
       .where(
         and(
           eq(npcMemories.roomId, input.roomId),
+          eq(npcMemories.playerId, input.playerId),
           eq(npcMemories.npcId, npcId),
           isNull(npcMemories.summarizedAt),
         ),
@@ -173,6 +196,7 @@ export class MemoryRepository {
 
   async getRecentUnsummarized(input: {
     roomId: string;
+    playerId: string;
     npcId?: string;
     limit: number;
   }): Promise<Array<{ id: string; text: string }>> {
@@ -183,6 +207,7 @@ export class MemoryRepository {
       .where(
         and(
           eq(npcMemories.roomId, input.roomId),
+          eq(npcMemories.playerId, input.playerId),
           eq(npcMemories.npcId, npcId),
           isNull(npcMemories.summarizedAt),
         ),

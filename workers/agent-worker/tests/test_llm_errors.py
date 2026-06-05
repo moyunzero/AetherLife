@@ -57,6 +57,16 @@ def test_format_llm_error_model_not_found():
     assert "openrouter/free" in msg
 
 
+def test_format_llm_error_quota_spend_limit():
+    exc = Exception(
+        'Error code: 402 - {"error":{"message":"API key USD spend limit exceeded"}}'
+    )
+    msg = format_llm_error(exc)
+    assert "402" in msg
+    assert "消费上限" in msg
+    assert "Error code" not in msg
+
+
 def test_models_to_try_deduplicates():
     settings = Settings(
         llm_model="openrouter/free",

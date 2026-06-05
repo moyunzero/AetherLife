@@ -13,10 +13,12 @@ from src.graph.action_intent import (
     has_state_changing_tool,
     player_requests_physical_action,
 )
+from src.graph.action_sanitize import tool_calls_to_actions
 from src.graph.prompt import build_turn_messages, format_memory_summary
 from src.graph.reflect import run_reflect_llm, should_reflect
 from src.graph.state import GraphState
 from src.graph.summarize import maybe_bulk_summarize
+from src.graph.reply_sanitize import sanitize_npc_reply
 from src.graph.tools import load_tools_for_binding, parse_tool_calls, reply_from_turn
 from src.llm.errors import (
     is_auth_error,
@@ -36,7 +38,8 @@ from src.persistence.checkpointer import get_checkpointer
 
 
 def _mock_tool_calls() -> list[dict[str, Any]]:
-    return [{"name": "move", "args": {"type": "move", "x": 3, "y": 3}}]
+    # Avoid door cell (3,3) — executor treats objects as blocked.
+    return [{"name": "move", "args": {"type": "move", "x": 4, "y": 5}}]
 
 
 def _game_headers(settings: Settings) -> dict[str, str]:
@@ -48,15 +51,23 @@ def _game_headers(settings: Settings) -> dict[str, str]:
 
 def fetch_state(state: GraphState, *, settings: Settings, client: httpx.Client) -> GraphState:
     room_id = state["room_id"]
+    headers = _game_headers(settings)
+    player_id = _player_id(state)
+    if player_id and player_id != "__legacy__":
+        headers["X-Player-Id"] = player_id
     res = client.get(
         f"{settings.game_server_url}/rooms/{room_id}/state",
-        headers=_game_headers(settings),
+        headers=headers,
         timeout=10.0,
     )
     res.raise_for_status()
     body = res.json()
     return {**state, "room_snapshot": body.get("state", {})}
 
+
+
+def _player_id(state: GraphState) -> str:
+    return state.get("player_id") or "__legacy__"
 
 
 def load_memory_context(
@@ -72,6 +83,7 @@ def load_memory_context(
         state["room_id"],
         state.get("player_message") or "",
         npc_id=npc_id,
+        player_id=_player_id(state),
     )
     summary = format_memory_summary(
         latest_bulk=ctx.get("latestBulkSummary"),
@@ -114,7 +126,9 @@ def _invoke_llm_turn(
 
 def llm_turn(state: GraphState, *, settings: Settings) -> GraphState:
     if settings.llm_mock or os.getenv("LLM_MOCK") == "1":
-        return {**state, "tool_calls": _mock_tool_calls(), "reply": ""}
+        msg = (state.get("player_message") or "").strip()
+        mock_reply = f"（模拟）我听到了：{msg[:120]}" if msg else "（模拟）我听到了你的话。"
+        return {**state, "tool_calls": _mock_tool_calls(), "reply": mock_reply}
 
     messages = build_turn_messages(state)
     tools = load_tools_for_binding()
@@ -154,35 +168,28 @@ def llm_turn(state: GraphState, *, settings: Settings) -> GraphState:
 
 def apply_tools(state: GraphState, *, settings: Settings, client: httpx.Client) -> GraphState:
     room = state.get("room_snapshot") or {}
-    width = int(room.get("width") or 8)
-    height = int(room.get("height") or 8)
-    actions: list[dict[str, Any]] = []
-    for call in state.get("tool_calls") or []:
-        if call.get("name") == "speak":
-            continue
-        args = call.get("args") or {}
-        if "type" not in args and call.get("name"):
-            args = {"type": call["name"], **args}
-        if args.get("type") == "move":
-            args = {
-                **args,
-                "x": max(0, min(int(args.get("x", 0)), width - 1)),
-                "y": max(0, min(int(args.get("y", 0)), height - 1)),
-            }
-        actions.append(args)
+    actions = tool_calls_to_actions(state.get("tool_calls"), room=room)
 
     if not actions:
         return state
 
     room_id = state["room_id"]
     npc_id = state.get("npc_id") or "npc-1"
+    body: dict[str, Any] = {"actions": actions, "actingNpcId": npc_id}
+    player_id = _player_id(state)
+    if player_id and player_id != "__legacy__":
+        body["initiatorPlayerId"] = player_id
     res = client.post(
         f"{settings.game_server_url}/internal/rooms/{room_id}/apply-actions",
-        json={"actions": actions, "actingNpcId": npc_id},
+        json=body,
         headers=_game_headers(settings),
         timeout=10.0,
     )
-    res.raise_for_status()
+    if res.status_code >= 400:
+        detail = res.text.strip()
+        raise RuntimeError(
+            f"apply-actions failed ({res.status_code}): {detail[:500]}",
+        )
     body = res.json()
     return {
         **state,
@@ -204,7 +211,7 @@ def compose_reply(state: GraphState) -> GraphState:
     if not reply:
         reply = "好的，我会继续留意周围的情况。"
 
-    return {**state, "reply": reply}
+    return {**state, "reply": sanitize_npc_reply(reply)}
 
 
 def persist_turn_memory(
@@ -228,6 +235,7 @@ def persist_turn_memory(
         text,
         importance=importance,
         npc_id=state.get("npc_id") or "npc-1",
+        player_id=_player_id(state),
     )
     count = int(state.get("memory_count") or 0) + 1
     return {**state, "memory_count": count}
@@ -243,17 +251,26 @@ def maybe_reflect_turn(
     if not should_reflect(count, settings.reflect_every_n):
         return state
 
+    npc_id = state.get("npc_id") or "npc-1"
     recent = fetch_recent_memories(
         client,
         settings,
         state["room_id"],
         limit=settings.reflect_every_n,
-        npc_id=state.get("npc_id") or "npc-1",
+        npc_id=npc_id,
+        player_id=_player_id(state),
     )
     texts = [row.get("text", "") for row in recent if row.get("text")]
     reflection = run_reflect_llm(texts, settings)
     if reflection:
-        store_reflection(client, settings, state["room_id"], reflection)
+        store_reflection(
+            client,
+            settings,
+            state["room_id"],
+            reflection,
+            npc_id=npc_id,
+            player_id=_player_id(state),
+        )
     return state
 
 
@@ -270,6 +287,7 @@ def maybe_bulk_summarize_turn(
         state["room_id"],
         count,
         npc_id=state.get("npc_id") or "npc-1",
+        player_id=_player_id(state),
     )
     return state
 
@@ -313,6 +331,7 @@ def run_npc_turn(
     room_id: str,
     player_message: str,
     npc_id: str = "npc-1",
+    player_id: str = "__legacy__",
     settings: Settings | None = None,
 ) -> GraphState:
     cfg = settings or get_settings()
@@ -320,11 +339,12 @@ def run_npc_turn(
     initial: GraphState = {
         "room_id": room_id,
         "npc_id": npc_id,
+        "player_id": player_id,
         "player_message": player_message,
         "tool_calls": [],
         "pending_actions": [],
         "reply": "",
         "trace_run_id": None,
     }
-    thread_id = f"room:{room_id}:npc:{npc_id}"
+    thread_id = f"room:{room_id}:player:{player_id}:npc:{npc_id}"
     return graph.invoke(initial, config={"configurable": {"thread_id": thread_id}})

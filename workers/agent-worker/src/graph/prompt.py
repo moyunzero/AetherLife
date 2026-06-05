@@ -55,7 +55,13 @@ def build_room_constraints(room: dict[str, Any]) -> str:
     lines = [
         f"6. 房间网格 {width}×{height}，合法坐标 x∈[0,{max_x}]，y∈[0,{max_y}]，越界 move 会失败。",
     ]
-    lines.append("7. 房间 NPC（id / 名字 / 坐标 / 背包）：")
+    player = room.get("player") or {}
+    lines.append(
+        f"7. 本次发起指令的玩家 @ ({player.get('x')},{player.get('y')})；"
+        "「我/我的/下方/旁边」等相对位置仅相对该玩家换算目标格后调用 move。"
+        "房间可能有多名玩家，禁止使用其他玩家或 NPC 的坐标代替该玩家。"
+    )
+    lines.append("8. 房间 NPC（id / 名字 / 坐标 / 背包）：")
     for npc in room.get("npcs") or []:
         npc_id = npc.get("id")
         if not npc_id:
@@ -72,9 +78,9 @@ def build_room_constraints(room: dict[str, Any]) -> str:
         lines.append(
             f"   - {oid} ({obj.get('kind')}) 位于 ({obj.get('x')},{obj.get('y')})，state={obj.get('state')}"
         )
-    lines.append("8. 开门/交互：interact + objectId（如上表 id，默认门为 door-1）。")
-    lines.append("9. 移动：move + 合法 x,y。")
-    lines.append("10. 物品转移：transfer + itemId + toNpcId（只能转出自己背包中的物品）。")
+    lines.append("9. 开门/交互：interact + objectId（如上表 id，默认门为 door-1）。")
+    lines.append("10. 移动：move + 合法 x,y（相对指令须先换算为坐标）。")
+    lines.append("11. 物品转移：transfer + itemId + toNpcId（只能转出自己背包中的物品）。")
     return "\n".join(lines)
 
 

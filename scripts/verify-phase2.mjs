@@ -1,3 +1,5 @@
+import { assertE2eNoMock } from "./lib/e2e-policy.mjs";
+
 const baseUrl = process.env.GAME_SERVER_URL || "http://127.0.0.1:2567";
 const roomId = "default";
 
@@ -18,6 +20,7 @@ function findNpc(state, id) {
 }
 
 async function main() {
+  assertE2eNoMock("verify:phase2");
   console.log(`verify:phase2 → ${baseUrl}`);
 
   const initial = await request(`/rooms/${roomId}/state`);

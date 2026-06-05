@@ -4,6 +4,14 @@ import { findNpc } from "@aetherlife/shared";
 import { applyGameAction, ExecutorError } from "../room/executor.js";
 import { recordSuccessfulMutation } from "../audit/record.js";
 import { MemoryService } from "../memory/service.js";
+import {
+  collectPlayerCells,
+  findPlayerCellByPlayerId,
+  resetColyseusFromMap,
+  roomStateForInitiator,
+} from "../colyseus/bridge.js";
+import { getColyseusRoom } from "../colyseus/room-registry.js";
+import { playerIdFromRequest } from "../http/player-id.js";
 import { getOrCreate, reset, setState } from "../room/store.js";
 
 function formatZodError(error: { issues: Array<{ path: (string | number)[]; message: string }> }) {
@@ -17,6 +25,8 @@ async function applyActionsHandler(req: Request, res: Response): Promise<void> {
   const { roomId } = req.params;
   const actions = req.body?.actions;
   const actingNpcId = req.body?.actingNpcId;
+  const initiatorPlayerId =
+    typeof req.body?.initiatorPlayerId === "string" ? req.body.initiatorPlayerId : undefined;
   const jobId = typeof req.body?.jobId === "string" ? req.body.jobId : undefined;
 
   if (typeof actingNpcId !== "string" || !actingNpcId.trim()) {
@@ -37,6 +47,10 @@ async function applyActionsHandler(req: Request, res: Response): Promise<void> {
 
   let current = record;
   let applied = 0;
+  const playerCells = collectPlayerCells(roomId, record.state);
+  const moveAnchorCell = initiatorPlayerId
+    ? findPlayerCellByPlayerId(roomId, initiatorPlayerId)
+    : null;
 
   for (const raw of actions) {
     const parsed = safeParseGameAction(raw);
@@ -45,7 +59,10 @@ async function applyActionsHandler(req: Request, res: Response): Promise<void> {
       return;
     }
     try {
-      const result = applyGameAction(current.state, parsed.data, actingNpcId);
+      const result = applyGameAction(current.state, parsed.data, actingNpcId, {
+        otherPlayerCells: playerCells,
+        moveAnchorCell: moveAnchorCell ?? undefined,
+      });
       current = setState(roomId, result.room);
       applied += 1;
       await recordSuccessfulMutation({
@@ -61,13 +78,23 @@ async function applyActionsHandler(req: Request, res: Response): Promise<void> {
     }
   }
 
+  const colyseusRoom = getColyseusRoom(roomId);
+  colyseusRoom?.refreshFromMap();
+
   res.json({ ok: true, state: current.state, applied });
 }
 
-async function buildMemoryCounts(roomId: string, npcIds: string[]): Promise<Record<string, number>> {
+async function buildMemoryCounts(
+  roomId: string,
+  playerId: string,
+  npcIds: string[],
+): Promise<Record<string, number>> {
   const service = MemoryService.getInstance();
   const entries = await Promise.all(
-    npcIds.map(async (npcId) => [npcId, await service.getMemoryCount(roomId, npcId)] as const),
+    npcIds.map(
+      async (npcId) =>
+        [npcId, await service.getMemoryCount(roomId, npcId, playerId)] as const,
+    ),
   );
   return Object.fromEntries(entries);
 }
@@ -77,13 +104,16 @@ export function createRoomsRouter(): Router {
 
   router.get("/:roomId/state", async (req, res) => {
     const { roomId } = req.params;
+    const playerId = playerIdFromRequest(req);
     const record = getOrCreate(roomId);
     try {
       const memoryCounts = await buildMemoryCounts(
         roomId,
+        playerId,
         record.state.npcs.map((npc) => npc.id),
       );
-      res.json({ state: record.state, memoryCounts });
+      const viewState = roomStateForInitiator(record.state, roomId, playerId);
+      res.json({ state: viewState, memoryCounts });
     } catch (err) {
       const message = err instanceof Error ? err.message : "state failed";
       res.status(500).json({ ok: false, error: message });
@@ -92,12 +122,15 @@ export function createRoomsRouter(): Router {
 
   router.post("/:roomId/reset", async (req, res) => {
     const { roomId } = req.params;
+    const playerId = playerIdFromRequest(req, req.body);
     try {
       const record = reset(roomId);
+      resetColyseusFromMap(roomId, record.state);
       const service = MemoryService.getInstance();
-      await Promise.all(record.state.npcs.map((npc) => service.deleteAllForRoom(roomId, npc.id)));
+      await service.deleteForPlayer(roomId, playerId);
       const memoryCounts = await buildMemoryCounts(
         roomId,
+        playerId,
         record.state.npcs.map((npc) => npc.id),
       );
       res.json({ ok: true, state: record.state, memoryCounts });
