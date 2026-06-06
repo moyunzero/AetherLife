@@ -80,7 +80,14 @@ async def parse_intent_json(message: str, *, golden_expected: dict | None = None
     settings = get_settings()
     if golden_expected is not None:
         return golden_expected
-    if settings.llm_mock or not settings.openrouter_api_key:
+    keys: list[str] = []
+    csv = os.getenv("OPENROUTER_API_KEYS", "").strip()
+    if csv:
+        keys.extend(k.strip() for k in csv.split(",") if k.strip())
+    for raw in (settings.openrouter_api_key, settings.openrouter_api_key_2):
+        if raw and raw not in keys:
+            keys.append(raw)
+    if settings.llm_mock or not keys:
         return _heuristic_parse(message)
 
     payload = {
@@ -91,18 +98,29 @@ async def parse_intent_json(message: str, *, golden_expected: dict | None = None
         ],
         "response_format": {"type": "json_object"},
     }
-    headers = {
-        "Authorization": f"Bearer {settings.openrouter_api_key}",
-        "HTTP-Referer": os.getenv("OPENROUTER_HTTP_REFERER", "http://localhost:5173"),
-        "X-Title": os.getenv("OPENROUTER_APP_TITLE", "AetherLife"),
-    }
+    last_error: Exception | None = None
     async with httpx.AsyncClient(timeout=15.0) as client:
-        res = await client.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            json=payload,
-            headers=headers,
-        )
-        res.raise_for_status()
-        body = res.json()
-    content = body["choices"][0]["message"]["content"]
-    return json.loads(content)
+        for key_idx, api_key in enumerate(keys):
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "HTTP-Referer": os.getenv("OPENROUTER_HTTP_REFERER", "http://localhost:5173"),
+                "X-Title": os.getenv("OPENROUTER_APP_TITLE", "AetherLife"),
+            }
+            try:
+                res = await client.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    json=payload,
+                    headers=headers,
+                )
+                res.raise_for_status()
+                body = res.json()
+                content = body["choices"][0]["message"]["content"]
+                return json.loads(content)
+            except httpx.HTTPStatusError as exc:
+                last_error = exc
+                if exc.response.status_code == 429 and key_idx + 1 < len(keys):
+                    continue
+                raise
+    if last_error:
+        raise last_error
+    return _heuristic_parse(message)

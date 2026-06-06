@@ -1,13 +1,19 @@
 import * as Phaser from "phaser";
 import {
+  CHUNK_SIZE,
   buildMoveGrid,
+  chunkViewsFingerprint,
   createDefaultRoom,
   findGridPath,
+  shouldSuppressLocalSchemaSnap,
+  type BiomeId,
+  type ChunkView,
   type GameObject,
   type GridCell,
   type NpcState,
   type RoomState,
 } from "@aetherlife/shared";
+import { clientFindPath } from "../lib/chunkWalkability.js";
 import {
   MARKER_CY,
   MARKER_LABEL_MAX_WIDTH,
@@ -15,8 +21,9 @@ import {
   MARKER_RADIUS,
   MARKER_STROKE,
 } from "./entityLayout.js";
-import { CELL_PX, gridToWorld, worldSize, worldToGrid } from "./gridLayout.js";
-import { isStaticFloorBlocked } from "./floorBlocked.js";
+import { entityDepth } from "./entityLayout.js";
+import { CELL_PX, VIEWPORT_CELLS, gridToWorld, worldSize, worldToGrid } from "./gridLayout.js";
+import { isGlobalFloorBlocked } from "./floorBlocked.js";
 import {
   ENTITY_LABEL_COLOR,
   ENTITY_LABEL_FONT,
@@ -25,10 +32,22 @@ import {
   THINKING_PULSE_MS,
 } from "./entityLabels.js";
 import { playerDisplayName } from "../lib/playerDisplayName.js";
+import {
+  attachGridMovementKeys,
+  CAMERA_LERP,
+  GRID_STEP_MS,
+  type GridMovementKeyHandle,
+} from "./gridMovement.js";
+import type { LocalPlayerMotionBridge } from "./localPlayerMotion.js";
+import { LocalPlayerMovementController } from "./LocalPlayerMovementController.js";
+import type { MovementSyncController } from "./MovementSyncController.js";
+import {
+  RemotePlayerInterpolator,
+  type RemoteInterpDeps,
+} from "./RemotePlayerInterpolator.js";
 import { theme } from "./theme.js";
 
-const STEP_MS = 140;
-const DEFAULT_REMOTE_INTERP_MS = 130;
+const STEP_MS = GRID_STEP_MS;
 const SCENE_KEY = "Room";
 
 type PlayerSnap = {
@@ -109,10 +128,18 @@ export class RoomScene extends Phaser.Scene {
   private zoomMax = 2;
   private pinchStartDist = 0;
   private pinchStartZoom = 1;
+  private lastFloorFingerprint = "";
   private pathTarget: { x: number; y: number } | null = null;
   private flashTween: Phaser.Tweens.Tween | null = null;
-  private vignetteGfx!: Phaser.GameObjects.Graphics;
   private npcResetEpoch = -1;
+  private movementController: LocalPlayerMovementController | null = null;
+  private remoteInterp = new RemotePlayerInterpolator();
+  private keyHandle: GridMovementKeyHandle | null = null;
+  private motionBridge: LocalPlayerMotionBridge | null = null;
+  private cameraLerpX: number | null = null;
+  private cameraLerpY: number | null = null;
+  private lastExploreGx = Number.NaN;
+  private lastExploreGy = Number.NaN;
 
   constructor() {
     super({ key: SCENE_KEY });
@@ -122,33 +149,181 @@ export class RoomScene extends Phaser.Scene {
     this.floorGfx = this.add.graphics();
     this.pathGfx = this.add.graphics();
     this.flashGfx = this.add.graphics();
-    this.vignetteGfx = this.add.graphics();
-    this.vignetteGfx.setDepth(50);
+    this.floorGfx.setDepth(0);
+    this.pathGfx.setDepth(1);
+    this.flashGfx.setDepth(2);
     this.cameras.main.setBackgroundColor(theme.bgDeep);
+    // Edge vignette: screen-space CSS only (.room-scene-panel__canvas inset shadow).
+    // World-anchored Graphics at depth 50 occluded the player when gridY was small (ISSUE-009).
 
     this.drawFloor();
-    this.drawVignette();
     this.fitCamera();
     this.setupInput();
+    this.movementController = new LocalPlayerMovementController({
+      getEntity: () => this.getLocalPlayerEnt(),
+      tweens: this.tweens,
+      getReducedMotion: () => Boolean(this.registry.get("reducedMotion")),
+      entityDepth,
+      snapEntityToGrid: (ent, gx, gy) => this.snapEntityToGrid(ent as EntitySprite, gx, gy),
+      stopEntityMotion: (ent) => this.stopEntityMotion(ent as EntitySprite),
+      onSnap: (wx, wy) => {
+        this.cameraLerpX = wx;
+        this.cameraLerpY = wy;
+      },
+    });
+    this.motionBridge = this.movementController.buildBridge();
+    this.registry.set("localPlayerMotion", this.motionBridge);
 
     this.registry.events.on("changedata", this.onRegistryChange, this);
     this.events.on("shutdown", () => {
       this.registry.events.off("changedata", this.onRegistryChange, this);
+      this.keyHandle?.destroy();
+      this.keyHandle = null;
+      this.movementController?.reset();
+      this.movementController = null;
+      this.remoteInterp.reset();
+      this.motionBridge = null;
     });
 
     this.syncEntities();
+  }
+
+  update(_time: number, delta: number): void {
+    this.movementController?.tickPausedPath();
+    this.remoteInterp.advance(
+      this.playerSprites,
+      this.getSessionId(),
+      this.getRemoteInterpDeps(),
+    );
+    this.tickCameraFollow(delta);
+    this.tickExploreGrid();
+  }
+
+  /** Explore HUD coords — game-loop tick (Wave 2); React reads registry `exploreGrid`. */
+  private tickExploreGrid(): void {
+    const connected = this.registry.get("connected") as boolean;
+    const sessionId = this.getSessionId();
+    if (!connected || !sessionId) {
+      if (this.registry.get("exploreGrid") != null) {
+        this.registry.set("exploreGrid", null);
+      }
+      this.lastExploreGx = Number.NaN;
+      this.lastExploreGy = Number.NaN;
+      return;
+    }
+
+    const players = (this.registry.get("players") as PlayerSnap[]) ?? [];
+    const self = players.find((p) => p.sessionId === sessionId);
+    if (!self) return;
+
+    const logic = this.motionBridge?.getLogicGrid();
+    const visual = this.getMovementSync()?.getPredictor().getVisualPos();
+    const gx = logic?.x ?? visual?.x ?? self.x;
+    const gy = logic?.y ?? visual?.y ?? self.y;
+    if (gx === this.lastExploreGx && gy === this.lastExploreGy) return;
+
+    this.lastExploreGx = gx;
+    this.lastExploreGy = gy;
+    this.registry.set("exploreGrid", { gx, gy });
+  }
+
+  getLocalPlayerMotionBridge(): LocalPlayerMotionBridge | null {
+    return this.motionBridge;
+  }
+
+  private getSessionId(): string | null {
+    return (this.registry.get("sessionId") as string | null) ?? null;
+  }
+
+  private getLocalPlayerEnt(): EntitySprite | undefined {
+    const sid = this.getSessionId();
+    if (!sid) return undefined;
+    return this.playerSprites.get(sid);
+  }
+
+  private isLocalLocomoting(): boolean {
+    return this.movementController?.isLocalLocomoting() ?? false;
+  }
+
+  private getRemoteInterpDeps(): RemoteInterpDeps {
+    return {
+      tweens: this.tweens,
+      getReducedMotion: () => Boolean(this.registry.get("reducedMotion")),
+      entityDepth,
+      snapEntityToGrid: (ent, gx, gy) =>
+        this.snapEntityToGrid(ent as EntitySprite, gx, gy),
+      stopEntityMotion: (ent) => this.stopEntityMotion(ent as EntitySprite),
+      stepMs: GRID_STEP_MS,
+    };
+  }
+
+  private tickCameraFollow(delta: number): void {
+    const sessionId = this.getSessionId();
+    if (!sessionId) return;
+
+    const selfEnt = this.playerSprites.get(sessionId);
+    const cam = this.cameras.main;
+    const reduced = this.registry.get("reducedMotion") as boolean;
+
+    let targetX: number;
+    let targetY: number;
+
+    if (selfEnt) {
+      targetX = selfEnt.container.x;
+      targetY = selfEnt.container.y;
+    } else {
+      const players = (this.registry.get("players") as PlayerSnap[]) ?? [];
+      const self = players.find((p) => p.sessionId === sessionId);
+      if (!self) return;
+      const w = gridToWorld(self.x, self.y);
+      targetX = w.wx;
+      targetY = w.wy;
+    }
+
+    if (reduced) {
+      this.stopCameraPan();
+      cam.centerOn(targetX, targetY);
+      this.cameraLerpX = targetX;
+      this.cameraLerpY = targetY;
+      return;
+    }
+
+    if (this.cameraLerpX == null || this.cameraLerpY == null) {
+      this.stopCameraPan();
+      cam.centerOn(targetX, targetY);
+      this.cameraLerpX = targetX;
+      this.cameraLerpY = targetY;
+      return;
+    }
+
+    const dt = Math.min(delta, 50);
+    const t = 1 - (1 - CAMERA_LERP) ** (dt / 16.67);
+    this.cameraLerpX += (targetX - this.cameraLerpX) * t;
+    this.cameraLerpY += (targetY - this.cameraLerpY) * t;
+    this.stopCameraPan();
+    cam.centerOn(this.cameraLerpX, this.cameraLerpY);
   }
 
   private onRegistryChange(parent: Phaser.Data.DataManager, key: string): void {
     if (key === "roomSync") this.syncEntities();
   }
 
-  private getGridW(): number {
-    return (this.registry.get("gridW") as number) ?? 8;
+  private getViewportW(): number {
+    return VIEWPORT_CELLS * CELL_PX;
   }
 
-  private getGridH(): number {
-    return (this.registry.get("gridH") as number) ?? 8;
+  private getViewportH(): number {
+    return VIEWPORT_CELLS * CELL_PX;
+  }
+
+  private getLoadedChunks(): ChunkView[] {
+    return (this.registry.get("loadedChunks") as ChunkView[] | undefined) ?? [];
+  }
+
+  private terrainDebug(): boolean {
+    if (import.meta.env.DEV) return true;
+    if (typeof window === "undefined") return false;
+    return new URLSearchParams(window.location.search).get("terrainDebug") === "1";
   }
 
   private getMoveMap(): RoomState {
@@ -156,41 +331,65 @@ export class RoomScene extends Phaser.Scene {
     return map ?? createDefaultRoom();
   }
 
+  private getMovementSync(): MovementSyncController | undefined {
+    return this.registry.get("movementSync") as MovementSyncController | undefined;
+  }
+
   private movementDisabled(): boolean {
     const connected = this.registry.get("connected") as boolean;
-    const animating = this.registry.get("animating") as boolean;
+    const sync = this.getMovementSync();
+    const animating = sync?.isAnimating() ?? (this.registry.get("animating") as boolean);
     return !connected || animating;
   }
 
-  private drawVignette(): void {
-    const { w, h } = worldSize(this.getGridW(), this.getGridH());
-    const edge = Math.min(28, Math.floor(Math.min(w, h) * 0.12));
-    this.vignetteGfx.clear();
-    this.vignetteGfx.fillStyle(theme.bgDeep, 0.38);
-    this.vignetteGfx.fillRect(0, 0, w, edge);
-    this.vignetteGfx.fillRect(0, h - edge, w, edge);
-    this.vignetteGfx.fillRect(0, 0, edge, h);
-    this.vignetteGfx.fillRect(w - edge, 0, edge, h);
+  private biomeColors(biome: BiomeId | "void", walkable: boolean) {
+    if (biome === "void") {
+      return walkable ? theme.biomeVoid.walkable : theme.biomeVoid.blocked;
+    }
+    const pair = theme.biomeColors[biome];
+    return walkable ? pair.walkable : pair.blocked;
   }
 
   private drawFloor(): void {
-    const map = this.getMoveMap();
-    const w = this.getGridW();
-    const h = this.getGridH();
+    const chunks = this.getLoadedChunks();
     this.floorGfx.clear();
-    for (let y = 0; y < h; y += 1) {
-      for (let x = 0; x < w; x += 1) {
-        const blocked = isStaticFloorBlocked(map, x, y);
-        this.floorGfx.fillStyle(blocked ? theme.floorBlocked : theme.floorWalkable, 1);
-        this.floorGfx.fillRect(x * CELL_PX, y * CELL_PX, CELL_PX, CELL_PX);
+    if (chunks.length === 0) {
+      const map = this.getMoveMap();
+      for (let y = 0; y < 8; y += 1) {
+        for (let x = 0; x < 8; x += 1) {
+          const blocked = isGlobalFloorBlocked(map, chunks, x, y);
+          this.floorGfx.fillStyle(blocked ? theme.floorBlocked : theme.floorWalkable, 1);
+          this.floorGfx.fillRect(x * CELL_PX, y * CELL_PX, CELL_PX, CELL_PX);
+          this.floorGfx.lineStyle(1, theme.gridLine, 1);
+          this.floorGfx.strokeRect(x * CELL_PX, y * CELL_PX, CELL_PX, CELL_PX);
+        }
+      }
+      return;
+    }
+
+    for (const chunk of chunks) {
+      for (const tile of chunk.tiles) {
+        const gx = chunk.cx * CHUNK_SIZE + tile.lx;
+        const gy = chunk.cy * CHUNK_SIZE + tile.ly;
+        const fill = this.biomeColors(tile.biome, tile.walkable);
+        this.floorGfx.fillStyle(fill, 1);
+        this.floorGfx.fillRect(gx * CELL_PX, gy * CELL_PX, CELL_PX, CELL_PX);
         this.floorGfx.lineStyle(1, theme.gridLine, 1);
-        this.floorGfx.strokeRect(x * CELL_PX, y * CELL_PX, CELL_PX, CELL_PX);
+        this.floorGfx.strokeRect(gx * CELL_PX, gy * CELL_PX, CELL_PX, CELL_PX);
+      }
+      if (this.terrainDebug()) {
+        const left = chunk.cx * CHUNK_SIZE * CELL_PX;
+        const top = chunk.cy * CHUNK_SIZE * CELL_PX;
+        const size = CHUNK_SIZE * CELL_PX;
+        this.floorGfx.lineStyle(1, theme.accentDim, 0.55);
+        this.floorGfx.strokeRect(left, top, size, size);
       }
     }
   }
 
   private fitCamera(): void {
-    const { w, h } = worldSize(this.getGridW(), this.getGridH());
+    const w = this.getViewportW();
+    const h = this.getViewportH();
     const cam = this.cameras.main;
     const zx = cam.width / w;
     const zy = cam.height / h;
@@ -199,7 +398,41 @@ export class RoomScene extends Phaser.Scene {
     this.zoomMin = z * 0.55;
     this.zoomMax = z * 1.85;
     cam.setZoom(z);
-    cam.centerOn(w / 2, h / 2);
+    this.centerCameraOnPlayer();
+  }
+
+  /** Phaser cam.pan() returns Camera, not Tween — stop via panEffect.reset(). */
+  private stopCameraPan(): void {
+    this.cameras.main.panEffect.reset();
+  }
+
+  /** One-shot camera snap (fit / no local sprite). Per-frame follow is `tickCameraFollow`. */
+  private centerCameraOnPlayer(): void {
+    const sessionId = this.getSessionId();
+    const selfEnt = sessionId ? this.playerSprites.get(sessionId) : undefined;
+    const cam = this.cameras.main;
+    this.stopCameraPan();
+
+    if (selfEnt) {
+      this.cameraLerpX = selfEnt.container.x;
+      this.cameraLerpY = selfEnt.container.y;
+      cam.centerOn(selfEnt.container.x, selfEnt.container.y);
+      return;
+    }
+
+    const players = (this.registry.get("players") as PlayerSnap[]) ?? [];
+    const self = players.find((p) => p.sessionId === sessionId);
+    if (self) {
+      const { wx, wy } = gridToWorld(self.x, self.y);
+      this.cameraLerpX = wx;
+      this.cameraLerpY = wy;
+      cam.centerOn(wx, wy);
+      return;
+    }
+
+    this.cameraLerpX = null;
+    this.cameraLerpY = null;
+    cam.centerOn(this.getViewportW() / 2, this.getViewportH() / 2);
   }
 
   private setupInput(): void {
@@ -207,18 +440,15 @@ export class RoomScene extends Phaser.Scene {
       if (this.movementDisabled()) return;
       const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
       const { x, y } = worldToGrid(world.x, world.y);
-      const w = this.getGridW();
-      const h = this.getGridH();
-      if (x < 0 || y < 0 || x >= w || y >= h) return;
-
       const map = this.getMoveMap();
-      if (isStaticFloorBlocked(map, x, y)) {
+      const chunks = this.getLoadedChunks();
+      if (isGlobalFloorBlocked(map, chunks, x, y)) {
         this.flashCell(x, y);
         return;
       }
 
-      const onMoveTo = this.registry.get("onMoveTo") as ((tx: number, ty: number) => void) | undefined;
-      onMoveTo?.(x, y);
+      const sync = this.getMovementSync();
+      void sync?.sendMoveTo(x, y);
       this.pathTarget = { x, y };
       this.drawPathPreview(x, y);
     });
@@ -266,6 +496,16 @@ export class RoomScene extends Phaser.Scene {
     this.input.on("pointerup", () => {
       this.pinchStartDist = 0;
     });
+
+    this.keyHandle?.destroy();
+    this.keyHandle = attachGridMovementKeys({
+      enabled: true,
+      stepMs: GRID_STEP_MS,
+      onMove: (dx, dy) => {
+        if (this.movementDisabled()) return;
+        this.getMovementSync()?.sendWasd(dx, dy);
+      },
+    });
   }
 
   private flashCell(x: number, y: number): void {
@@ -299,12 +539,23 @@ export class RoomScene extends Phaser.Scene {
       return;
     }
 
+    const selfEnt = sessionId ? this.playerSprites.get(sessionId) : undefined;
+    const originX = selfEnt?.gridX ?? self.x;
+    const originY = selfEnt?.gridY ?? self.y;
+
     const map = this.getMoveMap();
     const others = players
       .filter((p) => p.sessionId !== sessionId)
       .map((p) => ({ x: p.x, y: p.y }));
-    const grid = buildMoveGrid(map, others);
-    const path = findGridPath(self.x, self.y, targetX, targetY, grid);
+    const path = clientFindPath(
+      map,
+      originX,
+      originY,
+      targetX,
+      targetY,
+      others,
+      this.getLoadedChunks(),
+    );
     this.pathGfx.clear();
     if (!path || path.length < 2) return;
 
@@ -329,9 +580,11 @@ export class RoomScene extends Phaser.Scene {
 
   syncEntities(): void {
     const map = this.getMoveMap();
-    if (map) {
+    const chunks = this.getLoadedChunks();
+    const floorFp = chunkViewsFingerprint(chunks);
+    if (map && floorFp !== this.lastFloorFingerprint) {
+      this.lastFloorFingerprint = floorFp;
       this.drawFloor();
-      this.drawVignette();
     }
 
     const connected = this.registry.get("connected") as boolean;
@@ -341,14 +594,14 @@ export class RoomScene extends Phaser.Scene {
     const mapObjects = (this.registry.get("mapObjects") as MapObjectView[]) ?? [];
     const thinkingNpcId = this.registry.get("thinkingNpcId") as string | null;
     const animating = this.registry.get("animating") as boolean;
+    const pendingMoves = this.getMovementSync()?.getPendingCount() ?? 0;
     const reduced = this.registry.get("reducedMotion") as boolean;
 
     if (!animating && this.pathTarget) {
       this.clearPath();
     }
 
-    const remoteInterpMs =
-      (this.registry.get("remoteInterpMs") as number) ?? DEFAULT_REMOTE_INTERP_MS;
+    const remoteDeps = this.getRemoteInterpDeps();
 
     const seenPlayers = new Set<string>();
     for (const p of players) {
@@ -366,18 +619,48 @@ export class RoomScene extends Phaser.Scene {
           labelColor: isSelf ? "#c9a227" : undefined,
         }, 2);
         this.playerSprites.set(p.sessionId, ent);
+        if (isSelf) {
+          this.cameraLerpX = ent.container.x;
+          this.cameraLerpY = ent.container.y;
+        }
       }
-      const stepMs = isSelf ? STEP_MS : remoteInterpMs;
-      this.tweenEntityTo(ent, p.x, p.y, stepMs);
+      const logic = isSelf ? this.motionBridge?.getLogicGrid() : null;
+      const localX = isSelf ? (logic?.x ?? ent.gridX) : ent.gridX;
+      const localY = isSelf ? (logic?.y ?? ent.gridY) : ent.gridY;
+      if (isSelf) {
+        if (
+          shouldSuppressLocalSchemaSnap({
+            pendingMoves,
+            isLocomoting: this.isLocalLocomoting(),
+            localX,
+            localY,
+            schemaX: p.x,
+            schemaY: p.y,
+          })
+        ) {
+          ent.targetGridX = ent.gridX;
+          ent.targetGridY = ent.gridY;
+        }
+      } else {
+        this.remoteInterp.pushServerCell(p.sessionId, p.x, p.y);
+        const forced = this.remoteInterp.takePendingSnap(p.sessionId);
+        if (forced) {
+          this.remoteInterp.snapToServer(p.sessionId, ent, forced.x, forced.y, remoteDeps);
+        } else if (this.remoteInterp.needsSnap(p.sessionId, ent)) {
+          this.remoteInterp.snapToServer(p.sessionId, ent, p.x, p.y, remoteDeps);
+        }
+      }
       ent.body.setFillStyle(theme.bgDeep, 0);
       ent.body.setStrokeStyle(MARKER_STROKE, playerColor, connected ? 1 : 0.35);
       ent.ring.setStrokeStyle(MARKER_STROKE, playerColor, connected ? 0.45 : 0.15);
       ent.label.setText(label);
       ent.label.setColor(isSelf ? "#c9a227" : ENTITY_LABEL_COLOR);
       ent.container.setScale(facingFlipX(p.facing) ? -1 : 1, 1);
+      ent.container.setDepth(entityDepth(localX, localY, ent.depthLayer));
     }
     for (const [id, ent] of this.playerSprites) {
       if (!seenPlayers.has(id)) {
+        this.remoteInterp.remove(id);
         ent.container.destroy();
         this.playerSprites.delete(id);
       }
@@ -483,9 +766,62 @@ export class RoomScene extends Phaser.Scene {
       }
     }
 
+    this.tickExploreGrid();
+
     if (import.meta.env.DEV && typeof window !== "undefined") {
       const w = window as Window & {
         __aetherlife_npcDebug?: () => AetherlifeNpcDebug;
+        __aetherlife_sendMoveTo?: (x: number, y: number) => void;
+        __aetherlife_moveDebug?: () => {
+          gridX: number;
+          gridY: number;
+          schemaX: number;
+          schemaY: number;
+          pending: number;
+          visualOnlyAhead: number;
+          inputBuffer: { dx: number; dy: number } | null;
+          locomoting: boolean;
+          suppressSnap: boolean;
+        } | null;
+      };
+      w.__aetherlife_moveDebug = () => {
+        const sid = this.getSessionId();
+        if (!sid) return null;
+        const snap = ((this.registry.get("players") as PlayerSnap[]) ?? []).find(
+          (pl) => pl.sessionId === sid,
+        );
+        const ent = this.playerSprites.get(sid);
+        if (!snap || !ent) return null;
+        const sync = this.getMovementSync();
+        const predictor = sync?.getPredictor();
+        const pending = sync?.getPendingCount() ?? 0;
+        const logic = this.motionBridge?.getLogicGrid();
+        const localX = logic?.x ?? ent.gridX;
+        const localY = logic?.y ?? ent.gridY;
+        const auth = predictor?.getAuthoritativePos();
+        return {
+          gridX: localX,
+          gridY: localY,
+          schemaX: snap.x,
+          schemaY: snap.y,
+          authX: auth?.x ?? null,
+          authY: auth?.y ?? null,
+          pending,
+          visualOnlyAhead: predictor?.getVisualOnlyAhead() ?? 0,
+          inputBuffer: predictor?.getInputBuffer() ?? null,
+          locomoting: this.isLocalLocomoting(),
+          suppressSnap: shouldSuppressLocalSchemaSnap({
+            pendingMoves: pending,
+            isLocomoting: this.isLocalLocomoting(),
+            localX,
+            localY,
+            schemaX: snap.x,
+            schemaY: snap.y,
+          }),
+        };
+      };
+      w.__aetherlife_sendMoveTo = (x, y) => {
+        void this.getMovementSync()?.sendMoveTo(x, y);
       };
       w.__aetherlife_npcDebug = () => ({
         animateNpcMoves,
@@ -502,10 +838,6 @@ export class RoomScene extends Phaser.Scene {
     }
   }
 
-  private entityDepth(gx: number, gy: number, layer: 0 | 1 | 2 = 1): number {
-    return 10 + gy * 10 + gx + layer;
-  }
-
   /** Top-down disc + label — Phaser canvas markers, not MovementPanel grid boxes. */
   private createDiscMarker(
     label: string,
@@ -516,7 +848,7 @@ export class RoomScene extends Phaser.Scene {
   ): EntitySprite {
     const { wx, wy } = gridToWorld(gx, gy);
     const container = this.add.container(wx, wy);
-    container.setDepth(this.entityDepth(gx, gy, layer));
+    container.setDepth(entityDepth(gx, gy, layer));
 
     const r = style.radius ?? MARKER_RADIUS;
     const body = this.add.circle(0, MARKER_CY, r, style.fill, style.fillAlpha);
@@ -564,12 +896,21 @@ export class RoomScene extends Phaser.Scene {
     const { wx, wy } = gridToWorld(gx, gy);
     ent.container.setPosition(wx, wy);
     ent.container.setScale(scaleX, scaleY);
-    ent.container.setDepth(this.entityDepth(gx, gy, ent.depthLayer));
+    ent.container.setDepth(entityDepth(gx, gy, ent.depthLayer));
   }
 
   private tweenEntityTo(ent: EntitySprite, gx: number, gy: number, duration: number): void {
-    if (ent.gridX === gx && ent.gridY === gy) {
-      this.stopEntityMotion(ent);
+    if (
+      ent.targetGridX === gx &&
+      ent.targetGridY === gy &&
+      ent.moveTween?.isPlaying()
+    ) {
+      return;
+    }
+
+    if (ent.gridX === gx && ent.gridY === gy && !ent.moveTween?.isPlaying()) {
+      ent.targetGridX = gx;
+      ent.targetGridY = gy;
       this.snapEntityToGrid(ent, gx, gy);
       return;
     }
@@ -666,6 +1007,83 @@ export class RoomScene extends Phaser.Scene {
     walkNext();
   }
 
+  /** Local player: never linear-tween across multiple cells (looks diagonal). */
+  private tweenLocalPlayerTo(
+    ent: EntitySprite,
+    gx: number,
+    gy: number,
+    reduced: boolean,
+    clickPathAnimating = false,
+  ): void {
+    ent.targetGridX = gx;
+    ent.targetGridY = gy;
+    if (ent.gridX === gx && ent.gridY === gy) return;
+    if (reduced) {
+      this.stopEntityMotion(ent);
+      this.snapEntityToGrid(ent, gx, gy);
+      return;
+    }
+    const manhattan = Math.abs(ent.gridX - gx) + Math.abs(ent.gridY - gy);
+    if (clickPathAnimating) {
+      this.stopEntityMotion(ent);
+      if (manhattan <= 1) {
+        this.tweenEntityTo(ent, gx, gy, STEP_MS);
+      } else {
+        this.snapEntityToGrid(ent, gx, gy);
+      }
+      return;
+    }
+    if (manhattan <= 1) {
+      this.tweenEntityTo(ent, gx, gy, STEP_MS);
+      return;
+    }
+    this.walkLocalPlayerSteps(ent, gx, gy);
+  }
+
+  private walkLocalPlayerSteps(ent: EntitySprite, gx: number, gy: number): void {
+    if (
+      ent.targetGridX === gx &&
+      ent.targetGridY === gy &&
+      ent.moveTween?.isPlaying()
+    ) {
+      return;
+    }
+    this.stopEntityMotion(ent);
+    ent.targetGridX = gx;
+    ent.targetGridY = gy;
+    let cx = ent.gridX;
+    let cy = ent.gridY;
+
+    const walkNext = (): void => {
+      if (cx === gx && cy === gy) {
+        ent.moveTween = undefined;
+        return;
+      }
+      let nx = cx;
+      let ny = cy;
+      if (cx !== gx) nx += cx < gx ? 1 : -1;
+      else if (cy !== gy) ny += cy < gy ? 1 : -1;
+      cx = nx;
+      cy = ny;
+      ent.gridX = nx;
+      ent.gridY = ny;
+      const { wx, wy } = gridToWorld(nx, ny);
+      ent.container.setDepth(entityDepth(nx, ny, ent.depthLayer));
+      ent.moveTween = this.tweens.add({
+        targets: ent.container,
+        x: wx,
+        y: wy,
+        duration: STEP_MS,
+        ease: "Linear",
+        onComplete: () => {
+          if (cx === gx && cy === gy) ent.moveTween = undefined;
+          else walkNext();
+        },
+      });
+    };
+    walkNext();
+  }
+
   private tweenEntityOneStep(
     ent: EntitySprite,
     gx: number,
@@ -673,11 +1091,13 @@ export class RoomScene extends Phaser.Scene {
     duration: number,
   ): void {
     const reduced = this.registry.get("reducedMotion") as boolean;
-    ent.gridX = gx;
-    ent.gridY = gy;
-    ent.container.setDepth(this.entityDepth(gx, gy, ent.depthLayer));
+    ent.targetGridX = gx;
+    ent.targetGridY = gy;
+    ent.container.setDepth(entityDepth(gx, gy, ent.depthLayer));
     const { wx, wy } = gridToWorld(gx, gy);
     if (reduced) {
+      ent.gridX = gx;
+      ent.gridY = gy;
       ent.container.setPosition(wx, wy);
       return;
     }
@@ -688,6 +1108,8 @@ export class RoomScene extends Phaser.Scene {
       duration,
       ease: "Linear",
       onComplete: () => {
+        ent.gridX = gx;
+        ent.gridY = gy;
         ent.moveTween = undefined;
       },
     });

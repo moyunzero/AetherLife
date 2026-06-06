@@ -1,18 +1,20 @@
 import {
   type Facing,
-  findGridPath,
-  findNearestWalkableCell,
-  buildMoveGrid as buildSharedMoveGrid,
-  type MoveGrid,
+  buildGlobalMoveGrid,
+  canStepGlobal,
+  findGlobalGridPath,
+  findNearestGlobalWalkable,
+  type GlobalMoveGrid,
   type RoomState,
 } from "@aetherlife/shared";
+import type { ChunkLoader } from "../world/chunk-loader.js";
 import type { GameRoomState } from "./schema.js";
 
 export type MoveResult =
   | { ok: true; x: number; y: number; facing: Facing }
   | { ok: false; reason: string };
 
-export type { MoveGrid } from "@aetherlife/shared";
+export type { GlobalMoveGrid as MoveGrid } from "@aetherlife/shared";
 
 function facingFromDelta(dx: number, dy: number): Facing {
   if (dy < 0) return "n";
@@ -25,24 +27,29 @@ export function buildMoveGrid(
   map: RoomState,
   state: GameRoomState,
   sessionId: string,
-): MoveGrid {
+  loader: ChunkLoader,
+): GlobalMoveGrid {
   const otherPlayers: { x: number; y: number }[] = [];
   state.players.forEach((p, sid) => {
     if (sid !== sessionId) {
       otherPlayers.push({ x: p.x, y: p.y });
     }
   });
-  return buildSharedMoveGrid(map, otherPlayers);
+  return buildGlobalMoveGrid({
+    homeMap: map,
+    otherPlayerCells: otherPlayers,
+    isTerrainWalkable: (gx, gy) => loader.getWalkability(gx, gy) === true,
+  });
 }
 
-export { findGridPath, findNearestWalkableCell };
+export { findGlobalGridPath as findGridPath, findNearestGlobalWalkable as findNearestWalkableCell };
 
 export function applyPlayerMove(
   state: GameRoomState,
   sessionId: string,
   dx: number,
   dy: number,
-  grid: MoveGrid,
+  grid: GlobalMoveGrid,
 ): MoveResult {
   if (!Number.isInteger(dx) || !Number.isInteger(dy)) {
     return { ok: false, reason: "dx and dy must be integers" };
@@ -58,10 +65,7 @@ export function applyPlayerMove(
 
   const nx = player.x + dx;
   const ny = player.y + dy;
-  if (nx < 0 || ny < 0 || nx >= grid.width || ny >= grid.height) {
-    return { ok: false, reason: "move out of bounds" };
-  }
-  if (grid.isBlocked(nx, ny)) {
+  if (!canStepGlobal(nx, ny, grid)) {
     return { ok: false, reason: "cell blocked" };
   }
 
@@ -77,7 +81,7 @@ export function applyPlayerMoveTo(
   sessionId: string,
   targetX: number,
   targetY: number,
-  grid: MoveGrid,
+  grid: GlobalMoveGrid,
 ): MoveResult {
   if (!Number.isInteger(targetX) || !Number.isInteger(targetY)) {
     return { ok: false, reason: "target must be integers" };
@@ -88,7 +92,7 @@ export function applyPlayerMoveTo(
     return { ok: false, reason: "unknown player" };
   }
 
-  const path = findGridPath(player.x, player.y, targetX, targetY, grid);
+  const path = findGlobalGridPath(player.x, player.y, targetX, targetY, grid);
   if (!path) {
     return { ok: false, reason: "no path to target" };
   }

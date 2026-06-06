@@ -22,6 +22,20 @@
       "when": 1749187200000,
       "tag": "0003_player_id",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1749273600000,
+      "tag": "0004_world_chunks",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1749360000000,
+      "tag": "0005_world_chunk_lore",
+      "breakpoints": true
     }
   ]
 }

@@ -19,7 +19,8 @@
     "bullmq": "^5.78.0",
     "colyseus": "0.17.8",
     "express": "^4.21.2",
-    "ioredis": "^5.11.0"
+    "ioredis": "^5.11.0",
+    "postgres": "^3.4.7"
   },
   "devDependencies": {
     "@swc/core": "^1.15.40",

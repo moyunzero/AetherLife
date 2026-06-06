@@ -1,6 +1,11 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { safeParseGameAction } from "@aetherlife/game-actions";
-import { findNpc } from "@aetherlife/shared";
+import {
+  findNpc,
+  HOME_CHUNK_LORE,
+  chunkOf,
+  toChunkLorePublic,
+} from "@aetherlife/shared";
 import { applyGameAction, ExecutorError } from "../room/executor.js";
 import { recordSuccessfulMutation } from "../audit/record.js";
 import { MemoryService } from "../memory/service.js";
@@ -13,6 +18,8 @@ import {
 import { getColyseusRoom } from "../colyseus/room-registry.js";
 import { playerIdFromRequest } from "../http/player-id.js";
 import { getOrCreate, reset, setState } from "../room/store.js";
+import { getChunkLoader } from "../world/chunk-loader.js";
+import { getChunkLore } from "../world/lore-repository.js";
 
 function formatZodError(error: { issues: Array<{ path: (string | number)[]; message: string }> }) {
   return error.issues.map((issue) => ({
@@ -81,6 +88,9 @@ async function applyActionsHandler(req: Request, res: Response): Promise<void> {
   const colyseusRoom = getColyseusRoom(roomId);
   colyseusRoom?.refreshFromMap();
 
+  const loader = getChunkLoader(roomId);
+  await loader.persistDelta(0, 0, { objects: [...current.state.objects] });
+
   res.json({ ok: true, state: current.state, applied });
 }
 
@@ -99,6 +109,31 @@ async function buildMemoryCounts(
   return Object.fromEntries(entries);
 }
 
+async function buildNearbyLore(
+  roomId: string,
+  gx: number,
+  gy: number,
+): Promise<Array<{ cx: number; cy: number; nameZh: string; flavorOneLine: string }>> {
+  const { cx, cy } = chunkOf(gx, gy);
+  const out: Array<{ cx: number; cy: number; nameZh: string; flavorOneLine: string }> = [];
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -1; dy <= 1; dy++) {
+      const ncx = cx + dx;
+      const ncy = cy + dy;
+      if (ncx === 0 && ncy === 0) {
+        const pub = toChunkLorePublic(HOME_CHUNK_LORE);
+        out.push({ cx: ncx, cy: ncy, nameZh: pub.nameZh, flavorOneLine: pub.flavorOneLine });
+        continue;
+      }
+      const row = await getChunkLore(roomId, ncx, ncy);
+      if (!row) continue;
+      const pub = toChunkLorePublic(row.lore);
+      out.push({ cx: ncx, cy: ncy, nameZh: pub.nameZh, flavorOneLine: pub.flavorOneLine });
+    }
+  }
+  return out;
+}
+
 export function createRoomsRouter(): Router {
   const router = Router();
 
@@ -113,7 +148,11 @@ export function createRoomsRouter(): Router {
         record.state.npcs.map((npc) => npc.id),
       );
       const viewState = roomStateForInitiator(record.state, roomId, playerId);
-      res.json({ state: viewState, memoryCounts });
+      const anchor = findPlayerCellByPlayerId(roomId, playerId);
+      const nearbyLore = anchor
+        ? await buildNearbyLore(roomId, anchor.x, anchor.y)
+        : [];
+      res.json({ state: viewState, memoryCounts, nearbyLore });
     } catch (err) {
       const message = err instanceof Error ? err.message : "state failed";
       res.status(500).json({ ok: false, error: message });
@@ -141,6 +180,26 @@ export function createRoomsRouter(): Router {
   });
 
   router.post("/:roomId/apply-actions", applyActionsHandler);
+
+  router.get("/:roomId/chunks/:cx/:cy/lore", async (req, res) => {
+    const { roomId } = req.params;
+    const cx = Number.parseInt(req.params.cx, 10);
+    const cy = Number.parseInt(req.params.cy, 10);
+    if (!Number.isFinite(cx) || !Number.isFinite(cy)) {
+      res.status(400).json({ ok: false, error: "invalid chunk coords" });
+      return;
+    }
+    if (cx === 0 && cy === 0) {
+      res.json({ ok: true, lore: toChunkLorePublic(HOME_CHUNK_LORE) });
+      return;
+    }
+    const row = await getChunkLore(roomId, cx, cy);
+    if (!row) {
+      res.status(404).json({ ok: false, error: "lore not found" });
+      return;
+    }
+    res.json({ ok: true, lore: toChunkLorePublic(row.lore) });
+  });
 
   return router;
 }

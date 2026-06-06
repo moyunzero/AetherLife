@@ -1,13 +1,19 @@
 import os
 
 from src.config import Settings
-from src.graph.npc_loop import build_npc_graph, run_npc_turn
+from src.graph.npc_loop import build_npc_graph, build_npc_interactive_graph, run_npc_turn
 from src.persistence.checkpointer import reset_checkpointer_for_tests
 
 
 def test_build_npc_graph_compiles():
     reset_checkpointer_for_tests()
     graph = build_npc_graph(Settings(llm_mock=True))
+    assert graph is not None
+
+
+def test_build_npc_interactive_graph_compiles():
+    reset_checkpointer_for_tests()
+    graph = build_npc_interactive_graph(Settings(llm_mock=True))
     assert graph is not None
 
 
@@ -127,7 +133,7 @@ def test_run_npc_turn_uses_per_npc_thread_id(monkeypatch):
             captured["config"] = config
             return {**initial, "tool_calls": [], "reply": "ok"}
 
-    monkeypatch.setattr("src.graph.npc_loop.build_npc_graph", lambda _cfg: FakeGraph())
+    monkeypatch.setattr("src.graph.npc_loop.build_npc_interactive_graph", lambda _cfg: FakeGraph())
     settings = Settings(llm_mock=True, game_server_url="http://127.0.0.1:2567")
 
     run_npc_turn(

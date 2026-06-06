@@ -17,3 +17,13 @@ export const MARKER_LABEL_Y = -(MARKER_RADIUS + 6);
 export const MARKER_STROKE = 2;
 
 export const MARKER_LABEL_MAX_WIDTH = 36;
+
+/** Floor/path layers use 0–2; entities sit above via this baseline. */
+export const ENTITY_DEPTH_BASE = 10_000;
+
+/**
+ * Y-sort depth for grid entities. Baseline keeps depth positive when `gy < 0` (explore north).
+ */
+export function entityDepth(gx: number, gy: number, layer: 0 | 1 | 2 = 1): number {
+  return ENTITY_DEPTH_BASE + gy * 10 + gx + layer;
+}

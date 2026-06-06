@@ -1,9 +1,7 @@
-import json
 import os
-import re
 
 from src.config import Settings, get_settings
-from src.llm.factory import create_chat_model
+from src.llm.openrouter_chat import invoke_chat_llm
 
 DEFAULT_IMPORTANCE = 5
 
@@ -13,6 +11,9 @@ def _clamp(value: float) -> int:
 
 
 def _parse_importance(content: str) -> int | None:
+    import json
+    import re
+
     text = content.strip()
     try:
         parsed = json.loads(text)
@@ -33,8 +34,7 @@ def score_importance(text: str, settings: Settings | None = None) -> int:
     if cfg.llm_mock:
         return DEFAULT_IMPORTANCE
 
-    llm = create_chat_model(settings=cfg)
-    response = llm.invoke(
+    content = invoke_chat_llm(
         [
             {
                 "role": "system",
@@ -43,7 +43,8 @@ def score_importance(text: str, settings: Settings | None = None) -> int:
                 ),
             },
             {"role": "user", "content": text[:500]},
-        ]
+        ],
+        settings=cfg,
+        temperature=0,
     )
-    content = getattr(response, "content", "") or ""
-    return _parse_importance(str(content)) or DEFAULT_IMPORTANCE
+    return _parse_importance(content) or DEFAULT_IMPORTANCE

@@ -35,6 +35,11 @@ export async function startNpcChatTurn(
   playerId: string,
 ): Promise<string> {
   getOrCreate(roomId);
-  await MemoryService.getInstance().appendPlayerMemory(roomId, message, npcId, playerId);
-  return addNpcTurnJob({ roomId, playerMessage: message, npcId, playerId });
+  const jobId = await addNpcTurnJob({ roomId, playerMessage: message, npcId, playerId });
+  void MemoryService.getInstance()
+    .appendPlayerMemory(roomId, message, npcId, playerId)
+    .catch((err) => {
+      console.error("[npc-chat] appendPlayerMemory failed", err);
+    });
+  return jobId;
 }

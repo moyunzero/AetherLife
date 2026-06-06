@@ -3,7 +3,7 @@ from typing import Any
 import httpx
 
 from src.config import Settings, get_settings
-from src.llm.factory import create_chat_model
+from src.llm.openrouter_chat import invoke_chat_llm
 from src.memory.client import fetch_oldest_memories, store_bulk_summary
 
 
@@ -14,8 +14,7 @@ def run_bulk_summarize_llm(texts: list[str], settings: Settings | None = None) -
     if cfg.llm_mock:
         return f"Bulk summary of {len(texts)} memories: " + "; ".join(texts[:5])
 
-    llm = create_chat_model(settings=cfg)
-    response = llm.invoke(
+    content = invoke_chat_llm(
         [
             {
                 "role": "system",
@@ -25,9 +24,10 @@ def run_bulk_summarize_llm(texts: list[str], settings: Settings | None = None) -
                 ),
             },
             {"role": "user", "content": joined or "(empty)"},
-        ]
+        ],
+        settings=cfg,
     )
-    return str(getattr(response, "content", "") or "").strip()
+    return content.strip()
 
 
 def maybe_bulk_summarize(

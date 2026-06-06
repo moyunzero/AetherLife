@@ -1,5 +1,8 @@
 export const CELL_PX = 40;
 
+/** Phaser viewport size in cells (camera follows player in global coords). */
+export const VIEWPORT_CELLS = 12;
+
 export function worldSize(width: number, height: number): { w: number; h: number } {
   return { w: width * CELL_PX, h: height * CELL_PX };
 }

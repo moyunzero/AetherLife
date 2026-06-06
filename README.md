@@ -293,3 +293,5 @@ pnpm uat:phase8:playwright   # 浏览器 UAT + 截图
 ```
 
 详见 [.planning/phases/08-multiplayer-room/08-VALIDATION.md](./.planning/phases/08-multiplayer-room/08-VALIDATION.md) 与 [docs/E2E-POLICY.md](./docs/E2E-POLICY.md)。
+
+**Phase 9 语音暂缓：** 规划已完成、未实现；下一活跃阶段为 Phase 10，恢复语音见 [.planning/phases/09-voice-pipeline/09-STATUS.md](./.planning/phases/09-voice-pipeline/09-STATUS.md)。

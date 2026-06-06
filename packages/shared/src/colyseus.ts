@@ -18,6 +18,8 @@ export type Facing = "n" | "e" | "s" | "w";
 export const COLYSEUS_CLIENT_MESSAGES = {
   move: "move",
   speak: "speak",
+  /** Re-request loaded chunk views after join (initial chunksSync may arrive before listener). */
+  requestChunksSync: "requestChunksSync",
 } as const;
 
 export const COLYSEUS_SERVER_MESSAGES = {
@@ -28,6 +30,8 @@ export const COLYSEUS_SERVER_MESSAGES = {
   patch: "patch",
   speakBusy: "speakBusy",
   speakIdle: "speakIdle",
+  chunksSync: "chunksSync",
+  loreSync: "loreSync",
 } as const;
 
 export type ColyseusMovePayload =
@@ -62,4 +66,26 @@ export type ColyseusSpeakBusyPayload = {
 /** Broadcast when an NPC finishes processing and accepts new speak requests. */
 export type ColyseusSpeakIdlePayload = {
   npcId: string;
+};
+
+/** Loaded chunk tile window for client render (Phase 10). */
+export type ColyseusChunksSyncPayload = {
+  chunks: import("./chunk.js").ChunkView[];
+};
+
+import type { ChunkLorePublic } from "./worldLore.js";
+
+export type ChunkLoreStatus = "home" | "pending" | "ready" | "void" | "failed";
+
+export type { ChunkLorePublic } from "./worldLore.js";
+
+export type ColyseusLoreSyncPayload = {
+  entries: Array<{
+    cx: number;
+    cy: number;
+    status: ChunkLoreStatus;
+    lore?: ChunkLorePublic;
+    /** True only for the session/player that triggered first enqueue (D-06). */
+    isFirstDiscover?: boolean;
+  }>;
 };

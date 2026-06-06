@@ -412,8 +412,6 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface);
-  min-height: 40vh;
-  max-height: 50vh;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -431,6 +429,57 @@ body {
   color: var(--text-muted);
 }
 
+.explore-coords-strip {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.explore-coords-strip__meta {
+  margin: 2px 0 0;
+  font-size: 10px;
+  opacity: 0.85;
+}
+
+.explore-coords-strip__pending {
+  margin: 4px 0 0;
+  font-size: 10px;
+  color: var(--accent, #c4a574);
+  font-style: italic;
+}
+
+.lore-discover-toast {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  padding: 10px 12px 10px 14px;
+  border-left: 3px solid var(--accent, #c4a574);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--surface-elevated, #1a1a1f) 92%, transparent);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 25%);
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.lore-discover-toast__title {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent, #c4a574);
+}
+
+.lore-discover-toast__body {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-primary, #e8e4dc);
+}
+
 .room-scene-panel__hint {
   margin: 0;
   font-size: 12px;
@@ -442,9 +491,18 @@ body {
   color: var(--destructive);
 }
 
+/* Fixed 1:1 stage — hints overlay so canvas size never jumps */
+.room-scene-panel__stage {
+  position: relative;
+  width: 100%;
+  max-width: min(480px, 100%);
+  margin: 0 auto;
+  flex: 0 0 auto;
+}
+
 .room-scene-panel__canvas {
-  flex: 1;
-  min-height: 0;
+  width: 100%;
+  aspect-ratio: 1 / 1;
   overflow: hidden;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
@@ -453,7 +511,29 @@ body {
 
 .room-scene-panel__canvas canvas {
   display: block;
+  width: 100% !important;
+  height: 100% !important;
   margin: 0 auto;
+}
+
+.room-scene-panel__overlay {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.room-scene-panel__overlay .room-scene-panel__hint {
+  margin: 0;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  background: rgba(15, 14, 12, 0.72);
+  backdrop-filter: blur(4px);
 }
 
 .movement-panel {

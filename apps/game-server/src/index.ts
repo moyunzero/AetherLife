@@ -7,6 +7,10 @@ import { createNpcMemoryRouter } from "./routes/npc-memory.js";
 import { createAuditRouter } from "./routes/audit.js";
 import { createInternalJobsRouter } from "./routes/internal.js";
 import { createInternalMemoriesRouter } from "./routes/internal-memories.js";
+import {
+  createInternalLoreMetricsRouter,
+  createInternalLoreRouter,
+} from "./routes/internal-lore.js";
 import { attachColyseus } from "./colyseus/server.js";
 
 function formatZodError(error: { issues: Array<{ path: (string | number)[]; message: string }> }) {
@@ -40,6 +44,8 @@ export function createApp(): Express {
   app.use("/internal/rooms", json, createInternalRoomsRouter());
   app.use("/internal/rooms", json, createInternalMemoriesRouter());
   app.use("/internal/jobs", json, createInternalJobsRouter());
+  app.use("/internal/world", json, createInternalLoreRouter());
+  app.use("/internal/metrics", json, createInternalLoreMetricsRouter());
 
   app.use(
     (

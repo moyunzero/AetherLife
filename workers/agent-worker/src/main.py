@@ -6,13 +6,16 @@ import httpx
 import redis
 
 from src.config import Settings, get_settings
-from src.graph.npc_loop import run_npc_turn
+from src.graph.lore_loop import run_lore_job
+from src.graph.npc_loop import run_npc_memory_tail, run_npc_turn_interactive
 from src.persistence.checkpointer import setup_checkpointer
 from src.guard.reply_audit import audit_reply
 from src.llm.errors import format_llm_error
 
 BRIDGE_LIST_KEY = "aetherlife:npc-turn:jobs"
+LORE_BRIDGE_LIST_KEY = "aetherlife:chunk-lore:jobs"
 BLPOP_TIMEOUT_S = 5
+LORE_BLPOP_TIMEOUT_S = 1
 
 
 def create_redis_client(redis_url: str) -> redis.Redis:
@@ -65,6 +68,14 @@ def validate_llm_settings(settings: Settings) -> None:
     _api_key_for_provider(settings, settings.llm_provider.lower())
 
 
+def process_lore_job(client: httpx.Client, settings: Settings, payload: dict) -> None:
+    print(
+        f"lore job received jobId={payload.get('jobId')} chunk=({payload.get('cx')},{payload.get('cy')})",
+        file=sys.stderr,
+    )
+    run_lore_job(payload, settings=settings, client=client)
+
+
 def process_job(client: httpx.Client, settings: Settings, payload: dict) -> None:
     job_id = payload["jobId"]
     room_id = payload.get("roomId", "default")
@@ -74,7 +85,7 @@ def process_job(client: httpx.Client, settings: Settings, payload: dict) -> None
 
     emit_job_event(client, settings, job_id, "thinking", {"status": "planning", "npcId": npc_id})
 
-    result = run_npc_turn(
+    result = run_npc_turn_interactive(
         room_id=room_id,
         player_message=player_message,
         npc_id=npc_id,
@@ -104,6 +115,14 @@ def process_job(client: httpx.Client, settings: Settings, payload: dict) -> None
             "traceRunId": trace_run_id,
         },
     )
+
+    try:
+        run_npc_memory_tail(result, settings)
+    except Exception as exc:
+        print(
+            f"memory tail failed jobId={job_id} (player already got done): {exc}",
+            file=sys.stderr,
+        )
 
 
 def run_mock() -> None:
@@ -143,36 +162,46 @@ def run_worker() -> None:
         sys.exit(1)
 
     r = create_redis_client(settings.redis_url)
-    print("connected to Redis; waiting for npc-turn jobs", file=sys.stderr)
+    print("connected to Redis; waiting for npc-turn + chunk-lore jobs", file=sys.stderr)
 
     with httpx.Client() as client:
         while True:
             try:
+                # npc-turn first — lore flood must not starve speak jobs
                 item = r.blpop(BRIDGE_LIST_KEY, timeout=BLPOP_TIMEOUT_S)
+                queue = "npc" if item else None
+                if not item:
+                    item = r.blpop(LORE_BRIDGE_LIST_KEY, timeout=LORE_BLPOP_TIMEOUT_S)
+                    queue = "lore" if item else None
             except redis.exceptions.TimeoutError:
-                # Idle poll — no job within BLPOP timeout
                 continue
             except redis.exceptions.ConnectionError as exc:
                 print(f"Redis connection lost: {exc}", file=sys.stderr)
                 r = create_redis_client(settings.redis_url)
                 continue
 
-            if not item:
+            if not item or not queue:
                 continue
             _, raw = item
             payload = json.loads(raw)
-            print(f"job received jobId={payload.get('jobId')}", file=sys.stderr)
+            if queue == "npc":
+                print(f"job received jobId={payload.get('jobId')}", file=sys.stderr)
+                try:
+                    process_job(client, settings, payload)
+                except Exception as exc:
+                    print(f"job failed jobId={payload.get('jobId')}: {exc}", file=sys.stderr)
+                    emit_job_event(
+                        client,
+                        settings,
+                        payload["jobId"],
+                        "error",
+                        {"message": format_llm_error(exc, provider=settings.llm_provider)},
+                    )
+                continue
             try:
-                process_job(client, settings, payload)
+                process_lore_job(client, settings, payload)
             except Exception as exc:
-                print(f"job failed jobId={payload.get('jobId')}: {exc}", file=sys.stderr)
-                emit_job_event(
-                    client,
-                    settings,
-                    payload["jobId"],
-                    "error",
-                    {"message": format_llm_error(exc)},
-                )
+                print(f"lore job error jobId={payload.get('jobId')}: {exc}", file=sys.stderr)
 
 
 def main() -> None:

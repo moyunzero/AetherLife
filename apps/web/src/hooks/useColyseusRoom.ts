@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { LocalPlayerMotionBridge } from "../game/localPlayerMotion.js";
+import { MovementSyncController } from "../game/MovementSyncController.js";
 import { Client, type Room } from "@colyseus/sdk";
 import {
   COLYSEUS_CLIENT_MESSAGES,
@@ -7,15 +9,14 @@ import {
   COLYSEUS_ROOM_FULL_WS_CODE,
   COLYSEUS_ROOM_NAME,
   COLYSEUS_SERVER_MESSAGES,
-  buildMoveGrid,
-  canStepTo,
-  createDefaultRoom,
-  findGridPath,
-  type ColyseusMoveAckPayload,
-  type ColyseusMovePayload,
+  chunkViewsFingerprint,
+  type ChunkView,
+  type ColyseusChunksSyncPayload,
+  type ColyseusLoreSyncPayload,
   type RoomState,
 } from "@aetherlife/shared";
-import { getOrCreatePlayerId, readLastGridPos, writeLastGridPos } from "../lib/playerSession.js";
+import { useChunkLore } from "./useChunkLore.js";
+import { getOrCreatePlayerId, readLastGridPos } from "../lib/playerSession.js";
 
 export type PlayerSnapshot = {
   sessionId: string;
@@ -25,14 +26,26 @@ export type PlayerSnapshot = {
   facing: string;
 };
 
-const wsUrl =
-  import.meta.env.VITE_GAME_SERVER_WS ||
-  `ws://${typeof window !== "undefined" ? window.location.hostname : "127.0.0.1"}:2567`;
+/** Localhost: direct :2567 (reliable WS). Tunnel/preview: same-origin via Vite `/matchmake` proxy. */
+function resolveColyseusWsUrl(): string {
+  if (import.meta.env.VITE_GAME_SERVER_WS) {
+    return import.meta.env.VITE_GAME_SERVER_WS;
+  }
+  if (typeof window !== "undefined" && typeof window.location?.hostname !== "undefined") {
+    const { hostname, port, protocol } = window.location;
+    const isLocalHost =
+      hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
+    if (!isLocalHost) {
+      const p = port ? `:${port}` : "";
+      return `${protocol.replace("http", "ws")}//${hostname}${p}`;
+    }
+  }
+  return "ws://127.0.0.1:2567";
+}
 
-const STEP_MS = 140;
+const wsUrl = resolveColyseusWsUrl();
+
 const REMOTE_INTERP_MS = 130;
-const BLOCKED_MOVE_HINT = "该方向无法移动（NPC、门或其他玩家占格）";
-const BLOCKED_PATH_HINT = "无法到达该格（被 NPC、门或其他玩家挡住）";
 
 type PlayerEntry = {
   sessionId?: string;
@@ -100,6 +113,8 @@ function isRoomFullError(err: unknown): boolean {
 export type SyncMetrics = {
   rttMs: number | null;
   corrections: number;
+  /** In-flight predicted steps (syncDebug). */
+  pending: number;
 };
 
 export function useColyseusRoom(roomId = "default", map: RoomState | null = null) {
@@ -113,24 +128,68 @@ export function useColyseusRoom(roomId = "default", map: RoomState | null = null
   const [visualPos, setVisualPos] = useState<{ x: number; y: number } | null>(null);
   const [animating, setAnimating] = useState(false);
   const [moveHint, setMoveHint] = useState<string | null>(null);
-  const [syncMetrics, setSyncMetrics] = useState<SyncMetrics>({ rttMs: null, corrections: 0 });
-  const animatingRef = useRef(false);
+  const [syncMetrics, setSyncMetrics] = useState<SyncMetrics>({
+    rttMs: null,
+    corrections: 0,
+    pending: 0,
+  });
+  const [loadedChunks, setLoadedChunks] = useState<ChunkView[]>([]);
+  const {
+    mergeLoreSync,
+    loreForChunk,
+    consumeDiscoverToast,
+    resetLore,
+    toastQueue,
+  } = useChunkLore();
+  const roomIdRef = useRef(roomId);
   const playersRef = useRef(players);
-  const visualPosRef = useRef(visualPos);
+  const sessionIdRef = useRef(sessionId);
   const mapRef = useRef(map);
-  const clientSeqRef = useRef(0);
-  const pendingMovesRef = useRef<{ clientSeq: number; sentAt: number }[]>([]);
+  roomIdRef.current = roomId;
+  const loadedChunksRef = useRef(loadedChunks);
+  const motionBridgeRef = useRef<LocalPlayerMotionBridge | null>(null);
+  const movementSyncRef = useRef<MovementSyncController | null>(null);
+  sessionIdRef.current = sessionId;
+  if (!movementSyncRef.current) {
+    movementSyncRef.current = new MovementSyncController({
+      onHint: (hint) => setMoveHint(hint),
+      onPendingCount: (n) => {
+        setSyncMetrics((m) => (m.pending === n ? m : { ...m, pending: n }));
+      },
+      onRttMs: (ms) => {
+        setSyncMetrics((m) => ({ ...m, rttMs: ms }));
+      },
+      onCorrection: () => {
+        setSyncMetrics((m) => ({ ...m, corrections: m.corrections + 1 }));
+      },
+      onAnimating: (v) => setAnimating(v),
+      onVisualPos: setVisualPos,
+    });
+  }
+  const loadedChunksFpRef = useRef("");
   playersRef.current = players;
-  visualPosRef.current = visualPos;
   mapRef.current = map;
+  loadedChunksRef.current = loadedChunks;
+
+  const sync = movementSyncRef.current;
+  sync.setDataSources({
+    getRoomId: () => roomIdRef.current,
+    getPlayers: () => playersRef.current,
+    getSessionId: () => sessionIdRef.current,
+    getMap: () => mapRef.current,
+    getLoadedChunks: () => loadedChunksRef.current,
+    getMotionBridge: () => motionBridgeRef.current,
+    getJoinGeneration: () => joinGeneration,
+  });
 
   useEffect(() => {
     if (!visualPos || !sessionId) return;
+    if (sync.getPendingCount() > 0) return;
     const self = players.find((p) => p.sessionId === sessionId);
     if (self && self.x === visualPos.x && self.y === visualPos.y) {
       setVisualPos(null);
     }
-  }, [players, sessionId, visualPos]);
+  }, [players, sessionId, visualPos, sync]);
 
   useEffect(() => {
     if (!moveHint) return;
@@ -138,19 +197,16 @@ export function useColyseusRoom(roomId = "default", map: RoomState | null = null
     return () => window.clearTimeout(t);
   }, [moveHint]);
 
-  const displayPlayers = useMemo(() => {
-    if (!visualPos || !sessionId) return players;
-    return players.map((p) =>
-      p.sessionId === sessionId ? { ...p, x: visualPos.x, y: visualPos.y } : p,
-    );
-  }, [players, sessionId, visualPos]);
-
   const remoteInterpMs = REMOTE_INTERP_MS;
 
   useEffect(() => {
     const generation = ++joinGeneration;
     let activeRoom: Room | null = null;
     let restoredGridPos = false;
+    let offChunksSync: (() => void) | undefined;
+    let offLoreSync: (() => void) | undefined;
+
+    sync.setJoinGeneration(generation);
     const client = new Client(wsUrl);
     const playerId = getOrCreatePlayerId();
 
@@ -165,42 +221,12 @@ export function useColyseusRoom(roomId = "default", map: RoomState | null = null
         restoredGridPos = true;
         const saved = readLastGridPos(roomId);
         if (saved && (saved.x !== self.x || saved.y !== self.y)) {
-          const seq = ++clientSeqRef.current;
-          pendingMovesRef.current.push({ clientSeq: seq, sentAt: Date.now() });
-          joined.send(COLYSEUS_CLIENT_MESSAGES.move, {
-            targetX: saved.x,
-            targetY: saved.y,
-            clientSeq: seq,
-          });
+          sync.pushRestoreMove(self, snapshots, saved);
           return;
         }
       }
 
-      writeLastGridPos(roomId, self.x, self.y);
-    };
-
-    const onMoveAck = (data: ColyseusMoveAckPayload) => {
-      if (generation !== joinGeneration) return;
-      const sentAt = pendingMovesRef.current.find((m) => m.clientSeq === data.clientSeq)?.sentAt;
-      if (sentAt) {
-        const rtt = Date.now() - sentAt;
-        setSyncMetrics((m) => ({ ...m, rttMs: rtt }));
-      }
-      pendingMovesRef.current = pendingMovesRef.current.filter((m) => m.clientSeq > data.clientSeq);
-
-      const sid = activeRoom?.sessionId;
-      const self = playersRef.current.find((p) => p.sessionId === sid);
-      const visual = visualPosRef.current;
-      const serverMismatch = self && (self.x !== data.x || self.y !== data.y);
-      const visualMismatch = visual && (visual.x !== data.x || visual.y !== data.y);
-      if (serverMismatch || visualMismatch) {
-        setSyncMetrics((m) => ({ ...m, corrections: m.corrections + 1 }));
-        setMoveHint("位置已与服务器同步。");
-        setVisualPos({ x: data.x, y: data.y });
-      } else {
-        setVisualPos(null);
-      }
-      writeLastGridPos(roomId, data.x, data.y);
+      sync.onSchemaSelf(self);
     };
 
     const attachRoom = (joined: Room) => {
@@ -215,6 +241,7 @@ export function useColyseusRoom(roomId = "default", map: RoomState | null = null
       setConnected(true);
       setError(null);
       setRoomFull(false);
+      sync.attachRoom(joined);
       applySnapshots(joined);
 
       joined.onStateChange(() => {
@@ -222,7 +249,27 @@ export function useColyseusRoom(roomId = "default", map: RoomState | null = null
         applySnapshots(joined);
       });
 
-      joined.onMessage(COLYSEUS_SERVER_MESSAGES.moveAck, onMoveAck);
+      offChunksSync = joined.onMessage(
+        COLYSEUS_SERVER_MESSAGES.chunksSync,
+        (data: ColyseusChunksSyncPayload) => {
+          if (generation !== joinGeneration) return;
+          const chunks = data.chunks ?? [];
+          const fp = chunkViewsFingerprint(chunks);
+          if (fp === loadedChunksFpRef.current) return;
+          loadedChunksFpRef.current = fp;
+          loadedChunksRef.current = chunks;
+          setLoadedChunks(chunks);
+          sync.onLoadedChunksUpdated();
+        },
+      );
+      offLoreSync = joined.onMessage(
+        COLYSEUS_SERVER_MESSAGES.loreSync,
+        (data: ColyseusLoreSyncPayload) => {
+          if (generation !== joinGeneration) return;
+          mergeLoreSync(data);
+        },
+      );
+      joined.send(COLYSEUS_CLIENT_MESSAGES.requestChunksSync, {});
     };
 
     const failJoin = (err: unknown) => {
@@ -241,16 +288,8 @@ export function useColyseusRoom(roomId = "default", map: RoomState | null = null
 
     const attemptJoin = async (attempt: number): Promise<void> => {
       try {
-        let joined: Room;
-        try {
-          joined = await client.join(COLYSEUS_ROOM_NAME, joinOptions);
-        } catch (joinErr) {
-          if (isRoomFullError(joinErr)) {
-            failJoin(joinErr);
-            return;
-          }
-          joined = await client.joinOrCreate(COLYSEUS_ROOM_NAME, joinOptions);
-        }
+        // Prefer joinOrCreate — avoids spurious matchmake 521 when shard not yet created.
+        const joined = await client.joinOrCreate(COLYSEUS_ROOM_NAME, joinOptions);
         joined.onLeave((code, reason) => {
           if (generation !== joinGeneration) return;
           if (isRoomFullError(code) || isRoomFullError(reason)) {
@@ -261,6 +300,7 @@ export function useColyseusRoom(roomId = "default", map: RoomState | null = null
             setSessionId(null);
             roomRef.current = null;
             activeRoom = null;
+            sync.detachRoom();
             return;
           }
           if (code === COLYSEUS_ORPHAN_SHARD_WS_CODE && attempt < 5) {
@@ -287,97 +327,42 @@ export function useColyseusRoom(roomId = "default", map: RoomState | null = null
 
     return () => {
       joinGeneration += 1;
+      offChunksSync?.();
+      offLoreSync?.();
+      resetLore();
       const leaving = activeRoom ?? roomRef.current;
       activeRoom = null;
       roomRef.current = null;
-      clientSeqRef.current = 0;
-      pendingMovesRef.current = [];
+      sync.reset();
+      loadedChunksFpRef.current = "";
+      setLoadedChunks([]);
       setRoom(null);
       setConnected(false);
-      if (leaving) void leaving.leave();
     };
-  }, [roomId]);
+  }, [roomId, sync, mergeLoreSync, resetLore]);
 
+  /** MovementPanel fallback (no Phaser). Phaser path uses RoomScene → movementSync directly. */
   const sendMove = useCallback(
     (dx: number, dy: number) => {
-      if (animatingRef.current) return;
-      const sid = sessionId;
-      const self = playersRef.current.find((p) => p.sessionId === sid);
-      if (!self || !sid) return;
-
-      const fromX = visualPosRef.current?.x ?? self.x;
-      const fromY = visualPosRef.current?.y ?? self.y;
-      const toX = fromX + dx;
-      const toY = fromY + dy;
-      const mapState = mapRef.current ?? createDefaultRoom(roomId);
-      const others = playersRef.current
-        .filter((p) => p.sessionId !== sid)
-        .map((p) => ({ x: p.x, y: p.y }));
-
-      if (!canStepTo(mapState, toX, toY, others)) {
-        setMoveHint(BLOCKED_MOVE_HINT);
-        setVisualPos(null);
-        return;
-      }
-
-      const seq = ++clientSeqRef.current;
-      pendingMovesRef.current.push({ clientSeq: seq, sentAt: Date.now() });
-      setVisualPos({ x: toX, y: toY });
-      const payload: ColyseusMovePayload = { dx, dy, clientSeq: seq };
-      roomRef.current?.send(COLYSEUS_CLIENT_MESSAGES.move, payload);
+      sync.sendWasd(dx, dy);
     },
-    [roomId, sessionId],
+    [sync],
   );
 
   const sendMoveTo = useCallback(
-    async (targetX: number, targetY: number) => {
-      if (animatingRef.current) return;
-      const sid = sessionId;
-      const self = playersRef.current.find((p) => p.sessionId === sid);
-      if (!self || !sid) {
-        const seq = ++clientSeqRef.current;
-        pendingMovesRef.current.push({ clientSeq: seq, sentAt: Date.now() });
-        roomRef.current?.send(COLYSEUS_CLIENT_MESSAGES.move, { targetX, targetY, clientSeq: seq });
-        return;
-      }
-
-      const mapForPath = map ?? createDefaultRoom(roomId);
-      const others = playersRef.current
-        .filter((p) => p.sessionId !== sid)
-        .map((p) => ({ x: p.x, y: p.y }));
-      const grid = buildMoveGrid(mapForPath, others);
-      const path = findGridPath(self.x, self.y, targetX, targetY, grid);
-      if (!path) {
-        setMoveHint(BLOCKED_PATH_HINT);
-        return;
-      }
-      if (path.length <= 1) return;
-
-      animatingRef.current = true;
-      setAnimating(true);
-      try {
-        for (let i = 1; i < path.length; i++) {
-          const step = path[i]!;
-          setVisualPos({ x: step.x, y: step.y });
-          await sleep(STEP_MS);
-        }
-        const seq = ++clientSeqRef.current;
-        pendingMovesRef.current.push({ clientSeq: seq, sentAt: Date.now() });
-        roomRef.current?.send(COLYSEUS_CLIENT_MESSAGES.move, { targetX, targetY, clientSeq: seq });
-        setVisualPos({ x: targetX, y: targetY });
-      } finally {
-        animatingRef.current = false;
-        setAnimating(false);
-      }
+    (targetX: number, targetY: number) => {
+      void sync.sendMoveTo(targetX, targetY);
     },
-    [map, roomId, sessionId],
+    [sync],
   );
 
   return {
     room,
     roomRef,
+    motionBridgeRef,
+    movementSyncRef,
     connected,
-    players: displayPlayers,
+    players,
     sessionId,
     error,
     roomFull,
@@ -387,5 +372,9 @@ export function useColyseusRoom(roomId = "default", map: RoomState | null = null
     sendMoveTo,
     syncMetrics,
     remoteInterpMs,
+    loadedChunks,
+    loreForChunk,
+    consumeDiscoverToast,
+    loreToastQueue: toastQueue,
   };
 }

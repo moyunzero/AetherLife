@@ -59,6 +59,9 @@ importers:
       ioredis:
         specifier: ^5.11.0
         version: 5.11.0
+      postgres:
+        specifier: ^3.4.7
+        version: 3.4.9
     devDependencies:
       '@swc/core':
         specifier: ^1.15.40
@@ -118,6 +121,9 @@ importers:
       vite:
         specifier: ^6.0.3
         version: 6.4.3(@types/node@25.9.1)(tsx@4.22.4)
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@25.9.1)
 
   packages/game-actions:
     dependencies:
@@ -152,6 +158,13 @@ importers:
         version: 2.1.9(@types/node@25.9.1)
 
   packages/shared:
+    dependencies:
+      simplex-noise:
+        specifier: ^4.0.3
+        version: 4.0.3
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
     devDependencies:
       vitest:
         specifier: ^2.1.8
@@ -2544,6 +2557,9 @@ packages:
 
   signal-exit@3.0.7:
     resolution: {integrity: sha512-wnD2ZE+l+SPC/uoS0vXeE9L1+0wuaMqKlfz9AMUo38JsyLSBWSFcHR1Rri62LZc12vLr1gb3jl7iwQhgwpAbGQ==}
+
+  simplex-noise@4.0.3:
+    resolution: {integrity: sha512-qSE2I4AngLQG7BXqoZj51jokT4WUXe8mOBrvfOXpci8+6Yu44+/dD5zqDpOx3Ux792eamTd2lLcI8jqFntk/lg==}
 
   source-map-js@1.2.1:
     resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
@@ -4993,6 +5009,8 @@ snapshots:
   siginfo@2.0.0: {}
 
   signal-exit@3.0.7: {}
+
+  simplex-noise@4.0.3: {}
 
   source-map-js@1.2.1: {}
 

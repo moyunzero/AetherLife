@@ -1,6 +1,6 @@
-import { useEffect } from "react";
 import type { GameObject, NpcState } from "@aetherlife/shared";
 import type { PlayerSnapshot } from "../hooks/useColyseusRoom.js";
+import { useGridMovementKeys } from "../hooks/useGridMovementKeys.js";
 import { npcDisplayName } from "../game/entityLabels.js";
 
 export type MapNpcView = Pick<NpcState, "id" | "name" | "x" | "y">;
@@ -22,39 +22,6 @@ type Props = {
 };
 
 const GRID = 8;
-const MOVE_KEYS = new Set([
-  "w",
-  "a",
-  "s",
-  "d",
-  "arrowup",
-  "arrowdown",
-  "arrowleft",
-  "arrowright",
-]);
-
-function deltaForKey(key: string): [number, number] | null {
-  const map: Record<string, [number, number]> = {
-    w: [0, -1],
-    s: [0, 1],
-    a: [-1, 0],
-    d: [1, 0],
-    arrowup: [0, -1],
-    arrowdown: [0, 1],
-    arrowleft: [-1, 0],
-    arrowright: [1, 0],
-  };
-  return map[key] ?? null;
-}
-
-function blocksMovementKeys(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  const field = target.closest(".composer__input");
-  if (!(field instanceof HTMLTextAreaElement || field instanceof HTMLInputElement)) {
-    return false;
-  }
-  return !field.disabled;
-}
 
 export function MovementPanel({
   connected,
@@ -72,20 +39,10 @@ export function MovementPanel({
 }: Props) {
   const movementDisabled = !connected || animating;
 
-  useEffect(() => {
-    const handler = (event: KeyboardEvent) => {
-      if (movementDisabled || event.repeat) return;
-      const key = event.key.toLowerCase();
-      if (!MOVE_KEYS.has(key) || blocksMovementKeys(event.target)) return;
-      const delta = deltaForKey(key);
-      if (!delta) return;
-      event.preventDefault();
-      event.stopPropagation();
-      onMove(delta[0], delta[1]);
-    };
-    window.addEventListener("keydown", handler, true);
-    return () => window.removeEventListener("keydown", handler, true);
-  }, [movementDisabled, onMove]);
+  useGridMovementKeys({
+    enabled: !movementDisabled,
+    onMove,
+  });
 
   const npcAt = (x: number, y: number) => mapNpcs.find((n) => n.x === x && n.y === y);
   const closedDoorAt = (x: number, y: number) =>

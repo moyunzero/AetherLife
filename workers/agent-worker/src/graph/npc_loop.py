@@ -11,6 +11,7 @@ from src.config import Settings, get_settings
 from src.graph.action_intent import (
     build_tool_retry_message,
     has_state_changing_tool,
+    inject_relative_move_tool,
     player_requests_physical_action,
 )
 from src.graph.action_sanitize import tool_calls_to_actions
@@ -21,12 +22,14 @@ from src.graph.summarize import maybe_bulk_summarize
 from src.graph.reply_sanitize import sanitize_npc_reply
 from src.graph.tools import load_tools_for_binding, parse_tool_calls, reply_from_turn
 from src.llm.errors import (
+    LlmCallError,
     is_auth_error,
     is_rate_limit_error,
     is_retryable_llm_error,
     retry_after_seconds,
 )
-from src.llm.factory import create_chat_model, models_to_try
+from src.llm.factory import create_chat_model, npc_provider_attempts
+from src.llm.openrouter_keys import openrouter_keys
 from src.memory.client import (
     append_npc_memory,
     fetch_memory_context,
@@ -62,7 +65,11 @@ def fetch_state(state: GraphState, *, settings: Settings, client: httpx.Client) 
     )
     res.raise_for_status()
     body = res.json()
-    return {**state, "room_snapshot": body.get("state", {})}
+    snapshot = body.get("state", {}) or {}
+    nearby = body.get("nearbyLore")
+    if nearby is not None:
+        snapshot = {**snapshot, "nearbyLore": nearby}
+    return {**state, "room_snapshot": snapshot}
 
 
 
@@ -121,6 +128,11 @@ def _invoke_llm_turn(
         tool_calls = parse_tool_calls(response)
         reply = reply_from_turn(response, tool_calls)
 
+    tool_calls = inject_relative_move_tool(
+        tool_calls,
+        player_message=player_message,
+        room=room_snapshot,
+    )
     return tool_calls, reply
 
 
@@ -128,42 +140,76 @@ def llm_turn(state: GraphState, *, settings: Settings) -> GraphState:
     if settings.llm_mock or os.getenv("LLM_MOCK") == "1":
         msg = (state.get("player_message") or "").strip()
         mock_reply = f"（模拟）我听到了：{msg[:120]}" if msg else "（模拟）我听到了你的话。"
-        return {**state, "tool_calls": _mock_tool_calls(), "reply": mock_reply}
+        room_snapshot = state.get("room_snapshot") or {}
+        tool_calls = inject_relative_move_tool(
+            _mock_tool_calls(),
+            player_message=msg,
+            room=room_snapshot,
+        )
+        return {**state, "tool_calls": tool_calls, "reply": mock_reply}
 
     messages = build_turn_messages(state)
     tools = load_tools_for_binding()
     player_message = state.get("player_message") or ""
     room_snapshot = state.get("room_snapshot") or {}
     last_error: BaseException | None = None
+    last_provider: str = settings.llm_provider.lower()
+    last_model: str | None = settings.llm_model
 
-    for model in models_to_try(settings):
-        llm = create_chat_model(settings=settings, model=model).bind_tools(tools)
-        for attempt in range(3):
-            try:
-                tool_calls, reply = _invoke_llm_turn(
-                    llm,
-                    messages,
-                    player_message=player_message,
-                    room_snapshot=room_snapshot,
-                )
-                return {**state, "tool_calls": tool_calls, "reply": reply}
-            except Exception as exc:
-                last_error = exc
-                if is_auth_error(exc):
-                    raise
-                if is_rate_limit_error(exc) and attempt < 2:
-                    time.sleep(retry_after_seconds(exc))
-                    continue
-                if is_retryable_llm_error(exc):
-                    print(
-                        f"LLM fallback model={model} error={type(exc).__name__}",
-                        file=sys.stderr,
+    for provider, model in npc_provider_attempts(settings):
+        last_provider = provider
+        last_model = model
+        use_openrouter = provider == "openrouter"
+        key_candidates: list[str | None] = openrouter_keys(settings) if use_openrouter else [None]
+        if use_openrouter and not key_candidates:
+            key_candidates = [None]
+
+        for key_idx, or_key in enumerate(key_candidates):
+            llm = create_chat_model(
+                settings=settings,
+                provider=provider,
+                model=model,
+                api_key=or_key,
+            ).bind_tools(tools)
+            for attempt in range(3):
+                try:
+                    tool_calls, reply = _invoke_llm_turn(
+                        llm,
+                        messages,
+                        player_message=player_message,
+                        room_snapshot=room_snapshot,
                     )
-                    break
-                raise
+                    return {**state, "tool_calls": tool_calls, "reply": reply}
+                except Exception as exc:
+                    last_error = exc
+                    if is_auth_error(exc):
+                        raise
+                    if is_rate_limit_error(exc):
+                        if use_openrouter and key_idx + 1 < len(key_candidates):
+                            print(
+                                f"LLM OpenRouter key #{key_idx + 1} rate-limited, trying next key",
+                                file=sys.stderr,
+                            )
+                            break
+                        if attempt < 2:
+                            time.sleep(retry_after_seconds(exc))
+                            continue
+                    if is_retryable_llm_error(exc):
+                        print(
+                            f"LLM fallback provider={provider} model={model} error={type(exc).__name__}",
+                            file=sys.stderr,
+                        )
+                        break
+                    raise
+            if last_error and is_rate_limit_error(last_error) and key_idx + 1 < len(key_candidates):
+                continue
+            if last_error and is_retryable_llm_error(last_error):
+                break
+            if last_error:
+                raise last_error
 
     assert last_error is not None
-    raise last_error
+    raise LlmCallError(last_error, provider=last_provider, model=last_model) from last_error
 
 
 def apply_tools(state: GraphState, *, settings: Settings, client: httpx.Client) -> GraphState:
@@ -292,26 +338,76 @@ def maybe_bulk_summarize_turn(
     return state
 
 
-def build_npc_graph(settings: Settings | None = None):
+def _npc_graph_thread_id(state: GraphState) -> str:
+    room_id = state["room_id"]
+    player_id = _player_id(state)
+    npc_id = state.get("npc_id") or "npc-1"
+    return f"room:{room_id}:player:{player_id}:npc:{npc_id}"
+
+
+def _npc_turn_initial(
+    *,
+    room_id: str,
+    player_message: str,
+    npc_id: str,
+    player_id: str,
+) -> GraphState:
+    return {
+        "room_id": room_id,
+        "npc_id": npc_id,
+        "player_id": player_id,
+        "player_message": player_message,
+        "tool_calls": [],
+        "pending_actions": [],
+        "reply": "",
+        "trace_run_id": None,
+    }
+
+
+def _with_client_node(cfg: Settings, node_fn):
+    def wrapped(state: GraphState) -> GraphState:
+        with httpx.Client() as client:
+            return node_fn(state, settings=cfg, client=client)
+
+    return wrapped
+
+
+def build_npc_interactive_graph(settings: Settings | None = None):
+    """Player-visible path: fetch → LLM → apply tools → reply. Ends before memory LLM."""
     cfg = settings or get_settings()
     checkpointer = get_checkpointer(allow_memory_fallback=True)
 
-    def with_client(node_fn):
-        def wrapped(state: GraphState) -> GraphState:
-            with httpx.Client() as client:
-                return node_fn(state, settings=cfg, client=client)
+    graph = StateGraph(GraphState)
+    graph.add_node("fetch_state", _with_client_node(cfg, fetch_state))
+    graph.add_node("load_memory_context", _with_client_node(cfg, load_memory_context))
+    graph.add_node("llm_turn", lambda state: llm_turn(state, settings=cfg))
+    graph.add_node("apply_tools", _with_client_node(cfg, apply_tools))
+    graph.add_node("compose_reply", compose_reply)
 
-        return wrapped
+    graph.set_entry_point("fetch_state")
+    graph.add_edge("fetch_state", "load_memory_context")
+    graph.add_edge("load_memory_context", "llm_turn")
+    graph.add_edge("llm_turn", "apply_tools")
+    graph.add_edge("apply_tools", "compose_reply")
+    graph.add_edge("compose_reply", END)
+
+    return graph.compile(checkpointer=checkpointer)
+
+
+def build_npc_graph(settings: Settings | None = None):
+    """Full graph including memory tail — compile-only / legacy; runtime uses split invoke."""
+    cfg = settings or get_settings()
+    checkpointer = get_checkpointer(allow_memory_fallback=True)
 
     graph = StateGraph(GraphState)
-    graph.add_node("fetch_state", with_client(fetch_state))
-    graph.add_node("load_memory_context", with_client(load_memory_context))
+    graph.add_node("fetch_state", _with_client_node(cfg, fetch_state))
+    graph.add_node("load_memory_context", _with_client_node(cfg, load_memory_context))
     graph.add_node("llm_turn", lambda state: llm_turn(state, settings=cfg))
-    graph.add_node("apply_tools", with_client(apply_tools))
+    graph.add_node("apply_tools", _with_client_node(cfg, apply_tools))
     graph.add_node("compose_reply", compose_reply)
-    graph.add_node("persist_turn_memory", with_client(persist_turn_memory))
-    graph.add_node("maybe_reflect", with_client(maybe_reflect_turn))
-    graph.add_node("maybe_bulk_summarize", with_client(maybe_bulk_summarize_turn))
+    graph.add_node("persist_turn_memory", _with_client_node(cfg, persist_turn_memory))
+    graph.add_node("maybe_reflect", _with_client_node(cfg, maybe_reflect_turn))
+    graph.add_node("maybe_bulk_summarize", _with_client_node(cfg, maybe_bulk_summarize_turn))
 
     graph.set_entry_point("fetch_state")
     graph.add_edge("fetch_state", "load_memory_context")
@@ -326,6 +422,36 @@ def build_npc_graph(settings: Settings | None = None):
     return graph.compile(checkpointer=checkpointer)
 
 
+def run_npc_turn_interactive(
+    *,
+    room_id: str,
+    player_message: str,
+    npc_id: str = "npc-1",
+    player_id: str = "__legacy__",
+    settings: Settings | None = None,
+) -> GraphState:
+    cfg = settings or get_settings()
+    graph = build_npc_interactive_graph(cfg)
+    initial = _npc_turn_initial(
+        room_id=room_id,
+        player_message=player_message,
+        npc_id=npc_id,
+        player_id=player_id,
+    )
+    thread_id = _npc_graph_thread_id(initial)
+    return graph.invoke(initial, config={"configurable": {"thread_id": thread_id}})
+
+
+def run_npc_memory_tail(state: GraphState, settings: Settings | None = None) -> GraphState:
+    """Post-reply memory: importance, reflect, summarize — must not block Colyseus done."""
+    cfg = settings or get_settings()
+    with httpx.Client() as client:
+        state = persist_turn_memory(state, settings=cfg, client=client)
+        state = maybe_reflect_turn(state, settings=cfg, client=client)
+        state = maybe_bulk_summarize_turn(state, settings=cfg, client=client)
+    return state
+
+
 def run_npc_turn(
     *,
     room_id: str,
@@ -335,16 +461,11 @@ def run_npc_turn(
     settings: Settings | None = None,
 ) -> GraphState:
     cfg = settings or get_settings()
-    graph = build_npc_graph(cfg)
-    initial: GraphState = {
-        "room_id": room_id,
-        "npc_id": npc_id,
-        "player_id": player_id,
-        "player_message": player_message,
-        "tool_calls": [],
-        "pending_actions": [],
-        "reply": "",
-        "trace_run_id": None,
-    }
-    thread_id = f"room:{room_id}:player:{player_id}:npc:{npc_id}"
-    return graph.invoke(initial, config={"configurable": {"thread_id": thread_id}})
+    state = run_npc_turn_interactive(
+        room_id=room_id,
+        player_message=player_message,
+        npc_id=npc_id,
+        player_id=player_id,
+        settings=cfg,
+    )
+    return run_npc_memory_tail(state, cfg)

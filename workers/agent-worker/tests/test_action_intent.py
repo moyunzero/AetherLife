@@ -1,9 +1,11 @@
 from src.graph.action_intent import (
     build_tool_retry_message,
     has_state_changing_tool,
+    inject_relative_move_tool,
     player_requests_interact,
     player_requests_move,
     player_requests_physical_action,
+    resolve_relative_move_cell,
 )
 
 
@@ -30,6 +32,24 @@ def test_has_state_changing_tool():
     assert has_state_changing_tool([{"name": "interact", "args": {}}])
     assert not has_state_changing_tool([{"name": "speak", "args": {}}])
     assert not has_state_changing_tool([])
+
+
+def test_resolve_relative_move_cell_below_and_right():
+    room = {"width": 8, "height": 8, "player": {"x": 4, "y": 5}}
+    assert resolve_relative_move_cell("移动到我的下方", room) == (4, 6)
+    assert resolve_relative_move_cell("移动到我的右侧", room) == (5, 5)
+    assert resolve_relative_move_cell("移动到 (6,6)", room) is None
+
+
+def test_inject_relative_move_when_llm_omits_tool():
+    room = {"width": 8, "height": 8, "player": {"x": 4, "y": 5}}
+    calls = inject_relative_move_tool(
+        [{"name": "speak", "args": {"content": "好的"}}],
+        player_message="移动到我的右边",
+        room=room,
+    )
+    assert calls[0]["name"] == "move"
+    assert calls[0]["args"] == {"type": "move", "x": 5, "y": 5}
 
 
 def test_build_tool_retry_message_includes_bounds_and_door():

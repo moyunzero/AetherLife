@@ -1,3 +1,5 @@
+import { openRouterKeys } from "./openRouterKeys.js";
+
 const DEFAULT_IMPORTANCE = 5;
 
 function clampImportance(value: number): number {
@@ -19,25 +21,45 @@ function parseImportanceFromContent(content: string): number | null {
   return null;
 }
 
-export async function scoreImportance(text: string): Promise<number> {
-  if (process.env.LLM_MOCK === "1" || process.env.VITEST === "true") {
-    return DEFAULT_IMPORTANCE;
-  }
-
+function resolveProvider(): {
+  baseUrl: string;
+  apiKeys: string[];
+} {
   const provider = (process.env.LLM_PROVIDER ?? "openrouter").toLowerCase();
-  const model = process.env.LLM_MODEL ?? "openrouter/free";
-  let baseUrl = "https://openrouter.ai/api/v1";
-  let apiKey = process.env.OPENROUTER_API_KEY;
-
   if (provider === "groq") {
-    baseUrl = "https://api.groq.com/openai/v1";
-    apiKey = process.env.GROQ_API_KEY;
+    const key = process.env.GROQ_API_KEY;
+    return {
+      baseUrl: "https://api.groq.com/openai/v1",
+      apiKeys: key ? [key] : [],
+    };
   }
-
-  if (!apiKey) {
-    return DEFAULT_IMPORTANCE;
+  if (provider === "agnes") {
+    const key = process.env.AGNES_API_KEY;
+    return {
+      baseUrl: "https://apihub.agnes-ai.com/v1",
+      apiKeys: key ? [key] : [],
+    };
   }
+  if (provider === "zhipu") {
+    const key = process.env.ZHIPU_API_KEY;
+    return {
+      baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+      apiKeys: key ? [key] : [],
+    };
+  }
+  return {
+    baseUrl: "https://openrouter.ai/api/v1",
+    apiKeys: openRouterKeys(),
+  };
+}
 
+async function scoreWithKey(
+  text: string,
+  apiKey: string,
+  baseUrl: string,
+  model: string,
+): Promise<number> {
+  const isZhipu = baseUrl.includes("bigmodel.cn");
   const res = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
     method: "POST",
     headers: {
@@ -47,6 +69,7 @@ export async function scoreImportance(text: string): Promise<number> {
     body: JSON.stringify({
       model,
       temperature: 0,
+      ...(isZhipu ? { thinking: { type: "disabled" } } : {}),
       messages: [
         {
           role: "system",
@@ -60,8 +83,52 @@ export async function scoreImportance(text: string): Promise<number> {
 
   const body = (await res.json()) as {
     choices?: Array<{ message?: { content?: string } }>;
+    error?: { message?: string };
   };
+
+  if (!res.ok) {
+    const err = new Error(body.error?.message ?? `importance failed: ${res.status}`);
+    (err as Error & { status?: number }).status = res.status;
+    throw err;
+  }
 
   const content = body.choices?.[0]?.message?.content ?? "";
   return parseImportanceFromContent(content) ?? DEFAULT_IMPORTANCE;
+}
+
+/** OpenRouter 429 → try next key; exported for unit tests. */
+export async function scoreImportanceWithKeys(
+  text: string,
+  apiKeys: string[],
+  baseUrl: string,
+  model: string,
+): Promise<number> {
+  if (apiKeys.length === 0) {
+    return DEFAULT_IMPORTANCE;
+  }
+
+  let lastError: unknown;
+  for (let i = 0; i < apiKeys.length; i += 1) {
+    try {
+      return await scoreWithKey(text, apiKeys[i]!, baseUrl, model);
+    } catch (err) {
+      lastError = err;
+      const status = (err as { status?: number }).status;
+      if (status === 429 && i + 1 < apiKeys.length) {
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastError;
+}
+
+export async function scoreImportance(text: string): Promise<number> {
+  if (process.env.LLM_MOCK === "1" || process.env.VITEST === "true") {
+    return DEFAULT_IMPORTANCE;
+  }
+
+  const model = process.env.LLM_MODEL ?? "openrouter/free";
+  const { baseUrl, apiKeys } = resolveProvider();
+  return scoreImportanceWithKeys(text, apiKeys, baseUrl, model);
 }

@@ -39,7 +39,17 @@ export function ChatPage() {
     sendMoveTo,
     syncMetrics,
     remoteInterpMs,
+    loadedChunks,
+    loreForChunk,
+    consumeDiscoverToast,
+    loreToastQueue,
+    motionBridgeRef,
+    movementSyncRef,
   } = useColyseusRoom(mapRoomId, moveMap);
+  const discoverToast = loreToastQueue[0] ?? null;
+  const dismissDiscoverToast = useCallback(() => {
+    consumeDiscoverToast();
+  }, [consumeDiscoverToast]);
   const {
     messages,
     error,
@@ -328,8 +338,12 @@ export function ChatPage() {
             npcAnimateMoves={npcWorldLive}
             npcResetEpoch={npcResetEpoch}
             remoteInterpMs={remoteInterpMs}
-            onMove={sendMove}
-            onMoveTo={(x, y) => void sendMoveTo(x, y)}
+            loadedChunks={loadedChunks}
+            loreForChunk={loreForChunk}
+            discoverToast={discoverToast}
+            onDismissDiscoverToast={dismissDiscoverToast}
+            motionBridgeRef={motionBridgeRef}
+            movementSyncRef={movementSyncRef}
             onBootFailed={() => {
               setPhaserOk(false);
               setBootOk(false);
@@ -388,7 +402,7 @@ export function ChatPage() {
         </div>
       ) : null}
 
-      {showSyncDebug && connected ? <SyncMetricsOverlay metrics={syncMetrics} /> : null}
+      {showSyncDebug ? <SyncMetricsOverlay metrics={syncMetrics} /> : null}
     </div>
   );
 }

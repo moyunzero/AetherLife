@@ -9,6 +9,7 @@ export function SyncMetricsOverlay({ metrics }: Props) {
   return (
     <div className="sync-metrics-overlay" data-testid="sync-metrics-overlay" aria-hidden>
       <span>RTT {metrics.rttMs != null ? `${metrics.rttMs}ms` : "—"}</span>
+      <span>pending {metrics.pending}</span>
       <span>校正 {metrics.corrections}</span>
     </div>
   );

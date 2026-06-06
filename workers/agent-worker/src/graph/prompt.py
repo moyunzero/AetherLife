@@ -3,6 +3,7 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from src.graph.action_intent import player_requests_physical_action
 from src.graph.state import GraphState
 
 NPC_SYSTEM_PROMPT = """你是「以太人生」中的 NPC 助手。
@@ -81,7 +82,27 @@ def build_room_constraints(room: dict[str, Any]) -> str:
     lines.append("9. 开门/交互：interact + objectId（如上表 id，默认门为 door-1）。")
     lines.append("10. 移动：move + 合法 x,y（相对指令须先换算为坐标）。")
     lines.append("11. 物品转移：transfer + itemId + toNpcId（只能转出自己背包中的物品）。")
+    nearby = format_nearby_lore(room)
+    if nearby:
+        lines.append(nearby)
     return "\n".join(lines)
+
+
+def format_nearby_lore(room: dict[str, Any]) -> str:
+    entries = room.get("nearbyLore") or []
+    if not entries:
+        return ""
+    lines = ["12. 邻近地块叙事（仅供参考，勿编造未列出的地点）："]
+    for item in entries:
+        name = (item.get("nameZh") or "").strip()
+        flavor = (item.get("flavorOneLine") or "").strip()
+        cx = item.get("cx")
+        cy = item.get("cy")
+        if not name:
+            continue
+        suffix = f" — {flavor}" if flavor else ""
+        lines.append(f"   - chunk ({cx},{cy}) {name}{suffix}")
+    return "\n".join(lines) if len(lines) > 1 else ""
 
 
 def build_turn_messages(state: GraphState) -> list[SystemMessage | HumanMessage]:
@@ -97,4 +118,9 @@ def build_turn_messages(state: GraphState) -> list[SystemMessage | HumanMessage]
 
     player_message = state.get("player_message") or ""
     human_text = f"Player message: {player_message}\n\nRoom snapshot (JSON):\n{room_json}"
+    if player_requests_physical_action(player_message):
+        human_text = (
+            f"{human_text}\n\n"
+            "[系统] 本轮必须调用 move / interact / wait 工具执行物理动作，禁止仅用文字承诺。"
+        )
     return [SystemMessage(content=system_text), HumanMessage(content=human_text)]

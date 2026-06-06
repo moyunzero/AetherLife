@@ -1,8 +1,23 @@
 import * as Phaser from "phaser";
-import { useEffect, useRef } from "react";
-import { createDefaultRoom, type GameObject, type NpcState, type RoomState } from "@aetherlife/shared";
+import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
+import {
+  chunkOf,
+  createDefaultRoom,
+  type BiomeId,
+  type ChunkView,
+  type GameObject,
+  type NpcState,
+  type RoomState,
+} from "@aetherlife/shared";
 import type { PlayerSnapshot } from "../hooks/useColyseusRoom.js";
-import { worldSize } from "../game/gridLayout.js";
+import type { LocalPlayerMotionBridge } from "../game/localPlayerMotion.js";
+import type { MovementSyncController } from "../game/MovementSyncController.js";
+import { ExploreCoordsStrip } from "./ExploreCoordsStrip.js";
+import { LoreDiscoverToast } from "./LoreDiscoverToast.js";
+import { biomeAt } from "../lib/chunkWalkability.js";
+import type { ChunkLoreEntry, LoreDiscoverToast as LoreDiscoverToastPayload } from "../hooks/useChunkLore.js";
+import { lorePlaceLabel } from "../hooks/useChunkLore.js";
+import { VIEWPORT_CELLS, worldSize } from "../game/gridLayout.js";
 import { ROOM_SCENE_KEY, RoomScene } from "../game/RoomScene.js";
 import { theme } from "../game/theme.js";
 
@@ -20,6 +35,8 @@ type Props = {
   mapNpcs: MapNpcView[];
   mapObjects: MapObjectView[];
   animating: boolean;
+  /** Client prediction queue depth — suppress schema snap while >0. */
+  pendingMoves?: number;
   moveHint: string | null;
   thinkingNpcId: string | null;
   /** When false, NPCs snap to grid (load / reset); when true, live moves animate step-by-step. */
@@ -27,46 +44,28 @@ type Props = {
   /** Bumped on new game — destroys NPC sprites so no tween carries over. */
   npcResetEpoch: number;
   remoteInterpMs?: number;
-  onMove: (dx: number, dy: number) => void;
-  onMoveTo: (x: number, y: number) => void;
+  loadedChunks?: ChunkView[];
+  loreForChunk?: (cx: number, cy: number) => ChunkLoreEntry | undefined;
+  discoverToast?: LoreDiscoverToastPayload | null;
+  onDismissDiscoverToast?: () => void;
+  motionBridgeRef?: MutableRefObject<LocalPlayerMotionBridge | null>;
+  /** Phaser-first movement; RoomScene reads from registry. */
+  movementSyncRef?: MutableRefObject<MovementSyncController | null>;
   onBootFailed?: () => void;
 };
 
-const MOVE_KEYS = new Set([
-  "w",
-  "a",
-  "s",
-  "d",
-  "arrowup",
-  "arrowdown",
-  "arrowleft",
-  "arrowright",
-]);
-
-function deltaForKey(key: string): [number, number] | null {
-  const map: Record<string, [number, number]> = {
-    w: [0, -1],
-    s: [0, 1],
-    a: [-1, 0],
-    d: [1, 0],
-    arrowup: [0, -1],
-    arrowdown: [0, 1],
-    arrowleft: [-1, 0],
-    arrowright: [1, 0],
-  };
-  return map[key] ?? null;
-}
-
-function blocksMovementKeys(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  const field = target.closest(".composer__input");
-  if (!(field instanceof HTMLTextAreaElement || field instanceof HTMLInputElement)) {
-    return false;
-  }
-  return !field.disabled;
-}
-
 const BOOT_TIMEOUT_MS = 5000;
+
+function noopDismiss(): void {}
+
+/** System reduce-motion or `?reducedMotion=1` — disables tweens (less eye strain). */
+export function readReducedMotion(): boolean {
+  if (typeof window === "undefined") return false;
+  if (new URLSearchParams(window.location.search).get("reducedMotion") === "1") {
+    return true;
+  }
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
 
 type RegistrySnapshot = {
   width: number;
@@ -78,14 +77,15 @@ type RegistrySnapshot = {
   mapObjects: MapObjectView[];
   connected: boolean;
   animating: boolean;
+  pendingMoves: number;
   moveHint: string | null;
   thinkingNpcId: string | null;
   npcAnimateMoves: boolean;
   npcResetEpoch: number;
   reducedMotion: boolean;
   remoteInterpMs: number;
-  onMove: (dx: number, dy: number) => void;
-  onMoveTo: (x: number, y: number) => void;
+  loadedChunks: ChunkView[];
+  movementSync: MovementSyncController | null;
 };
 
 function pushRoomRegistry(game: Phaser.Game, snap: RegistrySnapshot): void {
@@ -98,14 +98,15 @@ function pushRoomRegistry(game: Phaser.Game, snap: RegistrySnapshot): void {
   game.registry.set("mapObjects", snap.mapObjects);
   game.registry.set("connected", snap.connected);
   game.registry.set("animating", snap.animating);
+  game.registry.set("pendingMoves", snap.pendingMoves);
   game.registry.set("moveHint", snap.moveHint);
   game.registry.set("thinkingNpcId", snap.thinkingNpcId);
   game.registry.set("npcAnimateMoves", snap.npcAnimateMoves);
   game.registry.set("npcResetEpoch", snap.npcResetEpoch);
   game.registry.set("reducedMotion", snap.reducedMotion);
   game.registry.set("remoteInterpMs", snap.remoteInterpMs);
-  game.registry.set("onMove", snap.onMove);
-  game.registry.set("onMoveTo", snap.onMoveTo);
+  game.registry.set("loadedChunks", snap.loadedChunks);
+  game.registry.set("movementSync", snap.movementSync);
   game.registry.set("roomSync", Date.now());
 }
 
@@ -135,7 +136,7 @@ export async function probePhaserBoot(timeoutMs = BOOT_TIMEOUT_MS): Promise<bool
     const timer = window.setTimeout(() => finish(false), timeoutMs);
     let game: Phaser.Game | null = null;
     try {
-      const { w, h } = worldSize(8, 8);
+      const { w, h } = worldSize(VIEWPORT_CELLS, VIEWPORT_CELLS);
       game = new Phaser.Game({
         type: Phaser.AUTO,
         width: w,
@@ -159,14 +160,15 @@ export async function probePhaserBoot(timeoutMs = BOOT_TIMEOUT_MS): Promise<bool
         mapObjects: [],
         connected: false,
         animating: false,
+        pendingMoves: 0,
         moveHint: null,
         thinkingNpcId: null,
         npcAnimateMoves: false,
         npcResetEpoch: 0,
         reducedMotion: false,
         remoteInterpMs: 130,
-        onMove: () => {},
-        onMoveTo: () => {},
+        loadedChunks: [],
+        movementSync: null,
       });
       game.events.once("ready", () => finish(true));
     } catch {
@@ -186,13 +188,18 @@ export function PhaserGame({
   mapNpcs,
   mapObjects,
   animating,
+  pendingMoves = 0,
   moveHint,
   thinkingNpcId,
   npcAnimateMoves,
   npcResetEpoch,
   remoteInterpMs = 130,
-  onMove,
-  onMoveTo,
+  loadedChunks = [],
+  loreForChunk,
+  discoverToast = null,
+  onDismissDiscoverToast,
+  motionBridgeRef,
+  movementSyncRef,
   onBootFailed,
 }: Props) {
   const parentRef = useRef<HTMLDivElement>(null);
@@ -200,8 +207,20 @@ export function PhaserGame({
   const onBootFailedRef = useRef(onBootFailed);
   onBootFailedRef.current = onBootFailed;
 
-  const callbacksRef = useRef({ onMove, onMoveTo });
-  callbacksRef.current = { onMove, onMoveTo };
+  const [exploreGrid, setExploreGrid] = useState<{ gx: number; gy: number } | null>(null);
+  const exploreCoords = useMemo(() => {
+    if (!exploreGrid) return null;
+    const biome: BiomeId | "void" = biomeAt(loadedChunks, exploreGrid.gx, exploreGrid.gy);
+    const { cx, cy } = chunkOf(exploreGrid.gx, exploreGrid.gy);
+    const loreEntry = loreForChunk?.(cx, cy);
+    const labels = lorePlaceLabel(loreEntry, biome);
+    return {
+      gx: exploreGrid.gx,
+      gy: exploreGrid.gy,
+      biome,
+      ...labels,
+    };
+  }, [exploreGrid, loadedChunks, loreForChunk]);
 
   const registryRef = useRef({
     width,
@@ -213,11 +232,13 @@ export function PhaserGame({
     mapObjects,
     connected,
     animating,
+    pendingMoves,
     moveHint,
     thinkingNpcId,
     npcAnimateMoves,
     npcResetEpoch,
     remoteInterpMs,
+    loadedChunks,
   });
   registryRef.current = {
     width,
@@ -229,22 +250,22 @@ export function PhaserGame({
     mapObjects,
     connected,
     animating,
+    pendingMoves,
     moveHint,
     thinkingNpcId,
     npcAnimateMoves,
     npcResetEpoch,
     remoteInterpMs,
+    loadedChunks,
   };
 
   useEffect(() => {
     if (!bootOk || !parentRef.current) return;
 
-    const { w, h } = worldSize(width, height);
+    const { w, h } = worldSize(VIEWPORT_CELLS, VIEWPORT_CELLS);
     let destroyed = false;
     let bootTimer: number | undefined;
-    const reducedMotion =
-      typeof window !== "undefined" &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const reducedMotion = readReducedMotion();
     const snap = registryRef.current;
 
     const game = new Phaser.Game({
@@ -271,14 +292,15 @@ export function PhaserGame({
       mapObjects: snap.mapObjects,
       connected: snap.connected,
       animating: snap.animating,
+      pendingMoves: snap.pendingMoves,
       moveHint: snap.moveHint,
       thinkingNpcId: snap.thinkingNpcId,
       npcAnimateMoves: snap.npcAnimateMoves,
       npcResetEpoch: snap.npcResetEpoch,
       reducedMotion,
       remoteInterpMs: snap.remoteInterpMs,
-      onMove: (dx, dy) => callbacksRef.current.onMove(dx, dy),
-      onMoveTo: (x, y) => callbacksRef.current.onMoveTo(x, y),
+      loadedChunks: snap.loadedChunks,
+      movementSync: movementSyncRef?.current ?? null,
     });
 
     gameRef.current = game;
@@ -291,7 +313,9 @@ export function PhaserGame({
       if (bootTimer) clearTimeout(bootTimer);
       const scene = game.scene.getScene(ROOM_SCENE_KEY) as RoomScene | undefined;
       if (scene?.scene.isActive()) {
-        /* boot ok */
+        if (motionBridgeRef) {
+          motionBridgeRef.current = scene.getLocalPlayerMotionBridge();
+        }
       } else {
         game.scene.start(ROOM_SCENE_KEY);
       }
@@ -303,15 +327,39 @@ export function PhaserGame({
       game.destroy(true, false);
       gameRef.current = null;
     };
-  }, [bootOk, width, height]);
+  }, [bootOk]);
 
   useEffect(() => {
     const game = gameRef.current;
     if (!game) return;
 
-    const reducedMotion =
-      typeof window !== "undefined" &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    type ExploreGrid = { gx: number; gy: number } | null;
+    const onExploreGrid = (
+      _parent: Phaser.Data.DataManager,
+      key: string,
+      value: ExploreGrid,
+    ) => {
+      if (key === "exploreGrid") {
+        setExploreGrid(value);
+      }
+    };
+    // Phaser: first registry.set emits `setdata`; updates emit `changedata` (ISSUE-011).
+    game.registry.events.on("setdata", onExploreGrid);
+    game.registry.events.on("changedata", onExploreGrid);
+    const initial = game.registry.get("exploreGrid") as ExploreGrid | undefined;
+    setExploreGrid(initial ?? null);
+
+    return () => {
+      game.registry.events.off("setdata", onExploreGrid);
+      game.registry.events.off("changedata", onExploreGrid);
+    };
+  }, [bootOk]);
+
+  useEffect(() => {
+    const game = gameRef.current;
+    if (!game) return;
+
+    const reducedMotion = readReducedMotion();
 
     pushRoomRegistry(game, {
       width,
@@ -323,18 +371,22 @@ export function PhaserGame({
       mapObjects,
       connected,
       animating,
+      pendingMoves,
       moveHint,
       thinkingNpcId,
       npcAnimateMoves,
       npcResetEpoch,
       reducedMotion,
       remoteInterpMs,
-      onMove: (dx, dy) => callbacksRef.current.onMove(dx, dy),
-      onMoveTo: (x, y) => callbacksRef.current.onMoveTo(x, y),
+      loadedChunks,
+      movementSync: movementSyncRef?.current ?? null,
     });
     game.registry.events.emit("changedata", game.registry, "roomSync");
 
     const scene = game.scene.getScene(ROOM_SCENE_KEY) as RoomScene | undefined;
+    if (scene && motionBridgeRef) {
+      motionBridgeRef.current = scene.getLocalPlayerMotionBridge();
+    }
     scene?.syncEntities();
   }, [
     players,
@@ -344,29 +396,15 @@ export function PhaserGame({
     connected,
     moveMap,
     animating,
+    pendingMoves,
     moveHint,
     thinkingNpcId,
     npcAnimateMoves,
     npcResetEpoch,
     width,
     height,
+    loadedChunks,
   ]);
-
-  useEffect(() => {
-    const movementDisabled = !connected || animating;
-    const handler = (event: KeyboardEvent) => {
-      if (movementDisabled || event.repeat) return;
-      const key = event.key.toLowerCase();
-      if (!MOVE_KEYS.has(key) || blocksMovementKeys(event.target)) return;
-      const delta = deltaForKey(key);
-      if (!delta) return;
-      event.preventDefault();
-      event.stopPropagation();
-      callbacksRef.current.onMove(delta[0], delta[1]);
-    };
-    window.addEventListener("keydown", handler, true);
-    return () => window.removeEventListener("keydown", handler, true);
-  }, [connected, animating]);
 
   return (
     <section
@@ -380,24 +418,41 @@ export function PhaserGame({
       }}
     >
       <h2 className="room-scene-panel__title">房间</h2>
-      <p className="room-scene-panel__subtitle">点选格子或 WASD 移动</p>
-      {!connected ? (
-        <p className="room-scene-panel__hint">正在连接 Colyseus…</p>
+      <p className="room-scene-panel__subtitle">探索周边地形 — 走出家园格即可进入新生态</p>
+      {connected && exploreCoords ? (
+        <ExploreCoordsStrip
+          gx={exploreCoords.gx}
+          gy={exploreCoords.gy}
+          biome={exploreCoords.biome}
+          placeName={exploreCoords.placeName}
+          flavorLine={exploreCoords.flavor}
+          lorePending={exploreCoords.pending}
+        />
       ) : null}
-      {connected && moveHint ? (
-        <p className="room-scene-panel__hint room-scene-panel__hint--warn" role="status">
-          {moveHint}
-        </p>
-      ) : null}
-      {connected && animating ? (
-        <p className="room-scene-panel__hint">移动中…</p>
-      ) : null}
-      <div
-        ref={parentRef}
-        data-testid="phaser-parent"
-        className="room-scene-panel__canvas"
-        style={{ width: "100%" }}
-      />
+      <div className="room-scene-panel__stage">
+        <div
+          ref={parentRef}
+          data-testid="phaser-parent"
+          className="room-scene-panel__canvas"
+        />
+        <div className="room-scene-panel__overlay" aria-live="polite">
+          {!connected ? (
+            <p className="room-scene-panel__hint">正在连接 Colyseus…</p>
+          ) : null}
+          {connected && moveHint ? (
+            <p className="room-scene-panel__hint room-scene-panel__hint--warn" role="status">
+              {moveHint}
+            </p>
+          ) : null}
+          {connected && animating ? (
+            <p className="room-scene-panel__hint">移动中…</p>
+          ) : null}
+          <LoreDiscoverToast
+            toast={discoverToast}
+            onDismiss={onDismissDiscoverToast ?? noopDismiss}
+          />
+        </div>
+      </div>
     </section>
   );
 }
