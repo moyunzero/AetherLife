@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -111,12 +112,44 @@ async function moveToTarget(room, sessionId, targetX, targetY) {
   }, 5000);
 }
 
+/** MP-MOV-02: pending/locomotion must suppress local schema snap (Phase 10.5 Wave 2). */
+function assertLocalSchemaSnapGate() {
+  const r = spawnSync(
+    "pnpm",
+    [
+      "--filter",
+      "@aetherlife/shared",
+      "exec",
+      "vitest",
+      "run",
+      "src/localPlayerSchemaSnap.test.ts",
+    ],
+    { cwd: root, stdio: "inherit", env: process.env },
+  );
+  if (r.status !== 0) {
+    throw new Error("MP-MOV-02 localPlayerSchemaSnap unit gate failed");
+  }
+  console.log("verify:phase6: MP-MOV-02 local schema snap gate OK");
+}
+
 async function main() {
   assertE2eNoMock("verify:phase6");
   if (!skipSpeak) assertE2eRealLlm("verify:phase6");
   console.log(`verify:phase6 → ${wsUrl} roomId=${roomId}`);
   assertSpeakStackReady();
   await healthOk();
+  if (skipSpeak) {
+    assertLocalSchemaSnapGate();
+    const flash = spawnSync("node", ["scripts/uat-phase6-move-flash.mjs"], {
+      cwd: root,
+      stdio: "inherit",
+      env: process.env,
+    });
+    if (flash.status !== 0) {
+      throw new Error("MP-MOV-02 Phaser schema snap-back gate failed");
+    }
+    console.log("verify:phase6: MP-MOV-02 Phaser flash gate OK");
+  }
 
   const clientA = new Client(wsUrl);
   const clientB = new Client(wsUrl);

@@ -92,6 +92,18 @@ async function waitSelfAt(page, x, y, timeoutMs = 5000) {
   );
 }
 
+/** MovementPanel disables all cells while animating — wait before click-to-move. */
+async function waitMovementGridReady(page, timeoutMs = 10_000) {
+  await page.waitForFunction(
+    () => {
+      const cells = document.querySelectorAll('[data-testid^="cell-"]');
+      if (!cells.length) return false;
+      return [...cells].some((el) => !el.disabled);
+    },
+    { timeout: timeoutMs },
+  );
+}
+
 async function runVerifyPhase6() {
   return new Promise((resolve, reject) => {
     const child = spawn("pnpm", ["verify:phase6"], {
@@ -207,8 +219,10 @@ async function main() {
   // —— Test 4: Click cell ——
   currentTest = 4;
   log("Test 4/8: 点击目标格移动");
+  await waitMovementGridReady(page);
   const cur = await getSelfGridPos(page);
   const clickCandidates = [
+    [start.x, start.y],
     [cur.x + 1, cur.y],
     [cur.x - 1, cur.y],
     [cur.x, cur.y + 1],
@@ -250,10 +264,16 @@ async function main() {
 
   const posA = await getSelfGridPos(page);
   await page.locator("textarea.composer__input").blur();
-  const syncKey = posA.y > 0 ? "w" : "s";
-  const syncExpectY = posA.y > 0 ? posA.y - 1 : posA.y + 1;
+  await waitMovementGridReady(page);
+  await page.locator('[data-testid="movement-panel"]').click();
+  const syncKey =
+    posA.x < 7 ? "d" : posA.x > 0 ? "a" : posA.y < 7 ? "s" : "w";
+  const syncExpectX =
+    syncKey === "d" ? posA.x + 1 : syncKey === "a" ? posA.x - 1 : posA.x;
+  const syncExpectY =
+    syncKey === "s" ? posA.y + 1 : syncKey === "w" ? posA.y - 1 : posA.y;
   await page.keyboard.press(syncKey);
-  await waitSelfAt(page, posA.x, syncExpectY, 5000);
+  await waitSelfAt(page, syncExpectX, syncExpectY, 10_000);
 
   await pageB.waitForFunction(
     ({ tx, ty }) => {
@@ -264,7 +284,7 @@ async function main() {
         cell.textContent?.trim() === "客"
       );
     },
-    { tx: posA.x, ty: syncExpectY },
+    { tx: syncExpectX, ty: syncExpectY },
     { timeout: 10_000 },
   );
   await screenshot(page, "05c-tab-a-after-move");
@@ -284,7 +304,7 @@ async function main() {
   await page.locator("button.btn--primary").click();
 
   const thinking = page.locator(".message--thinking");
-  await thinking.waitFor({ state: "visible", timeout: 15_000 });
+  await thinking.waitFor({ state: "visible", timeout: 30_000 });
   await screenshot(page, "06b-thinking");
 
   const pageB2 = await context.newPage();

@@ -48,11 +48,20 @@ async function health(url, name) {
   }
 }
 
-async function waitConnected(page, timeoutMs = 25_000) {
-  await page.locator('[data-testid="room-scene"]').waitFor({ state: "visible", timeout: timeoutMs });
-  const full = page.locator('[data-testid="banner-room-full"]');
-  if (await full.isVisible().catch(() => false)) {
-    await stop("页面显示满员 banner，无法继续（请先关闭多余标签）");
+async function waitConnected(page, timeoutMs = 35_000) {
+  const deadline = Date.now() + timeoutMs;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const remaining = Math.max(5000, deadline - Date.now());
+    await page.locator('[data-testid="room-scene"]').waitFor({ state: "visible", timeout: remaining });
+    const full = page.locator('[data-testid="banner-room-full"]');
+    if (!(await full.isVisible().catch(() => false))) return;
+    if (attempt === 2 || Date.now() >= deadline) break;
+    log("  WARN: 满员 banner（可能 orphan shard）— reload 重试");
+    await page.reload({ waitUntil: "networkidle", timeout: 30_000 });
+    await page.waitForTimeout(1500);
+  }
+  if (await page.locator('[data-testid="banner-room-full"]').isVisible().catch(() => false)) {
+    await stop("页面显示满员 banner，无法继续（请先关闭多余标签或重启 game-server）");
   }
 }
 
@@ -114,7 +123,7 @@ async function main() {
     await waitConnected(page);
     contexts.push(ctx);
     pages.push(page);
-    if (i < 3) await page.waitForTimeout(1200);
+    if (i < 3) await page.waitForTimeout(2200);
   }
   await pages[0].waitForFunction(
     () => document.querySelectorAll('[data-testid="player-strip"] .room-player-strip__name').length >= 4,

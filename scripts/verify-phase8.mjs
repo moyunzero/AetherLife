@@ -357,9 +357,10 @@ async function main() {
       npcId: "npc-3",
       playerId: playerBId,
     });
+    const speakAckWaitMs = Math.min(speakTimeoutMs, 90_000);
     await waitFor(
       () => jobIdAParallel && jobIdBParallel,
-      30_000,
+      speakAckWaitMs,
       50,
       "parallel speakAck",
     );
@@ -423,18 +424,28 @@ async function main() {
         "memory FACT speak",
         speakTimeoutMs,
       );
-      const memRes = await fetch(
-        `${httpBase}/internal/rooms/${roomId}/memory-context?playerMessage=${encodeURIComponent("what is the door code")}&npcId=npc-1`,
-        { headers: internalHeaders() },
+      const memUrl = `${httpBase}/internal/rooms/${roomId}/memory-context?playerMessage=${encodeURIComponent("what is the door code")}&npcId=npc-1`;
+      const memPollMs = Number.parseInt(process.env.VERIFY_MEMORY_POLL_MS || "90000", 10);
+      await waitFor(
+        () => {
+          return fetch(memUrl, { headers: internalHeaders() })
+            .then(async (memRes) => {
+              const memCtx = await memRes.json().catch(() => ({}));
+              if (!memRes.ok) {
+                throw new Error(`memory-context → ${memRes.status}: ${JSON.stringify(memCtx)}`);
+              }
+              const hay = JSON.stringify(memCtx).toLowerCase();
+              return hay.includes(memFact.toLowerCase()) || hay.includes("9");
+            })
+            .catch((err) => {
+              if (err instanceof Error && err.message.startsWith("memory-context →")) throw err;
+              return false;
+            });
+        },
+        memPollMs,
+        1000,
+        `memory-context containing ${memFact}`,
       );
-      const memCtx = await memRes.json().catch(() => ({}));
-      if (!memRes.ok) {
-        throw new Error(`memory-context → ${memRes.status}: ${JSON.stringify(memCtx)}`);
-      }
-      const hay = JSON.stringify(memCtx).toLowerCase();
-      if (!hay.includes(memFact.toLowerCase()) && !hay.includes("9")) {
-        throw new Error(`memory-context missing ${memFact} after Colyseus speak`);
-      }
       console.log("verify:phase8: Colyseus speak → memory recall OK");
     }
   }

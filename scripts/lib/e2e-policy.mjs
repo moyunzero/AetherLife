@@ -20,11 +20,12 @@ export function assertE2eLlmConfigured(scriptName) {
   const hasKey =
     process.env.OPENROUTER_API_KEY ||
     process.env.GROQ_API_KEY ||
-    process.env.AGNES_API_KEY;
+    process.env.AGNES_API_KEY ||
+    process.env.ZHIPU_API_KEY;
   if (!hasKey) {
     throw new Error(
       `${scriptName}: E2E requires a live LLM API key ` +
-        `(OPENROUTER_API_KEY / GROQ_API_KEY / AGNES_API_KEY). See ${E2E_DOC}`,
+        `(OPENROUTER_API_KEY / GROQ_API_KEY / AGNES_API_KEY / ZHIPU_API_KEY). See ${E2E_DOC}`,
     );
   }
 }
