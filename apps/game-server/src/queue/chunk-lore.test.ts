@@ -1,10 +1,17 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { addChunkLoreJob, clearMockLoreJobs, getMockLoreJob } from "./chunk-lore.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { addChunkLoreJob, clearMockLoreJobs, closeChunkLoreQueue, getMockLoreJob } from "./chunk-lore.js";
 import { loreJobId as sharedLoreJobId, loreJobId } from "@aetherlife/shared";
 
 describe("chunk-lore queue", () => {
-  afterEach(() => {
+  beforeEach(async () => {
     delete process.env.REDIS_URL;
+    await closeChunkLoreQueue();
+    clearMockLoreJobs();
+  });
+
+  afterEach(async () => {
+    delete process.env.REDIS_URL;
+    await closeChunkLoreQueue();
     clearMockLoreJobs();
   });
 
