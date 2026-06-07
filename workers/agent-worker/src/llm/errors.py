@@ -90,6 +90,7 @@ _PROVIDER_LABELS: dict[str, str] = {
     "zhipu": "智谱 AI",
     "groq": "Groq",
     "agnes": "Agnes",
+    "cerebras": "Cerebras",
 }
 
 _KEY_ENV: dict[str, str] = {
@@ -97,6 +98,7 @@ _KEY_ENV: dict[str, str] = {
     "zhipu": "ZHIPU_API_KEY",
     "groq": "GROQ_API_KEY",
     "agnes": "AGNES_API_KEY",
+    "cerebras": "CEREBRAS_API_KEY",
 }
 
 _FALLBACK_HINT = (
@@ -136,6 +138,8 @@ def _resolve_provider(exc: BaseException, hint: str | None) -> str:
         return "groq"
     if "agnes" in text:
         return "agnes"
+    if "cerebras" in text or "api.cerebras.ai" in text:
+        return "cerebras"
     if hint:
         return hint.lower().strip()
     return "unknown"

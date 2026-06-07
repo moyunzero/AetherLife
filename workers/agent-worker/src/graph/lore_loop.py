@@ -83,9 +83,42 @@ def _lore_provider_attempts(settings: Settings, model_tier: str) -> list[tuple[s
                 fb_model = settings.llm_model_reflect or "agnes-2.0-flash"
             elif fallback == "zhipu":
                 fb_model = os.getenv("LLM_MODEL_LORE_FALLBACK", "").strip() or "glm-4.7-flash"
+            elif fallback == "cerebras":
+                fb_model = (
+                    os.getenv("LLM_MODEL_LORE_FALLBACK", "").strip()
+                    or os.getenv("LLM_MODEL_CEREBRAS", "").strip()
+                    or "gpt-oss-120b"
+                )
+            elif fallback == "siliconflow":
+                fb_model = (
+                    os.getenv("LLM_MODEL_LORE_FALLBACK", "").strip()
+                    or settings.llm_model_siliconflow_reason
+                )
+            elif fallback == "nvidia":
+                fb_model = (
+                    os.getenv("LLM_MODEL_LORE_FALLBACK", "").strip()
+                    or settings.llm_model_nvidia_lore
+                )
+            elif fallback == "openrouter":
+                fb_model = (
+                    os.getenv("LLM_MODEL_LORE_FALLBACK", "").strip()
+                    or settings.llm_model_openrouter_fallback
+                )
             else:
                 fb_model = settings.llm_model
         attempts.append((fallback, fb_model))
+
+    fallback_2 = (
+        settings.llm_provider_lore_fallback_2
+        or os.getenv("LLM_PROVIDER_LORE_FALLBACK_2")
+        or ""
+    ).strip().lower()
+    if fallback_2 and fallback_2 in PROVIDER_BASE_URLS:
+        used = {p for p, _ in attempts}
+        if fallback_2 not in used:
+            from src.llm.roles import default_model_for_provider
+
+            attempts.append((fallback_2, default_model_for_provider(settings, fallback_2)))
     return attempts
 
 

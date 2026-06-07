@@ -21,16 +21,28 @@ function parseImportanceFromContent(content: string): number | null {
   return null;
 }
 
-function resolveProvider(): {
+/** Memory importance — NVIDIA nano by default; never Zhipu (concurrency=1). */
+function resolveImportanceProvider(): {
   baseUrl: string;
   apiKeys: string[];
+  model: string;
 } {
-  const provider = (process.env.LLM_PROVIDER ?? "openrouter").toLowerCase();
+  const provider = (
+    process.env.LLM_PROVIDER_IMPORTANCE ??
+    process.env.LLM_PROVIDER_REFLECT ??
+    "nvidia"
+  ).toLowerCase();
+  const model =
+    process.env.LLM_MODEL_IMPORTANCE ??
+    process.env.LLM_MODEL_NVIDIA_NANO ??
+    "nvidia/llama-3.1-nemotron-nano-8b-v1";
+
   if (provider === "groq") {
     const key = process.env.GROQ_API_KEY;
     return {
       baseUrl: "https://api.groq.com/openai/v1",
       apiKeys: key ? [key] : [],
+      model,
     };
   }
   if (provider === "agnes") {
@@ -38,6 +50,10 @@ function resolveProvider(): {
     return {
       baseUrl: "https://apihub.agnes-ai.com/v1",
       apiKeys: key ? [key] : [],
+      model:
+        process.env.LLM_MODEL_REFLECT ??
+        process.env.LLM_MODEL_IMPORTANCE ??
+        "agnes-2.0-flash",
     };
   }
   if (provider === "zhipu") {
@@ -45,11 +61,40 @@ function resolveProvider(): {
     return {
       baseUrl: "https://open.bigmodel.cn/api/paas/v4",
       apiKeys: key ? [key] : [],
+      model: process.env.LLM_MODEL ?? model,
+    };
+  }
+  if (provider === "siliconflow") {
+    const key = process.env.SILICONFLOW_API_KEY;
+    return {
+      baseUrl: "https://api.siliconflow.cn/v1",
+      apiKeys: key ? [key] : [],
+      model:
+        process.env.LLM_MODEL_SILICONFLOW_FAST ??
+        process.env.LLM_MODEL_IMPORTANCE ??
+        "Qwen/Qwen3.5-4B",
+    };
+  }
+  if (provider === "nvidia") {
+    const key = process.env.NVIDIA_API_KEY;
+    return {
+      baseUrl: "https://integrate.api.nvidia.com/v1",
+      apiKeys: key ? [key] : [],
+      model,
+    };
+  }
+  if (provider === "cerebras") {
+    const key = process.env.CEREBRAS_API_KEY;
+    return {
+      baseUrl: "https://api.cerebras.ai/v1",
+      apiKeys: key ? [key] : [],
+      model: process.env.LLM_MODEL_CEREBRAS ?? model,
     };
   }
   return {
     baseUrl: "https://openrouter.ai/api/v1",
     apiKeys: openRouterKeys(),
+    model: process.env.LLM_MODEL_OPENROUTER_FALLBACK ?? "openrouter/free",
   };
 }
 
@@ -96,7 +141,7 @@ async function scoreWithKey(
   return parseImportanceFromContent(content) ?? DEFAULT_IMPORTANCE;
 }
 
-/** OpenRouter 429 → try next key; exported for unit tests. */
+/** OpenRouter 429 → try next key; on exhaustion return default (P1). Exported for unit tests. */
 export async function scoreImportanceWithKeys(
   text: string,
   apiKeys: string[],
@@ -117,10 +162,26 @@ export async function scoreImportanceWithKeys(
       if (status === 429 && i + 1 < apiKeys.length) {
         continue;
       }
+      if (status === 429) {
+        console.warn(
+          "[memory] scoreImportance rate-limited; using default importance",
+        );
+        return DEFAULT_IMPORTANCE;
+      }
       throw err;
     }
   }
-  throw lastError;
+  if (lastError) {
+    const status = (lastError as { status?: number }).status;
+    if (status === 429) {
+      console.warn(
+        "[memory] scoreImportance rate-limited; using default importance",
+      );
+      return DEFAULT_IMPORTANCE;
+    }
+    throw lastError;
+  }
+  return DEFAULT_IMPORTANCE;
 }
 
 export async function scoreImportance(text: string): Promise<number> {
@@ -128,7 +189,6 @@ export async function scoreImportance(text: string): Promise<number> {
     return DEFAULT_IMPORTANCE;
   }
 
-  const model = process.env.LLM_MODEL ?? "openrouter/free";
-  const { baseUrl, apiKeys } = resolveProvider();
+  const { baseUrl, apiKeys, model } = resolveImportanceProvider();
   return scoreImportanceWithKeys(text, apiKeys, baseUrl, model);
 }

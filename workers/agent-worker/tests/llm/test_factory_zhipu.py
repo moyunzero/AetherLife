@@ -18,11 +18,11 @@ def test_npc_provider_attempts_zhipu_primary():
         llm_model="glm-4.7-flash",
         llm_model_npc="glm-4.7-flash",
         llm_provider_fallback="openrouter",
-        llm_model_fallbacks="openrouter/free",
     )
     attempts = npc_provider_attempts(settings)
     assert attempts[0] == ("zhipu", "glm-4.7-flash")
-    assert ("openrouter", "glm-4.7-flash") in attempts or ("openrouter", "openrouter/free") in attempts
+    assert attempts[1] == ("openrouter", settings.llm_model_openrouter_fallback)
+    assert all(m != "glm-4.7-flash" for p, m in attempts[1:] if p == "openrouter")
 
 
 @patch("src.llm.factory.ChatOpenAI")
