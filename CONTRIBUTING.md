@@ -1,6 +1,6 @@
 # Contributing — AetherLife
 
-面向人类贡献者。请先阅读 [README.md](./README.md)（环境、`.env`、`pnpm dev:stack`、各 phase 验收命令）。
+面向人类贡献者。环境搭建见 [README.md](./README.md)；验收命令见下文 [集成验收](#集成验收)。
 
 ## 开发原则
 
@@ -29,3 +29,25 @@
 | [docs/CONTRACTS.md](./docs/CONTRACTS.md) | 跨层 API 契约 |
 | [docs/INVARIANTS-MULTIPLAYER.md](./docs/INVARIANTS-MULTIPLAYER.md) | 多人 / NL 不变量 |
 | [docs/MOVEMENT-ARCHITECTURE.md](./docs/MOVEMENT-ARCHITECTURE.md) | 移动与同步 |
+
+## 集成验收
+
+先启动全栈（真实 LLM，禁止 mock worker）：
+
+```bash
+pnpm dev:stack
+```
+
+另开终端运行（按需）：
+
+| Phase | 命令 |
+|-------|------|
+| 5 NL gateway | `pnpm verify:phase5` |
+| 6 Colyseus 移动 + speak | `pnpm verify:phase6` |
+| 7 Phaser 渲染 | `pnpm verify:phase7` |
+| 8 多人房间 | `pnpm verify:phase8` |
+| 10 Chunk 地形 | `pnpm verify:phase10` |
+| 11 世界 lore | `pnpm verify:phase11` |
+| 12 集体记忆 | `pnpm verify:phase12` |
+
+环境变量详见根目录 [`.env.example`](./.env.example)。
