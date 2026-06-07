@@ -48,4 +48,23 @@ describe("scoreImportanceWithKeys OpenRouter failover", () => {
     ).resolves.toBe(9);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it("returns default importance when all keys rate-limited", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ error: { message: "rate limited" } }), {
+        status: 429,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      scoreImportanceWithKeys(
+        "player: hello",
+        ["key-a"],
+        "https://openrouter.ai/api/v1",
+        "openrouter/free",
+      ),
+    ).resolves.toBe(5);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });

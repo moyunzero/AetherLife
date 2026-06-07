@@ -29,6 +29,9 @@
     "verify:phase10": "node scripts/verify-phase10.mjs",
     "verify:phase10:move-only": "node scripts/verify-phase10.mjs",
     "verify:phase11": "node scripts/verify-phase11.mjs",
+    "verify:phase12": "node scripts/verify-phase12.mjs",
+    "uat:phase12.1:playwright": "node scripts/uat-phase12.1-playwright.mjs",
+    "e2e:full-run": "node scripts/e2e-full-run.mjs",
     "uat:phase6:playwright": "node scripts/uat-phase6-playwright.mjs",
     "uat:phase7:playwright": "node scripts/uat-phase7-playwright.mjs",
     "uat:phase8:playwright": "node scripts/uat-phase8-playwright.mjs",
@@ -36,7 +39,13 @@
     "uat:phase11:playwright": "node scripts/uat-phase11-playwright.mjs",
     "uat:phase7:reset-snap": "node scripts/uat-phase7-reset-snap.mjs",
     "uat:vignette:playwright": "node scripts/uat-vignette-up-move.mjs",
-    "verify": "pnpm turbo build && pnpm turbo test && pnpm verify:cloud"
+    "verify": "pnpm turbo build && pnpm turbo test && pnpm verify:cloud",
+    "agent:verify": "node scripts/agent-verify.mjs --fail",
+    "agent:verify:plan": "node scripts/agent-verify.mjs --plan",
+    "agent:verify:e2e": "node scripts/agent-verify.mjs --fail --e2e",
+    "agent:verify:scope": "node scripts/agent-verify.mjs --scope-check --fail",
+    "agent:verify:test": "node --test scripts/agent-verify-map.test.mjs",
+    "hooks:install": "bash scripts/install-git-hooks.sh"
   },
   "devDependencies": {
     "@colyseus/sdk": "0.17.8",

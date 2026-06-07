@@ -1,6 +1,10 @@
 import { describe, expect, it, beforeEach, vi } from "vitest";
 import request from "supertest";
+import { CollectiveRepository } from "@aetherlife/npc-memory";
 import { createApp } from "./index.js";
+import { clearAllActionTrackers } from "./collective/action-tracker.js";
+import { CollectiveService } from "./collective/service.js";
+import { moveIntentTracker } from "./collective/move-intent-tracker.js";
 import { clearAllRooms } from "./room/store.js";
 import { MemoryService } from "./memory/service.js";
 import { clearMockJobs, getMockJob } from "./queue/npc-turn.js";
@@ -20,6 +24,9 @@ describe("game-server", () => {
     clearJobRegistry();
     clearColyseusRoomRegistry();
     MemoryService.resetForTests();
+    CollectiveService.resetForTests(new CollectiveRepository(null));
+    clearAllActionTrackers();
+    moveIntentTracker.clearAll();
   });
 
   it("GET /health returns 200", async () => {
@@ -143,6 +150,88 @@ describe("game-server", () => {
     expect("latestBulkSummary" in res.body).toBe(true);
     expect("latestReflection" in res.body).toBe(true);
     expect(typeof res.body.memoryCount).toBe("number");
+    expect(res.body.collective).toEqual(
+      expect.objectContaining({
+        band: expect.any(String),
+        effectiveScore: expect.any(Number),
+        allowedTools: expect.any(Array),
+      }),
+    );
+  });
+
+  it("GET /rooms/default/collective-state returns shape without speak text", async () => {
+    const repo = CollectiveService.getInstance().repoRef();
+    await repo.insertEvent({
+      roomId: "default",
+      npcId: "npc-1",
+      kind: "rude",
+      summary: "玩家言语粗鲁",
+      playerIds: ["player-a", "player-b"],
+      deltaScore: -8,
+    });
+
+    const res = await request(app)
+      .get("/rooms/default/collective-state")
+      .query({ npcId: "npc-1" })
+      .set("X-Player-Id", "player-a");
+
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(Array.isArray(res.body.attitudes)).toBe(true);
+    expect(Array.isArray(res.body.recentEvents)).toBe(true);
+    expect(res.body.recentEvents[0]).toEqual(
+      expect.objectContaining({
+        kind: "rude",
+        summary: "玩家言语粗鲁",
+      }),
+    );
+    expect(res.body.recentEvents[0].text).toBeUndefined();
+  });
+
+  it("POST apply-actions rejects move for hostile attitude gate", async () => {
+    const playerId = "hostile-player";
+    const repo = CollectiveService.getInstance().repoRef();
+    await repo.applyReputationDelta("default", "npc-1", playerId, -35);
+
+    const res = await request(app)
+      .post("/rooms/default/apply-actions")
+      .send({
+        actingNpcId: "npc-1",
+        initiatorPlayerId: playerId,
+        actions: [{ type: "move", x: 5, y: 5 }],
+      });
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual(
+      expect.objectContaining({
+        ok: false,
+        error: "attitude_gate",
+        code: "hostile_gate",
+        band: "hostile",
+        actionType: "move",
+      }),
+    );
+  });
+
+  it("POST reset clears collective events for room", async () => {
+    const repo = CollectiveService.getInstance().repoRef();
+    await repo.insertEvent({
+      roomId: "default",
+      npcId: "npc-1",
+      kind: "help",
+      summary: "协助",
+      playerIds: ["p-a", "p-b"],
+      deltaScore: 6,
+    });
+
+    const resetRes = await request(app).post("/rooms/default/reset");
+    expect(resetRes.status).toBe(200);
+
+    const stateRes = await request(app)
+      .get("/rooms/default/collective-state")
+      .query({ npcId: "npc-1" });
+    expect(stateRes.status).toBe(200);
+    expect(stateRes.body.recentEvents).toEqual([]);
   });
 
   it("POST /rooms/default/chat returns jobId with npcId in payload", async () => {
@@ -155,7 +244,8 @@ describe("game-server", () => {
     expect(getMockJob(res.body.jobId)?.npcId).toBe("npc-1");
 
     const after = await request(app).get("/rooms/default/state");
-    expect(after.body.memoryCounts["npc-1"]).toBe(before.body.memoryCounts["npc-1"] + 1);
+    // Player memory writes in worker tail (persist_turn_memory), not chat POST — ISSUE-022 / AGENTS.md.
+    expect(after.body.memoryCounts).toEqual(before.body.memoryCounts);
     expect(after.body.memoryCounts["npc-2"]).toBe(0);
   });
 
@@ -199,10 +289,11 @@ describe("game-server", () => {
     await request(app).post("/rooms/default/reset").set("X-Player-Id", playerA);
     await request(app).post("/rooms/default/reset").set("X-Player-Id", playerB);
 
-    await request(app)
-      .post("/rooms/default/chat")
+    const append = await request(app)
+      .post("/internal/rooms/default/memories")
       .set("X-Player-Id", playerA)
-      .send({ message: "hello from A", npcId: "npc-1" });
+      .send({ text: "hello from A", npcId: "npc-1", role: "player", playerId: playerA });
+    expect(append.status).toBe(200);
 
     const stateA = await request(app).get("/rooms/default/state").set("X-Player-Id", playerA);
     const stateB = await request(app).get("/rooms/default/state").set("X-Player-Id", playerB);

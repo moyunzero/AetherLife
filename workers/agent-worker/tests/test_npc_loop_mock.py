@@ -116,7 +116,7 @@ def test_mock_turn_returns_move_tool_call(monkeypatch):
 
     result = run_npc_turn(
         room_id="default",
-        player_message="go east",
+        player_message="go to 4,5",
         npc_id="npc-2",
         settings=settings,
     )
@@ -136,7 +136,9 @@ def test_run_npc_turn_uses_per_npc_thread_id(monkeypatch):
     monkeypatch.setattr("src.graph.npc_loop.build_npc_interactive_graph", lambda _cfg: FakeGraph())
     settings = Settings(llm_mock=True, game_server_url="http://127.0.0.1:2567")
 
-    run_npc_turn(
+    from src.graph.npc_loop import run_npc_turn_interactive
+
+    run_npc_turn_interactive(
         room_id="room-a",
         player_message="hi",
         npc_id="npc-2",

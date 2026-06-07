@@ -2,7 +2,7 @@
 
 本文件定义 **Phase 08+** 多人 Colyseus 与 NL 指令链路的硬约束。违反任一条即视为架构缺陷，修 bug 时先对照此处再改代码。
 
-演进流程与 GSD 衔接：[PHASE-EVOLUTION.md](./PHASE-EVOLUTION.md)。跨层契约表：[CONTRACTS.md](./CONTRACTS.md)。
+跨层契约表：[CONTRACTS.md](./CONTRACTS.md)。
 
 参考实践（外部）：
 
@@ -41,7 +41,7 @@
 
 ## 4. 验证清单
 
-单元测试可用 `LLM_MOCK=1`；**E2E 必须真实 LLM** — [E2E-POLICY.md](./E2E-POLICY.md)。
+单元测试可用 `LLM_MOCK=1`；**phase 验收（`pnpm verify:phase*`）必须真实 LLM**，禁止 `LLM_MOCK=1` 或 `dev:stack:mock`。
 
 ```bash
 pnpm --filter @aetherlife/shared build

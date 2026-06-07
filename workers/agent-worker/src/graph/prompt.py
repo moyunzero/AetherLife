@@ -1,10 +1,11 @@
 import json
 from typing import Any
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from src.graph.action_intent import player_requests_physical_action
 from src.graph.state import GraphState
+from src.collective.constants import BAND_LABEL_ZH
 
 NPC_SYSTEM_PROMPT = """你是「以太人生」中的 NPC 助手。
 
@@ -13,7 +14,10 @@ NPC_SYSTEM_PROMPT = """你是「以太人生」中的 NPC 助手。
 2. 玩家要求移动、开门、拿东西、等待等物理行为时，必须在同一轮调用 move / interact / wait 工具；不要只用文字说「我现在就去…」。
 3. 不要口头声称已经完成某个动作；若需要改变世界状态，必须调用对应工具。
 4. 可用 speak 工具对玩家说话（targetId 使用 "player"），或在回复文本中直接回答；但 speak 不能代替 move / interact。
-5. 以房间 JSON 快照为准，不要编造不存在的状态或坐标。"""
+5. 以房间 JSON 快照为准，不要编造不存在的状态或坐标。
+6. 下方 Recent dialogue 是真实会话历史；请针对玩家**最新一条**消息作答，勿复读上一轮几乎相同的回复。"""
+
+RECENT_DIALOGUE_TURN_LIMIT = 10
 
 
 def format_memory_summary(
@@ -105,16 +109,63 @@ def format_nearby_lore(room: dict[str, Any]) -> str:
     return "\n".join(lines) if len(lines) > 1 else ""
 
 
-def build_turn_messages(state: GraphState) -> list[SystemMessage | HumanMessage]:
+def format_attitude_context(
+    *,
+    band: str | None,
+    effective_score: int | None,
+    summaries: list[str] | None,
+    just_happened: str | None = None,
+) -> str:
+    resolved_band = band or "neutral"
+    label = BAND_LABEL_ZH.get(resolved_band, resolved_band)
+    score_text = effective_score if effective_score is not None else "?"
+    lines = [
+        "Attitude toward this player:",
+        f"- band: {resolved_band} ({label})",
+        f"- effectiveScore: {score_text}",
+    ]
+    if just_happened and just_happened.strip():
+        lines.append(f"- justHappened: {just_happened.strip()[:80]}")
+    items = [s.strip() for s in (summaries or []) if s and s.strip()]
+    if items:
+        lines.append("- recent collective summaries:")
+        for item in items[:5]:
+            lines.append(f"  · {item}")
+    return "\n".join(lines)
+
+
+def build_turn_messages(state: GraphState) -> list[SystemMessage | HumanMessage | AIMessage]:
     memory = (state.get("memory_summary") or "").strip()
     room = state.get("room_snapshot") or {}
     room_json = json.dumps(room, ensure_ascii=False)
     if len(room_json) > 1500:
         room_json = room_json[:1500] + "…"
 
-    system_text = f"{NPC_SYSTEM_PROMPT}\n{build_room_constraints(room)}"
+    attitude = format_attitude_context(
+        band=state.get("attitude_band"),
+        effective_score=state.get("effective_score"),
+        summaries=state.get("collective_summaries"),
+        just_happened=state.get("just_happened_summary"),
+    )
+
+    system_text = f"{NPC_SYSTEM_PROMPT}\n{build_room_constraints(room)}\n\n{attitude}"
     if memory:
         system_text = f"{system_text}\n\nMemory summary:\n{memory}"
+
+    messages: list[SystemMessage | HumanMessage | AIMessage] = [
+        SystemMessage(content=system_text)
+    ]
+
+    recent = state.get("recent_turns") or []
+    for turn in recent[-RECENT_DIALOGUE_TURN_LIMIT:]:
+        role = (turn.get("role") or "").strip()
+        text = (turn.get("text") or "").strip()
+        if not text:
+            continue
+        if role == "player":
+            messages.append(HumanMessage(content=text))
+        elif role == "npc":
+            messages.append(AIMessage(content=text))
 
     player_message = state.get("player_message") or ""
     human_text = f"Player message: {player_message}\n\nRoom snapshot (JSON):\n{room_json}"
@@ -123,4 +174,5 @@ def build_turn_messages(state: GraphState) -> list[SystemMessage | HumanMessage]
             f"{human_text}\n\n"
             "[系统] 本轮必须调用 move / interact / wait 工具执行物理动作，禁止仅用文字承诺。"
         )
-    return [SystemMessage(content=system_text), HumanMessage(content=human_text)]
+    messages.append(HumanMessage(content=human_text))
+    return messages

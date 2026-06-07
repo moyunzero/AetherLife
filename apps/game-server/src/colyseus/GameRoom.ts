@@ -219,7 +219,11 @@ export class GameRoom extends Room {
       try {
         const jobId = await startNpcChatTurn(this.mapRoomId, text, npcId, playerId);
         this.npcSpeakJobs.set(npcId, jobId);
-        registerJob(jobId, this, this.mapRoomId, client.sessionId);
+        registerJob(jobId, this, this.mapRoomId, client.sessionId, {
+          npcId,
+          playerId,
+          playerMessage: text,
+        });
         emitJobEvent(jobId, "thinking", { status: "queued", npcId });
         client.send("speakAck", { jobId });
       } catch (err) {

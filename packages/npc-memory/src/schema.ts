@@ -1,4 +1,13 @@
-import { customType, index, pgTable, real, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import {
+  customType,
+  index,
+  integer,
+  pgTable,
+  real,
+  text,
+  timestamp,
+  uuid,
+} from "drizzle-orm/pg-core";
 
 /** Matches nvidia/llama-nemotron-embed-vl-1b-v2:free (see docs/phase3-embed-spike.md). */
 export const EMBED_DIMENSIONS = 2048;
@@ -58,6 +67,59 @@ export const memorySummaries = pgTable(
 );
 
 export type SummaryKind = "reflection" | "bulk";
+
+export type CollectiveEventKind =
+  | "rude"
+  | "polite"
+  | "help"
+  | "contradict"
+  | "compete_object"
+  | "collaborate"
+  | "steal_attempt"
+  | "ignore"
+  | "gift"
+  | "praise"
+  | "apologize"
+  | "betray";
+
+export type CollectiveEventSource = "rule" | "llm_refine" | "worker";
+
+export const collectiveEvents = pgTable(
+  "collective_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    roomId: text("room_id").notNull(),
+    npcId: text("npc_id").notNull(),
+    kind: text("kind").notNull().$type<CollectiveEventKind>(),
+    summary: text("summary").notNull(),
+    playerIds: text("player_ids").array().notNull(),
+    deltaScore: integer("delta_score").notNull(),
+    source: text("source").notNull().default("rule").$type<CollectiveEventSource>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("collective_events_room_npc_created_idx").on(
+      table.roomId,
+      table.npcId,
+      table.createdAt,
+    ),
+    index("collective_events_room_created_idx").on(table.roomId, table.createdAt),
+  ],
+);
+
+export const npcAttitudes = pgTable(
+  "npc_attitudes",
+  {
+    roomId: text("room_id").notNull(),
+    npcId: text("npc_id").notNull(),
+    playerId: text("player_id").notNull(),
+    reputation: integer("reputation").notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("npc_attitudes_room_player_idx").on(table.roomId, table.playerId),
+  ],
+);
 
 export const mutationAuditLogs = pgTable(
   "mutation_audit_logs",

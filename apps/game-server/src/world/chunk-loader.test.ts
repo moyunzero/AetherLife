@@ -1,10 +1,11 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { clearChunkDeltaMemory } from "./chunk-repository.js";
+import { resetChunkRepositoryForTests } from "./chunk-repository.js";
 import { ChunkLoader } from "./chunk-loader.js";
 
 describe("ChunkLoader", () => {
   beforeEach(() => {
-    clearChunkDeltaMemory();
+    delete process.env.DATABASE_URL;
+    resetChunkRepositoryForTests();
   });
 
   it("loads 3x3 window around player", async () => {

@@ -12,6 +12,13 @@
   --npc-tint: #8a7d5c;
   --door-open: #6b8f5e;
   --floor-blocked: #252219;
+  --attitude-hostile-bg: #2a1818;
+  --attitude-wary-bg: #242018;
+  --attitude-neutral-bg: var(--surface);
+  --attitude-warm-bg: #1a2218;
+  --attitude-allied-bg: #221f14;
+  --attitude-wary-text: #a89060;
+  --attitude-warm-text: #7a9a6e;
   --radius-sm: 4px;
   --radius-md: 8px;
   --shadow-soft: 0 8px 32px rgba(0, 0, 0, 0.35);
@@ -343,11 +350,115 @@ body {
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
 .npc-tab--active {
   color: var(--text);
   border-bottom-color: var(--accent);
+}
+
+.attitude-band-chip {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono, "IBM Plex Mono", monospace);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  border: 1px solid transparent;
+}
+
+.attitude-band-chip--hostile {
+  background: var(--attitude-hostile-bg);
+  color: var(--destructive);
+  border-color: rgba(181, 74, 74, 0.35);
+}
+
+.attitude-band-chip--wary {
+  background: var(--attitude-wary-bg);
+  color: var(--attitude-wary-text);
+}
+
+.attitude-band-chip--neutral {
+  background: var(--attitude-neutral-bg);
+  color: var(--text-muted);
+}
+
+.attitude-band-chip--warm {
+  background: var(--attitude-warm-bg);
+  color: var(--attitude-warm-text);
+}
+
+.attitude-band-chip--allied {
+  background: var(--attitude-allied-bg);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.collective-attitude-overlay {
+  position: fixed;
+  left: 8px;
+  bottom: 8px;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  font-family: var(--font-mono, "IBM Plex Mono", monospace);
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(28, 26, 23, 0.92);
+  pointer-events: none;
+}
+
+.collective-debug-panel {
+  position: fixed;
+  left: 8px;
+  bottom: 88px;
+  z-index: 40;
+  max-width: min(360px, calc(100vw - 16px));
+  padding: 8px 10px;
+  font-family: var(--font-mono, "IBM Plex Mono", monospace);
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(28, 26, 23, 0.94);
+}
+
+.collective-debug-panel summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.collective-debug-panel__body {
+  margin-top: 8px;
+}
+
+.collective-debug-panel__pre {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.attitude-gate-hint {
+  margin: 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--destructive);
+  border-radius: var(--radius-sm);
+  background: var(--attitude-hostile-bg);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.4;
+  box-shadow: var(--shadow-soft);
 }
 
 .state-panel__active {

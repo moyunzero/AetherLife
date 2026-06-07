@@ -1,7 +1,7 @@
 import httpx
 
 from src.config import Settings
-from src.memory.client import append_npc_memory, fetch_memory_context
+from src.memory.client import append_npc_memory, append_player_memory, fetch_memory_context
 
 
 def test_fetch_memory_context_retries_transient_502():
@@ -70,3 +70,28 @@ def test_append_npc_memory_posts_importance(monkeypatch):
 
     assert "/memories" in captured["path"]
     assert captured["body"]["importance"] == 7
+
+
+def test_append_player_memory_posts_role_player():
+    settings = Settings(game_server_url="http://test")
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = __import__("json").loads(request.content.decode())
+        return httpx.Response(200, json={"ok": True})
+
+    transport = httpx.MockTransport(handler)
+    with httpx.Client(transport=transport) as client:
+        append_player_memory(
+            client,
+            settings,
+            "default",
+            "hello there",
+            importance=6,
+            player_id="player-abc",
+        )
+
+    assert captured["body"]["role"] == "player"
+    assert captured["body"]["text"] == "hello there"
+    assert captured["body"]["importance"] == 6
+    assert captured["body"]["playerId"] == "player-abc"

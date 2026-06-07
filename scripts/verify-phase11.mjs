@@ -403,7 +403,9 @@ async function main() {
   await page.waitForTimeout(600);
   const homeGx = 4;
   const homeGy = (await readGridCoords(page)).gy;
-  const postsBeforeCacheNav = await waitLorePostsStable();
+  await waitLorePostsStable(90_000);
+  const metricsBeforeCacheNav = await fetchLoreMetrics();
+  const enqueuesBeforeCacheNav = metricsBeforeCacheNav.enqueues;
   await stepTowardCoords(page, homeGx, homeGy, 12, "cache leave to home column");
   await stepTowardCoords(
     page,
@@ -423,15 +425,15 @@ async function main() {
   );
 
   const metricsReenter = await fetchLoreMetrics();
-  if (metricsReenter.posts !== postsBeforeCacheNav) {
+  if (metricsReenter.enqueues !== enqueuesBeforeCacheNav) {
     throw new Error(
-      `cache re-enter must not POST again (posts ${postsBeforeCacheNav} → ${metricsReenter.posts})`,
+      `cache re-enter must not enqueue again (enqueues ${enqueuesBeforeCacheNav} → ${metricsReenter.enqueues})`,
     );
   }
   if (await page.locator('[data-testid="lore-discover-toast"]').isVisible().catch(() => false)) {
     throw new Error("lore-discover-toast should not show on cache re-enter");
   }
-  console.log("  ✓ cache hit — POST counter unchanged, no re-toast");
+  console.log("  ✓ cache hit — enqueue counter unchanged, no re-toast");
 
   const dedupX = 16;
   const dedupCx = Math.floor(dedupX / CHUNK_SIZE);

@@ -68,6 +68,19 @@ export type ColyseusSpeakIdlePayload = {
   npcId: string;
 };
 
+/** SSE/Colyseus `done` payload after an NPC speak job completes. */
+export type ColyseusNpcJobDonePayload = {
+  jobId?: string;
+  reply?: string;
+  npcId?: string;
+  npcName?: string;
+  state?: import("./room.js").RoomState;
+  gateRejected?: boolean;
+  gateKind?: string;
+  /** Worker persisted a collective social event — client should refetch collective-state once. */
+  collectiveUpdated?: boolean;
+};
+
 /** Loaded chunk tile window for client render (Phase 10). */
 export type ColyseusChunksSyncPayload = {
   chunks: import("./chunk.js").ChunkView[];

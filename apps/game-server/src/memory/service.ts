@@ -6,6 +6,8 @@ import {
 } from "@aetherlife/npc-memory";
 import { embedText } from "./embed.js";
 import { scoreImportance } from "./importance.js";
+import type { CollectiveContext } from "../collective/service.js";
+import { CollectiveService } from "../collective/service.js";
 
 export type MemoryContext = {
   memoryCount: number;
@@ -13,6 +15,7 @@ export type MemoryContext = {
   latestBulkSummary: string | null;
   latestReflection: string | null;
   timingMs: number;
+  collective: CollectiveContext;
 };
 
 export type NpcMemoryDebug = {
@@ -270,11 +273,12 @@ export class MemoryService {
     text: string,
     npcId: string,
     playerId: string,
+    importance?: number,
   ): Promise<void> {
     const line = text.startsWith("player:") ? text : `player: ${text}`;
-    const importance = await scoreImportance(line);
+    const score = importance ?? (await scoreImportance(line));
     const embedding = await embedText(line);
-    await this.append({ roomId, playerId, npcId, text: line, importance, embedding });
+    await this.append({ roomId, playerId, npcId, text: line, importance: score, embedding });
   }
 
   async appendNpcMemory(
@@ -338,6 +342,11 @@ export class MemoryService {
   ): Promise<MemoryContext> {
     const start = Date.now();
     const queryEmbedding = await embedText(playerMessage);
+    const collectivePromise = CollectiveService.getInstance().getCollectiveContext(
+      roomId,
+      npcId,
+      playerId,
+    );
 
     if (this.test) {
       const retrieved = await this.test.searchSimilar({
@@ -347,22 +356,26 @@ export class MemoryService {
         queryEmbedding,
         k: 5,
       });
+      const collective = await collectivePromise;
       return {
         memoryCount: await this.test.countRaw(roomId, playerId, npcId),
         retrieved,
         latestBulkSummary: this.test.latestSummary(roomId, playerId, npcId, "bulk"),
         latestReflection: this.test.latestSummary(roomId, playerId, npcId, "reflection"),
         timingMs: Date.now() - start,
+        collective,
       };
     }
 
     const repo = this.repo!;
-    const [retrieved, memoryCount, latestBulkSummary, latestReflection] = await Promise.all([
-      repo.searchSimilar({ roomId, playerId, npcId, queryEmbedding, k: 5 }),
-      repo.countRaw({ roomId, playerId, npcId, unsummarizedOnly: true }),
-      repo.getLatestSummaryByKind({ roomId, playerId, npcId, kind: "bulk" }),
-      repo.getLatestSummaryByKind({ roomId, playerId, npcId, kind: "reflection" }),
-    ]);
+    const [retrieved, memoryCount, latestBulkSummary, latestReflection, collective] =
+      await Promise.all([
+        repo.searchSimilar({ roomId, playerId, npcId, queryEmbedding, k: 5 }),
+        repo.countRaw({ roomId, playerId, npcId, unsummarizedOnly: true }),
+        repo.getLatestSummaryByKind({ roomId, playerId, npcId, kind: "bulk" }),
+        repo.getLatestSummaryByKind({ roomId, playerId, npcId, kind: "reflection" }),
+        collectivePromise,
+      ]);
 
     return {
       memoryCount,
@@ -370,6 +383,7 @@ export class MemoryService {
       latestBulkSummary,
       latestReflection,
       timingMs: Date.now() - start,
+      collective,
     };
   }
 

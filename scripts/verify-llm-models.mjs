@@ -26,9 +26,40 @@ function loadEnv(path) {
     if (!trimmed || trimmed.startsWith("#")) continue;
     const eq = trimmed.indexOf("=");
     if (eq === -1) continue;
-    env[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1).trim();
+    let value = trimmed.slice(eq + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    env[trimmed.slice(0, eq).trim()] = value;
   }
   return env;
+}
+
+/** @param {Record<string, string>} env @param {string} provider */
+function resolveLoreFallbackModel(env, provider) {
+  const explicit = (env.LLM_MODEL_LORE_FALLBACK ?? "").trim();
+  if (explicit) return explicit;
+  switch (provider) {
+    case "nvidia":
+      return env.LLM_MODEL_NVIDIA_LORE ?? "nvidia/llama-3.3-nemotron-super-49b-v1.5";
+    case "siliconflow":
+      return env.LLM_MODEL_SILICONFLOW_REASON ?? "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B";
+    case "zhipu":
+      return "glm-4.7-flash";
+    case "cerebras":
+      return env.LLM_MODEL_CEREBRAS ?? "gpt-oss-120b";
+    case "agnes":
+      return env.LLM_MODEL_REFLECT ?? "agnes-2.0-flash";
+    case "groq":
+      return "llama-3.1-8b-instant";
+    case "openrouter":
+      return env.LLM_MODEL_OPENROUTER_FALLBACK ?? "openrouter/free";
+    default:
+      return env.LLM_MODEL ?? "glm-4.7-flash";
+  }
 }
 
 /** @param {unknown} err */
@@ -39,12 +70,13 @@ function errMessage(err) {
 
 /** @param {Response} res */
 async function readApiError(res) {
+  const text = await res.text();
   try {
-    const body = await res.json();
+    const body = JSON.parse(text);
     const msg = body?.error?.message ?? body?.message ?? JSON.stringify(body);
     return String(msg).slice(0, 240);
   } catch {
-    return (await res.text()).slice(0, 240);
+    return text.slice(0, 240);
   }
 }
 
@@ -68,10 +100,12 @@ async function probeChat({ baseUrl, apiKey, model, extraHeaders = {}, extraBody 
     },
     body: JSON.stringify({
       model,
-      max_tokens: 16,
       temperature: 0,
       messages: [{ role: "user", content: "Reply with exactly: pong" }],
       ...extraBody,
+      ...(Object.prototype.hasOwnProperty.call(extraBody, "max_completion_tokens")
+        ? {}
+        : { max_tokens: 16 }),
     }),
   });
   const latencyMs = Date.now() - started;
@@ -145,6 +179,10 @@ async function main() {
   const groqKey = env.GROQ_API_KEY ?? "";
   const agnesKey = env.AGNES_API_KEY ?? "";
   const zhipuKey = env.ZHIPU_API_KEY ?? "";
+  const nvidiaKey = env.NVIDIA_API_KEY ?? "";
+  const siliconflowKey = env.SILICONFLOW_API_KEY ?? "";
+  const cerebrasKey = env.CEREBRAS_API_KEY ?? "";
+  const cerebrasModel = env.LLM_MODEL_CEREBRAS ?? "gpt-oss-120b";
 
   const llmProvider = (env.LLM_PROVIDER ?? "zhipu").toLowerCase();
   const npcModelPin = (env.LLM_MODEL_NPC ?? "").trim();
@@ -309,6 +347,21 @@ async function main() {
       key: zhipuKey,
       keyLabel: "ZHIPU_API_KEY",
     },
+    cerebras: {
+      baseUrl: "https://api.cerebras.ai/v1",
+      key: cerebrasKey,
+      keyLabel: "CEREBRAS_API_KEY",
+    },
+    siliconflow: {
+      baseUrl: "https://api.siliconflow.cn/v1",
+      key: siliconflowKey,
+      keyLabel: "SILICONFLOW_API_KEY",
+    },
+    nvidia: {
+      baseUrl: "https://integrate.api.nvidia.com/v1",
+      key: nvidiaKey,
+      keyLabel: "NVIDIA_API_KEY",
+    },
   };
   const loreCfg = loreProviderConfig[loreProvider] ?? loreProviderConfig.openrouter;
   for (const [role, model] of [
@@ -344,19 +397,30 @@ async function main() {
   }
 
   // --- Lore fallback (LLM_PROVIDER_LORE_FALLBACK) ---
-  const loreFbProvider = (env.LLM_PROVIDER_LORE_FALLBACK ?? "zhipu").toLowerCase();
-  const loreFbModel = env.LLM_MODEL_LORE_FALLBACK ?? "glm-4.7-flash";
+  const loreFbProvider = (env.LLM_PROVIDER_LORE_FALLBACK ?? "nvidia").toLowerCase();
+  const loreFbModel = resolveLoreFallbackModel(env, loreFbProvider);
   const loreFbCfg = loreProviderConfig[loreFbProvider];
-  if (!loreFbCfg?.key) {
+  if (!loreFbCfg) {
     push({
       role: "Lore fallback",
       provider: loreFbProvider,
       model: loreFbModel,
-      keyLabel: loreFbCfg?.keyLabel ?? "API_KEY",
+      keyLabel: "UNKNOWN_PROVIDER",
       consumer: "worker lore_loop after primary lore failure",
       ok: false,
       latencyMs: 0,
-      error: `missing ${loreFbCfg?.keyLabel ?? "API key"}`,
+      error: `unsupported LLM_PROVIDER_LORE_FALLBACK=${loreFbProvider}`,
+    });
+  } else if (!loreFbCfg.key) {
+    push({
+      role: "Lore fallback",
+      provider: loreFbProvider,
+      model: loreFbModel,
+      keyLabel: loreFbCfg.keyLabel,
+      consumer: "worker lore_loop after primary lore failure",
+      ok: false,
+      latencyMs: 0,
+      error: `missing ${loreFbCfg.keyLabel}`,
     });
   } else {
     push({
@@ -371,6 +435,121 @@ async function main() {
         model: loreFbModel,
         extraHeaders: loreFbCfg.extraHeaders ?? {},
         extraBody: loreFbProvider === "zhipu" ? zhipuThinking : {},
+      })),
+    });
+  }
+
+  // --- Importance JSON (LLM_PROVIDER_IMPORTANCE, Phase 11.7) ---
+  const importanceProvider = (env.LLM_PROVIDER_IMPORTANCE ?? "nvidia").toLowerCase();
+  const importanceModel =
+    env.LLM_MODEL_IMPORTANCE ??
+    env.LLM_MODEL_NVIDIA_NANO ??
+    "nvidia/llama-3.1-nemotron-nano-8b-v1";
+  const importanceCfg = loreProviderConfig[importanceProvider];
+  if (!importanceCfg) {
+    push({
+      role: "Memory importance",
+      provider: importanceProvider,
+      model: importanceModel,
+      keyLabel: "UNKNOWN_PROVIDER",
+      consumer: "worker importance.py; game-server importance.ts",
+      ok: false,
+      latencyMs: 0,
+      error: `unsupported LLM_PROVIDER_IMPORTANCE=${importanceProvider}`,
+    });
+  } else if (!importanceCfg.key) {
+    push({
+      role: "Memory importance",
+      provider: importanceProvider,
+      model: importanceModel,
+      keyLabel: importanceCfg.keyLabel,
+      consumer: "worker importance.py; game-server importance.ts",
+      ok: false,
+      latencyMs: 0,
+      error: `missing ${importanceCfg.keyLabel}`,
+    });
+  } else {
+    push({
+      role: "Memory importance",
+      provider: importanceProvider,
+      model: importanceModel,
+      keyLabel: importanceCfg.keyLabel,
+      consumer: "worker importance.py; game-server importance.ts",
+      ...(await probeChat({
+        baseUrl: importanceCfg.baseUrl,
+        apiKey: importanceCfg.key,
+        model: importanceModel,
+        extraHeaders: importanceCfg.extraHeaders ?? {},
+      })),
+    });
+  }
+
+  // --- Social JSON (LLM_PROVIDER_SOCIAL, Phase 11.7) ---
+  const socialProvider = (env.LLM_PROVIDER_SOCIAL ?? "siliconflow").toLowerCase();
+  const socialModel = env.LLM_MODEL_SOCIAL ?? env.LLM_MODEL_SILICONFLOW_FAST ?? "Qwen/Qwen3.5-4B";
+  const socialCfg = loreProviderConfig[socialProvider];
+  if (!socialCfg) {
+    push({
+      role: "NPC social JSON",
+      provider: socialProvider,
+      model: socialModel,
+      keyLabel: "UNKNOWN_PROVIDER",
+      consumer: "worker llm_social_turn.py",
+      ok: false,
+      latencyMs: 0,
+      error: `unsupported LLM_PROVIDER_SOCIAL=${socialProvider}`,
+    });
+  } else if (!socialCfg.key) {
+    push({
+      role: "NPC social JSON",
+      provider: socialProvider,
+      model: socialModel,
+      keyLabel: socialCfg.keyLabel,
+      consumer: "worker llm_social_turn.py",
+      ok: false,
+      latencyMs: 0,
+      error: `missing ${socialCfg.keyLabel}`,
+    });
+  } else {
+    push({
+      role: "NPC social JSON",
+      provider: socialProvider,
+      model: socialModel,
+      keyLabel: socialCfg.keyLabel,
+      consumer: "worker llm_social_turn.py",
+      ...(await probeChat({
+        baseUrl: socialCfg.baseUrl,
+        apiKey: socialCfg.key,
+        model: socialModel,
+        extraHeaders: socialCfg.extraHeaders ?? {},
+      })),
+    });
+  }
+
+  // --- Cerebras gpt-oss-120b slot (always probe when key present) ---
+  if (!cerebrasKey) {
+    push({
+      role: "Cerebras chat (reserved)",
+      provider: "cerebras",
+      model: cerebrasModel,
+      keyLabel: "CEREBRAS_API_KEY",
+      consumer: "worker factory when LLM_PROVIDER=cerebras or lore/NPC fallback",
+      ok: false,
+      latencyMs: 0,
+      error: "missing CEREBRAS_API_KEY",
+    });
+  } else {
+    push({
+      role: "Cerebras chat (reserved)",
+      provider: "cerebras",
+      model: cerebrasModel,
+      keyLabel: "CEREBRAS_API_KEY",
+      consumer: "worker factory + client rate limit (5 req/min)",
+      ...(await probeChat({
+        baseUrl: "https://api.cerebras.ai/v1",
+        apiKey: cerebrasKey,
+        model: cerebrasModel,
+        extraBody: { max_completion_tokens: 16 },
       })),
     });
   }

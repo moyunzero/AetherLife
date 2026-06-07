@@ -22,6 +22,7 @@ export function createInternalMemoriesRouter(): Router {
     const playerId = playerIdFromInternal(req);
     const importance =
       typeof req.body?.importance === "number" ? req.body.importance : undefined;
+    const role = req.body?.role === "player" ? "player" : "npc";
 
     if (!text) {
       res.status(400).json({ ok: false, error: "text required" });
@@ -30,7 +31,11 @@ export function createInternalMemoriesRouter(): Router {
 
     try {
       const service = MemoryService.getInstance();
-      await service.appendNpcMemory(roomId, text, npcId, playerId, importance);
+      if (role === "player") {
+        await service.appendPlayerMemory(roomId, text, npcId, playerId, importance);
+      } else {
+        await service.appendNpcMemory(roomId, text, npcId, playerId, importance);
+      }
       res.json({ ok: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : "append failed";

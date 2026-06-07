@@ -41,6 +41,24 @@ def test_load_tools_for_binding_has_core_four():
         assert tool["function"]["parameters"].get("type") == "object"
 
 
+def test_build_turn_messages_includes_recent_dialogue():
+    messages = build_turn_messages(
+        {
+            "player_message": "为什么戒备？",
+            "recent_turns": [
+                {"role": "player", "text": "你喜欢我吗？"},
+                {"role": "npc", "text": "我没有那种喜欢。"},
+            ],
+            "room_snapshot": {"width": 8, "height": 8, "player": {"x": 1, "y": 1}},
+        }
+    )
+    assert len(messages) == 4
+    assert messages[1].content == "你喜欢我吗？"
+    assert messages[2].content == "我没有那种喜欢。"
+    assert "为什么戒备？" in messages[3].content
+    assert "勿复读上一轮" in messages[0].content
+
+
 def test_build_turn_messages_includes_player_text_and_room_bounds():
     messages = build_turn_messages(
         {

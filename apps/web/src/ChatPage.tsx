@@ -1,4 +1,4 @@
-import { createDefaultRoom, type RoomState } from "@aetherlife/shared";
+import { bandLabelZh, createDefaultRoom, type RoomState } from "@aetherlife/shared";
 import {
   FormEvent,
   KeyboardEvent,
@@ -14,11 +14,15 @@ import { useNpcChat } from "./hooks/useNpcChat.js";
 import { MovementPanel } from "./components/MovementPanel.js";
 import { PhaserGame, probePhaserBoot } from "./components/PhaserGame.js";
 import { MessageList } from "./components/MessageList.js";
+import { CollectiveAttitudeOverlay } from "./components/CollectiveAttitudeOverlay.js";
+import { CollectiveDebugPanel } from "./components/CollectiveDebugPanel.js";
 import { NpcTabBar } from "./components/NpcTabBar.js";
+import { useCollectiveAttitude } from "./hooks/useCollectiveAttitude.js";
 import { RoomStatePanel } from "./components/RoomStatePanel.js";
 import { NpcMemoryPanel } from "./components/NpcMemoryPanel.js";
 import { SyncMetricsOverlay } from "./components/SyncMetricsOverlay.js";
 import { getMapRoomId } from "./lib/mapRoomId.js";
+import { playerRequestsMove } from "./lib/playerMoveIntent.js";
 import { subscribeTabPresence } from "./lib/playerSession.js";
 import { playerDisplayName } from "./lib/playerDisplayName.js";
 
@@ -50,6 +54,7 @@ export function ChatPage() {
   const dismissDiscoverToast = useCallback(() => {
     consumeDiscoverToast();
   }, [consumeDiscoverToast]);
+  const onCollectiveUpdatedRef = useRef<(() => void) | null>(null);
   const {
     messages,
     error,
@@ -64,7 +69,12 @@ export function ChatPage() {
     speakQueueBusy,
     composerBusyForActiveNpc,
     thinkingNpcId,
-  } = useNpcChat(room, mapRoomId);
+    attitudeGateCue,
+    clearAttitudeGateCue,
+    attitudeGateHintCopy,
+  } = useNpcChat(room, mapRoomId, {
+    onCollectiveUpdated: () => onCollectiveUpdatedRef.current?.(),
+  });
   const [draft, setDraft] = useState("");
   const [stateUpdated, setStateUpdated] = useState(false);
   const [npcMoveHint, setNpcMoveHint] = useState<string | null>(null);
@@ -89,6 +99,14 @@ export function ChatPage() {
     import.meta.env.DEV ||
     (typeof window !== "undefined" &&
       new URLSearchParams(window.location.search).get("syncDebug") === "1");
+  const showCollectiveDebug =
+    import.meta.env.DEV ||
+    (typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("collectiveDebug") === "1");
+  const [attitudeGateHint, setAttitudeGateHint] = useState<string | null>(null);
+  const { snapshot: collectiveSnapshot, loading: collectiveLoading, invalidateCollective, refetchCollective } =
+    useCollectiveAttitude(mapRoomId, activeNpcId);
+  onCollectiveUpdatedRef.current = refetchCollective;
 
   useEffect(() => {
     if (forcePhaserFallback) {
@@ -115,21 +133,22 @@ export function ChatPage() {
     [setActiveNpcId],
   );
 
+  const displayNpcs = roomState?.npcs ?? moveMap.npcs;
+
   const npcs = useMemo(
     () =>
-      (roomState?.npcs ?? []).map((npc) => ({
+      displayNpcs.map((npc) => ({
         id: npc.id,
         name: npc.name,
       })),
-    [roomState],
+    [displayNpcs],
   );
 
   const activeNpcName =
-    npcs.find((npc) => npc.id === activeNpcId)?.name ??
-    (roomState ? "NPC" : "角色");
+    npcs.find((npc) => npc.id === activeNpcId)?.name ?? "NPC";
 
   useEffect(() => {
-    void refetchState();
+    void refetchState({ retryUntilMs: 15_000 });
   }, [refetchState]);
 
   useEffect(() => subscribeTabPresence(() => setDuplicateTab(true)), []);
@@ -172,6 +191,7 @@ export function ChatPage() {
     const nextState = await resetGame();
     awaitingResetRef.current = false;
     if (!nextState) return;
+    invalidateCollective();
     flushSync(() => {
       setMoveMap(nextState);
       setNpcResetEpoch((n) => n + 1);
@@ -179,7 +199,7 @@ export function ChatPage() {
     requestAnimationFrame(() =>
       requestAnimationFrame(() => setNpcWorldLive(true)),
     );
-  }, [resetGame]);
+  }, [resetGame, invalidateCollective]);
 
   useEffect(() => {
     if (!npcMoveHint) return;
@@ -187,7 +207,47 @@ export function ChatPage() {
     return () => window.clearTimeout(t);
   }, [npcMoveHint]);
 
+  useEffect(() => {
+    if (!attitudeGateCue) return;
+    const name = attitudeGateCue.npcName || activeNpcName;
+    setAttitudeGateHint(attitudeGateHintCopy(name, attitudeGateCue.gateKind));
+    clearAttitudeGateCue();
+  }, [attitudeGateCue, activeNpcName, clearAttitudeGateCue, attitudeGateHintCopy]);
+
+  useEffect(() => {
+    const last = messages[messages.length - 1];
+    if (
+      last?.role === "npc" &&
+      last.npcId === activeNpcId &&
+      last.text.includes("当前关系较紧张")
+    ) {
+      setAttitudeGateHint(attitudeGateHintCopy(activeNpcName, "move"));
+      return;
+    }
+    if (collectiveSnapshot?.band !== "hostile" || messages.length < 2) return;
+    if (last?.role !== "npc" || last.npcId !== activeNpcId) return;
+    const prev = messages[messages.length - 2];
+    if (prev?.role !== "player" || !playerRequestsMove(prev.text)) return;
+    setAttitudeGateHint(attitudeGateHintCopy(activeNpcName, "move"));
+  }, [
+    messages,
+    activeNpcId,
+    activeNpcName,
+    collectiveSnapshot?.band,
+    attitudeGateHintCopy,
+  ]);
+
+  useEffect(() => {
+    if (!attitudeGateHint) return;
+    const t = window.setTimeout(() => setAttitudeGateHint(null), 3000);
+    return () => window.clearTimeout(t);
+  }, [attitudeGateHint]);
+
   const sceneHint = moveHint ?? npcMoveHint;
+  const collectiveAttitudeLine =
+    showCollectiveDebug && collectiveSnapshot
+      ? `${activeNpcName} ${bandLabelZh(collectiveSnapshot.band)} eff=${collectiveSnapshot.effectiveScore}`
+      : null;
 
   useEffect(() => {
     if (roomState) setStateUpdated(true);
@@ -211,7 +271,7 @@ export function ChatPage() {
     }
   };
 
-  const sceneMapNpcs = roomState?.npcs ?? [];
+  const sceneMapNpcs = displayNpcs;
   const sceneMapObjects = roomState?.objects ?? moveMap.objects;
 
   return (
@@ -272,7 +332,12 @@ export function ChatPage() {
       ) : null}
 
       {npcs.length > 0 ? (
-        <NpcTabBar npcs={npcs} activeNpcId={activeNpcId} onSelect={selectNpc} />
+        <NpcTabBar
+          npcs={npcs}
+          activeNpcId={activeNpcId}
+          onSelect={selectNpc}
+          activeBand={collectiveSnapshot?.band ?? null}
+        />
       ) : null}
 
       <main className="chat-main">
@@ -344,6 +409,7 @@ export function ChatPage() {
             onDismissDiscoverToast={dismissDiscoverToast}
             motionBridgeRef={motionBridgeRef}
             movementSyncRef={movementSyncRef}
+            collectiveAttitudeLine={collectiveAttitudeLine}
             onBootFailed={() => {
               setPhaserOk(false);
               setBootOk(false);
@@ -373,6 +439,15 @@ export function ChatPage() {
       </main>
 
       <form className="composer" onSubmit={onSubmit}>
+        {attitudeGateHint ? (
+          <p
+            className="attitude-gate-hint"
+            data-testid="attitude-gate-hint"
+            role="status"
+          >
+            {attitudeGateHint}
+          </p>
+        ) : null}
         <textarea
           ref={composerRef}
           className="composer__input"
@@ -403,6 +478,20 @@ export function ChatPage() {
       ) : null}
 
       {showSyncDebug ? <SyncMetricsOverlay metrics={syncMetrics} /> : null}
+      {showCollectiveDebug ? (
+        <>
+          <CollectiveAttitudeOverlay
+            snapshot={collectiveSnapshot}
+            npcName={activeNpcName}
+            showDebug={showCollectiveDebug}
+          />
+          <CollectiveDebugPanel
+            snapshot={collectiveSnapshot}
+            activeNpcName={activeNpcName}
+            loading={collectiveLoading}
+          />
+        </>
+      ) : null}
     </div>
   );
 }

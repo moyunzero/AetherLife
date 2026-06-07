@@ -4,11 +4,13 @@ import {
   COLYSEUS_CLIENT_MESSAGES,
   COLYSEUS_SERVER_MESSAGES,
   sanitizeNpcReplyText,
+  type ColyseusNpcJobDonePayload,
   type ColyseusSpeakBusyPayload,
   type ColyseusSpeakIdlePayload,
   type RoomState,
   type StatePatchPayload,
 } from "@aetherlife/shared";
+import { shouldRefetchCollectiveOnJobDone } from "./useCollectiveAttitude.js";
 import { applyStatePatch } from "../lib/applyStatePatch.js";
 import { getOrCreatePlayerId, playerApiHeaders } from "../lib/playerSession.js";
 
@@ -31,11 +33,39 @@ export type RoomStateShape = RoomState;
 
 export type ParsedIntent = Record<string, unknown> | null;
 
+export type AttitudeGateCue = {
+  gateKind: string;
+  npcName: string;
+};
+
+function attitudeGateHintCopy(npcName: string, gateKind?: string): string {
+  switch (gateKind) {
+    case "transfer":
+      return `${npcName}拒绝配合这个请求。`;
+    case "interact":
+    case "generic":
+      return `${npcName}现在不愿意帮忙。`;
+    case "move":
+    default:
+      return `${npcName}似乎不愿协助你移动。`;
+  }
+}
+
 const apiBase = import.meta.env.VITE_GAME_SERVER_URL || "/api";
 const chatBase = import.meta.env.VITE_AI_GATEWAY_URL || "/v1";
 const DEFAULT_NPC_ID = "npc-1";
 
-export function useNpcChat(colyseusRoom: Room | null, mapRoomId = "default") {
+export type UseNpcChatOptions = {
+  onCollectiveUpdated?: () => void;
+};
+
+export function useNpcChat(
+  colyseusRoom: Room | null,
+  mapRoomId = "default",
+  options: UseNpcChatOptions = {},
+) {
+  const onCollectiveUpdatedRef = useRef(options.onCollectiveUpdated);
+  onCollectiveUpdatedRef.current = options.onCollectiveUpdated;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [status, setStatus] = useState<ChatStatus>("idle");
   const [roomState, setRoomState] = useState<RoomStateShape | null>(null);
@@ -52,6 +82,7 @@ export function useNpcChat(colyseusRoom: Room | null, mapRoomId = "default") {
   const [speakBusyNpcId, setSpeakBusyNpcId] = useState<string | null>(null);
   const [thinkingNpcId, setThinkingNpcId] = useState<string | null>(null);
   const [sendingNpcId, setSendingNpcId] = useState<string | null>(null);
+  const [attitudeGateCue, setAttitudeGateCue] = useState<AttitudeGateCue | null>(null);
   const stateVersionRef = useRef(0);
   const thinkingNpcIdRef = useRef<string | null>(null);
   thinkingNpcIdRef.current = thinkingNpcId;
@@ -69,14 +100,24 @@ export function useNpcChat(colyseusRoom: Room | null, mapRoomId = "default") {
     setSpeakBusyNpcId((prev) => (prev === npcId ? null : prev));
   }, []);
 
-  const refetchState = useCallback(async () => {
-    const res = await fetch(`${apiBase}/rooms/${mapRoomId}/state`, {
-      headers: playerApiHeaders(),
-    });
-    if (!res.ok) return;
-    const body = await res.json();
-    setRoomState(body.state);
-    setMemoryCounts(body.memoryCounts ?? {});
+  const refetchState = useCallback(async (opts?: { retryUntilMs?: number }) => {
+    const url = `${apiBase}/rooms/${mapRoomId}/state`;
+    const deadline = Date.now() + (opts?.retryUntilMs ?? 0);
+    while (true) {
+      try {
+        const res = await fetch(url, { headers: playerApiHeaders() });
+        if (res.ok) {
+          const body = await res.json();
+          setRoomState(body.state);
+          setMemoryCounts(body.memoryCounts ?? {});
+          return true;
+        }
+      } catch {
+        /* game-server may still be starting (vite proxy ECONNREFUSED) */
+      }
+      if (Date.now() >= deadline) return false;
+      await new Promise((r) => setTimeout(r, 400));
+    }
   }, [mapRoomId]);
 
   useEffect(() => {
@@ -107,16 +148,17 @@ export function useNpcChat(colyseusRoom: Room | null, mapRoomId = "default") {
       if (typeof data.jobId === "string" && data.jobId !== pendingJobIdRef.current) return;
       setStatus("thinking");
     };
-    const onDone = (data: {
-      jobId?: string;
-      reply?: string;
-      npcName?: string;
-      npcId?: string;
-      state?: RoomStateShape;
-    }) => {
+    const onDone = (data: ColyseusNpcJobDonePayload & { jobId?: string }) => {
       if (!matchesJob(data?.jobId)) return;
       const replyNpcId =
         typeof data.npcId === "string" ? data.npcId : activeNpcIdRef.current;
+      const npcName = typeof data.npcName === "string" ? data.npcName : "";
+      if (data.gateRejected) {
+        setAttitudeGateCue({
+          gateKind: typeof data.gateKind === "string" ? data.gateKind : "move",
+          npcName,
+        });
+      }
       setMessages((prev) => [
         ...prev,
         {
@@ -128,6 +170,9 @@ export function useNpcChat(colyseusRoom: Room | null, mapRoomId = "default") {
         },
       ]);
       if (data.state) setRoomState(data.state);
+      if (shouldRefetchCollectiveOnJobDone(data.collectiveUpdated)) {
+        onCollectiveUpdatedRef.current?.();
+      }
       setStatus("idle");
       setThinkingNpcId(null);
       setSpeakBusyNpcId(null);
@@ -193,35 +238,42 @@ export function useNpcChat(colyseusRoom: Room | null, mapRoomId = "default") {
   }, [colyseusRoom, refetchState, clearSendingState, releaseNpcBusy]);
 
   const resetGame = useCallback(async (): Promise<RoomState | null> => {
-    const res = await fetch(`${apiBase}/rooms/${mapRoomId}/reset`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...playerApiHeaders(),
-      },
-    });
-    if (!res.ok) {
+    try {
+      const res = await fetch(`${apiBase}/rooms/${mapRoomId}/reset`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...playerApiHeaders(),
+        },
+      });
+      if (!res.ok) {
+        setError("重置房间失败");
+        setStatus("error");
+        return null;
+      }
+      const body = await res.json();
+      setMessages([]);
+      setRoomState(body.state);
+      setMemoryCounts(body.memoryCounts ?? {});
+      setActiveNpcId(DEFAULT_NPC_ID);
+      setStatus("idle");
+      setError(null);
+      setJobId(null);
+      setSpeakBusyNpcId(null);
+      setThinkingNpcId(null);
+      setSendingNpcId(null);
+      sendingNpcIdRef.current = null;
+      pendingJobIdRef.current = null;
+      stateVersionRef.current = 0;
+      setLastParsedIntent(null);
+      setParseError(null);
+      setAttitudeGateCue(null);
+      return body.state as RoomState;
+    } catch {
       setError("重置房间失败");
       setStatus("error");
       return null;
     }
-    const body = await res.json();
-    setMessages([]);
-    setRoomState(body.state);
-    setMemoryCounts(body.memoryCounts ?? {});
-    setActiveNpcId(DEFAULT_NPC_ID);
-    setStatus("idle");
-    setError(null);
-    setJobId(null);
-    setSpeakBusyNpcId(null);
-    setThinkingNpcId(null);
-    setSendingNpcId(null);
-    sendingNpcIdRef.current = null;
-    pendingJobIdRef.current = null;
-    stateVersionRef.current = 0;
-    setLastParsedIntent(null);
-    setParseError(null);
-    return body.state as RoomState;
   }, [mapRoomId]);
 
   const sendMessage = useCallback(
@@ -297,6 +349,9 @@ export function useNpcChat(colyseusRoom: Room | null, mapRoomId = "default") {
       sendingNpcId === activeNpcId ||
       (status === "thinking" && thinkingNpcId === activeNpcId) ||
       speakBusyNpcId === activeNpcId,
+    attitudeGateCue,
+    clearAttitudeGateCue: () => setAttitudeGateCue(null),
+    attitudeGateHintCopy,
     sendMessage,
     resetGame,
     refetchState,

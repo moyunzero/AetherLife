@@ -41,7 +41,11 @@ export function createChatRouter(): Router {
       const jobId = await startNpcChatTurn(roomId, message, npcId, playerId);
       const colyseusRoom = getColyseusRoom(roomId);
       if (colyseusRoom) {
-        registerJob(jobId, colyseusRoom, roomId);
+        registerJob(jobId, colyseusRoom, roomId, undefined, {
+          npcId,
+          playerId,
+          playerMessage: message,
+        });
       }
       emitJobEvent(jobId, "thinking", { status: "queued", npcId });
       res.json({ jobId });

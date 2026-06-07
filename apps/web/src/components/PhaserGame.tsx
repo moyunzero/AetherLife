@@ -51,6 +51,8 @@ type Props = {
   motionBridgeRef?: MutableRefObject<LocalPlayerMotionBridge | null>;
   /** Phaser-first movement; RoomScene reads from registry. */
   movementSyncRef?: MutableRefObject<MovementSyncController | null>;
+  /** DEV: one-line collective attitude (collectiveDebug=1). */
+  collectiveAttitudeLine?: string | null;
   onBootFailed?: () => void;
 };
 
@@ -86,6 +88,7 @@ type RegistrySnapshot = {
   remoteInterpMs: number;
   loadedChunks: ChunkView[];
   movementSync: MovementSyncController | null;
+  collectiveAttitudeLine: string | null;
 };
 
 function pushRoomRegistry(game: Phaser.Game, snap: RegistrySnapshot): void {
@@ -107,6 +110,7 @@ function pushRoomRegistry(game: Phaser.Game, snap: RegistrySnapshot): void {
   game.registry.set("remoteInterpMs", snap.remoteInterpMs);
   game.registry.set("loadedChunks", snap.loadedChunks);
   game.registry.set("movementSync", snap.movementSync);
+  game.registry.set("collectiveAttitudeLine", snap.collectiveAttitudeLine);
   game.registry.set("roomSync", Date.now());
 }
 
@@ -200,6 +204,7 @@ export function PhaserGame({
   onDismissDiscoverToast,
   motionBridgeRef,
   movementSyncRef,
+  collectiveAttitudeLine = null,
   onBootFailed,
 }: Props) {
   const parentRef = useRef<HTMLDivElement>(null);
@@ -239,6 +244,7 @@ export function PhaserGame({
     npcResetEpoch,
     remoteInterpMs,
     loadedChunks,
+    collectiveAttitudeLine,
   });
   registryRef.current = {
     width,
@@ -257,6 +263,7 @@ export function PhaserGame({
     npcResetEpoch,
     remoteInterpMs,
     loadedChunks,
+    collectiveAttitudeLine,
   };
 
   useEffect(() => {
@@ -301,6 +308,7 @@ export function PhaserGame({
       remoteInterpMs: snap.remoteInterpMs,
       loadedChunks: snap.loadedChunks,
       movementSync: movementSyncRef?.current ?? null,
+      collectiveAttitudeLine,
     });
 
     gameRef.current = game;
@@ -380,6 +388,7 @@ export function PhaserGame({
       remoteInterpMs,
       loadedChunks,
       movementSync: movementSyncRef?.current ?? null,
+      collectiveAttitudeLine,
     });
     game.registry.events.emit("changedata", game.registry, "roomSync");
 
@@ -404,6 +413,7 @@ export function PhaserGame({
     width,
     height,
     loadedChunks,
+    collectiveAttitudeLine,
   ]);
 
   return (

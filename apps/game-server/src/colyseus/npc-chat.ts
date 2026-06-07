@@ -4,9 +4,9 @@ import {
   findNpc,
   MAX_PLAYER_MESSAGE_LEN,
 } from "@aetherlife/shared";
-import { MemoryService } from "../memory/service.js";
 import { addNpcTurnJob } from "../queue/npc-turn.js";
 import { getOrCreate } from "../room/store.js";
+import { getRecentTurns } from "../npc/dialogue-session.js";
 
 export function validateChatMessage(message: unknown): string | null {
   if (typeof message !== "string") return null;
@@ -35,11 +35,13 @@ export async function startNpcChatTurn(
   playerId: string,
 ): Promise<string> {
   getOrCreate(roomId);
-  const jobId = await addNpcTurnJob({ roomId, playerMessage: message, npcId, playerId });
-  void MemoryService.getInstance()
-    .appendPlayerMemory(roomId, message, npcId, playerId)
-    .catch((err) => {
-      console.error("[npc-chat] appendPlayerMemory failed", err);
-    });
+  const recentTurns = getRecentTurns(roomId, playerId, npcId, 10);
+  const jobId = await addNpcTurnJob({
+    roomId,
+    playerMessage: message,
+    npcId,
+    playerId,
+    recentTurns,
+  });
   return jobId;
 }

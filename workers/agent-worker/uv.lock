@@ -12,7 +12,7 @@ dependencies = [
     { name = "langgraph" },
     { name = "langgraph-checkpoint" },
     { name = "langgraph-checkpoint-postgres" },
-    { name = "psycopg", extra = ["binary"] },
+    { name = "psycopg", extra = ["binary", "pool"] },
     { name = "pydantic-settings" },
     { name = "redis" },
 ]
@@ -33,7 +33,7 @@ requires-dist = [
     { name = "langgraph-checkpoint", specifier = ">=2.0.0" },
     { name = "langgraph-checkpoint-postgres", specifier = ">=2.0.0" },
     { name = "langgraph-checkpoint-postgres", marker = "extra == 'postgres'", specifier = ">=2.0.0" },
-    { name = "psycopg", extras = ["binary"], specifier = ">=3.1" },
+    { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.1" },
     { name = "pydantic-settings", specifier = ">=2.6.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "redis", specifier = ">=5.0.0" },
@@ -596,6 +596,9 @@ wheels = [
 [package.optional-dependencies]
 binary = [
     { name = "psycopg-binary", marker = "implementation_name != 'pypy'" },
+]
+pool = [
+    { name = "psycopg-pool" },
 ]
 
 [[package]]

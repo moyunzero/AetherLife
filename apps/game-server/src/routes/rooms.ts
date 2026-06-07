@@ -1,14 +1,25 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
-import { safeParseGameAction } from "@aetherlife/game-actions";
+import { safeParseGameAction, type GameAction } from "@aetherlife/game-actions";
 import {
   findNpc,
   HOME_CHUNK_LORE,
   chunkOf,
   toChunkLorePublic,
+  type CollectivePosition,
 } from "@aetherlife/shared";
 import { applyGameAction, ExecutorError } from "../room/executor.js";
 import { recordSuccessfulMutation } from "../audit/record.js";
 import { MemoryService } from "../memory/service.js";
+import {
+  clearActionTrackersForRoom,
+  detectRoomCollaborateTransfer,
+  detectRoomCompeteObject,
+  recordRoomNpcTransfer,
+  recordRoomObjectInteract,
+} from "../collective/action-tracker.js";
+import { attitudeGateResponse, isActionBlockedByGate } from "../collective/gate.js";
+import { moveIntentTracker } from "../collective/move-intent-tracker.js";
+import { CollectiveService } from "../collective/service.js";
 import {
   collectPlayerCells,
   findPlayerCellByPlayerId,
@@ -20,12 +31,99 @@ import { playerIdFromRequest } from "../http/player-id.js";
 import { getOrCreate, reset, setState } from "../room/store.js";
 import { getChunkLoader } from "../world/chunk-loader.js";
 import { getChunkLore } from "../world/lore-repository.js";
+import { clearDialogueForPlayer } from "../npc/dialogue-session.js";
 
 function formatZodError(error: { issues: Array<{ path: (string | number)[]; message: string }> }) {
   return error.issues.map((issue) => ({
     path: issue.path.join("."),
     message: issue.message,
   }));
+}
+
+function npcPositionsForRoom(roomId: string): Map<string, CollectivePosition> {
+  const record = getOrCreate(roomId);
+  return new Map(record.state.npcs.map((n) => [n.id, { x: n.x, y: n.y }]));
+}
+
+async function recordActionCollectiveRules(
+  roomId: string,
+  actingNpcId: string,
+  initiatorPlayerId: string | undefined,
+  action: GameAction,
+): Promise<void> {
+  if (!initiatorPlayerId) return;
+
+  const svc = CollectiveService.getInstance();
+  const windowMs = svc.windowMs();
+  const now = Date.now();
+  const npcPositions = npcPositionsForRoom(roomId);
+
+  if (action.type === "move") {
+    const contradict = moveIntentTracker.detectContradict(
+      roomId,
+      actingNpcId,
+      initiatorPlayerId,
+      action.x,
+      action.y,
+      now,
+      windowMs,
+    );
+    if (contradict) {
+      await svc.recordRuleEvent({
+        roomId,
+        npcId: actingNpcId,
+        kind: "contradict",
+        summary: "多名玩家对同一 NPC 下达冲突移动",
+        playerIds: [initiatorPlayerId, contradict.otherPlayerId],
+        npcPositions,
+      });
+    }
+    moveIntentTracker.record(roomId, actingNpcId, initiatorPlayerId, action.x, action.y, now);
+    return;
+  }
+
+  if (action.type === "interact") {
+    const rule = detectRoomCompeteObject(
+      roomId,
+      action.objectId,
+      initiatorPlayerId,
+      now,
+      windowMs,
+    );
+    recordRoomObjectInteract(roomId, action.objectId, initiatorPlayerId, now);
+    if (rule) {
+      await svc.recordRuleEvent({
+        roomId,
+        npcId: actingNpcId,
+        kind: rule.kind,
+        summary: rule.summary,
+        playerIds: rule.playerIds,
+        npcPositions,
+      });
+    }
+    return;
+  }
+
+  if (action.type === "transfer") {
+    const rule = detectRoomCollaborateTransfer(
+      roomId,
+      action.toNpcId,
+      initiatorPlayerId,
+      now,
+      windowMs,
+    );
+    recordRoomNpcTransfer(roomId, action.toNpcId, initiatorPlayerId, now);
+    if (rule) {
+      await svc.recordRuleEvent({
+        roomId,
+        npcId: actingNpcId,
+        kind: rule.kind,
+        summary: rule.summary,
+        playerIds: rule.playerIds,
+        npcPositions,
+      });
+    }
+  }
 }
 
 async function applyActionsHandler(req: Request, res: Response): Promise<void> {
@@ -59,12 +157,26 @@ async function applyActionsHandler(req: Request, res: Response): Promise<void> {
     ? findPlayerCellByPlayerId(roomId, initiatorPlayerId)
     : null;
 
+  const attitudeCtx = initiatorPlayerId
+    ? await CollectiveService.getInstance().getCollectiveContext(
+        roomId,
+        actingNpcId,
+        initiatorPlayerId,
+      )
+    : null;
+
   for (const raw of actions) {
     const parsed = safeParseGameAction(raw);
     if (!parsed.success) {
       res.status(400).json({ ok: false, error: formatZodError(parsed.error), applied });
       return;
     }
+
+    if (attitudeCtx && isActionBlockedByGate(parsed.data.type, attitudeCtx.band)) {
+      res.status(403).json(attitudeGateResponse(attitudeCtx.band, parsed.data.type, applied));
+      return;
+    }
+
     try {
       const result = applyGameAction(current.state, parsed.data, actingNpcId, {
         otherPlayerCells: playerCells,
@@ -78,6 +190,11 @@ async function applyActionsHandler(req: Request, res: Response): Promise<void> {
         action: parsed.data,
         jobId,
       });
+      void recordActionCollectiveRules(roomId, actingNpcId, initiatorPlayerId, parsed.data).catch(
+        (err) => {
+          console.error("[apply-actions] collective rule failed", err);
+        },
+      );
     } catch (err) {
       const message = err instanceof ExecutorError ? err.message : "apply failed";
       res.status(400).json({ ok: false, error: message, applied });
@@ -167,6 +284,10 @@ export function createRoomsRouter(): Router {
       resetColyseusFromMap(roomId, record.state);
       const service = MemoryService.getInstance();
       await service.deleteForPlayer(roomId, playerId);
+      await CollectiveService.getInstance().deleteForRoom(roomId);
+      clearDialogueForPlayer(roomId, playerId);
+      clearActionTrackersForRoom(roomId);
+      moveIntentTracker.clearRoom(roomId);
       const memoryCounts = await buildMemoryCounts(
         roomId,
         playerId,

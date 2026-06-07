@@ -12,6 +12,8 @@ from src.graph.action_intent import (
     build_tool_retry_message,
     has_state_changing_tool,
     inject_relative_move_tool,
+    player_requests_interact,
+    player_requests_move,
     player_requests_physical_action,
 )
 from src.graph.action_sanitize import tool_calls_to_actions
@@ -30,13 +32,25 @@ from src.llm.errors import (
 )
 from src.llm.factory import create_chat_model, npc_provider_attempts
 from src.llm.openrouter_keys import openrouter_keys
+from src.collective.constants import ALL_ALLOWED_TOOLS
+from src.collective.scoring import allowed_tools_for_band
+from src.collective.refine import maybe_collective_refine
+from src.collective.schemas import SocialPerception
+from src.collective.social_turn import (
+    apply_social_from_llm,
+    npc_positions_from_room,
+    refresh_collective_snapshot,
+)
+from src.graph.nodes.llm_social_turn import llm_social_turn
 from src.memory.client import (
     append_npc_memory,
+    append_player_memory,
     fetch_memory_context,
     fetch_recent_memories,
+    parse_collective_from_context,
     store_reflection,
 )
-from src.memory.importance import score_importance
+from src.memory.importance import score_importance, score_turn_importance
 from src.persistence.checkpointer import get_checkpointer
 
 
@@ -97,6 +111,7 @@ def load_memory_context(
         latest_reflection=ctx.get("latestReflection"),
         retrieved=ctx.get("retrieved"),
     )
+    collective = parse_collective_from_context(ctx)
     return {
         **state,
         "memory_summary": summary,
@@ -104,6 +119,8 @@ def load_memory_context(
         "retrieved_memories": ctx.get("retrieved") or [],
         "latest_bulk": ctx.get("latestBulkSummary"),
         "latest_reflection": ctx.get("latestReflection"),
+        "gate_rejected": False,
+        **collective,
     }
 
 
@@ -136,7 +153,23 @@ def _invoke_llm_turn(
     return tool_calls, reply
 
 
+def _allowed_tool_names(state: GraphState) -> set[str]:
+    allowed = state.get("allowed_tools")
+    if allowed:
+        return set(allowed)
+    return set(ALL_ALLOWED_TOOLS)
+
+
+def _filter_tool_calls(
+    tool_calls: list[dict[str, Any]],
+    allowed: set[str],
+) -> tuple[list[dict[str, Any]], bool]:
+    filtered = [call for call in tool_calls if call.get("name") in allowed]
+    return filtered, len(filtered) < len(tool_calls)
+
+
 def llm_turn(state: GraphState, *, settings: Settings) -> GraphState:
+    allowed = _allowed_tool_names(state)
     if settings.llm_mock or os.getenv("LLM_MOCK") == "1":
         msg = (state.get("player_message") or "").strip()
         mock_reply = f"（模拟）我听到了：{msg[:120]}" if msg else "（模拟）我听到了你的话。"
@@ -146,10 +179,20 @@ def llm_turn(state: GraphState, *, settings: Settings) -> GraphState:
             player_message=msg,
             room=room_snapshot,
         )
-        return {**state, "tool_calls": tool_calls, "reply": mock_reply}
+        tool_calls, gate_rejected = _filter_tool_calls(tool_calls, allowed)
+        return {
+            **state,
+            "tool_calls": tool_calls,
+            "reply": mock_reply,
+            "gate_rejected": gate_rejected,
+        }
 
     messages = build_turn_messages(state)
-    tools = load_tools_for_binding()
+    tools = [
+        tool
+        for tool in load_tools_for_binding()
+        if tool["function"]["name"] in allowed
+    ]
     player_message = state.get("player_message") or ""
     room_snapshot = state.get("room_snapshot") or {}
     last_error: BaseException | None = None
@@ -214,7 +257,12 @@ def llm_turn(state: GraphState, *, settings: Settings) -> GraphState:
 
 def apply_tools(state: GraphState, *, settings: Settings, client: httpx.Client) -> GraphState:
     room = state.get("room_snapshot") or {}
-    actions = tool_calls_to_actions(state.get("tool_calls"), room=room)
+    allowed = _allowed_tool_names(state)
+    raw_calls = state.get("tool_calls") or []
+    tool_calls, stripped = _filter_tool_calls(raw_calls, allowed)
+    gate_rejected = bool(state.get("gate_rejected")) or stripped
+    state = {**state, "tool_calls": tool_calls, "gate_rejected": gate_rejected}
+    actions = tool_calls_to_actions(tool_calls, room=room)
 
     if not actions:
         return state
@@ -244,8 +292,86 @@ def apply_tools(state: GraphState, *, settings: Settings, client: httpx.Client) 
     }
 
 
+def _finalize_hostile_gate(state: GraphState) -> GraphState:
+    """Hostile band: physical intent without move/interact in applied tools counts as gate."""
+    if (state.get("attitude_band") or "") != "hostile":
+        return state
+    player_message = state.get("player_message") or ""
+    tool_calls = state.get("tool_calls") or []
+    names = {str(c.get("name")) for c in tool_calls}
+    gate_rejected = bool(state.get("gate_rejected"))
+    gate_kind = state.get("gate_kind")
+
+    if player_requests_move(player_message) and "move" not in names:
+        gate_rejected = True
+        gate_kind = gate_kind or "move"
+    elif player_requests_interact(player_message) and "interact" not in names:
+        gate_rejected = True
+        gate_kind = gate_kind or "interact"
+
+    if gate_rejected and not gate_kind:
+        gate_kind = "generic"
+
+    out: GraphState = {**state, "gate_rejected": gate_rejected}
+    if gate_kind:
+        out["gate_kind"] = gate_kind
+    return out
+
+
+def apply_social_event(state: GraphState) -> GraphState:
+    raw = state.get("social_perception")
+    if not isinstance(raw, dict):
+        return state
+
+    try:
+        perception = SocialPerception.model_validate(raw)
+    except ValueError:
+        return state
+
+    room = state.get("room_snapshot") or {}
+    result = apply_social_from_llm(
+        room_id=state["room_id"],
+        npc_id=state.get("npc_id") or "npc-1",
+        player_id=_player_id(state),
+        perception=perception,
+        npc_positions=npc_positions_from_room(room),
+    )
+    if not result.applied:
+        return {**state, "social_applied": False}
+
+    summary = perception.summary.strip()
+    return {
+        **state,
+        "social_applied": True,
+        "just_happened_summary": summary,
+        "attitude_band": result.band or state.get("attitude_band"),
+        "effective_score": result.effective_score
+        if result.effective_score is not None
+        else state.get("effective_score"),
+        "allowed_tools": (
+            allowed_tools_for_band(result.band)
+            if result.band is not None
+            else state.get("allowed_tools")
+        ),
+    }
+
+
+def refresh_collective_in_state(state: GraphState) -> GraphState:
+    if not state.get("social_applied"):
+        return state
+    from src.collective.social_turn import CollectiveApplyResult
+
+    result = CollectiveApplyResult(
+        applied=True,
+        band=state.get("attitude_band"),
+        effective_score=state.get("effective_score"),
+    )
+    return refresh_collective_snapshot(state, result)
+
+
 def compose_reply(state: GraphState) -> GraphState:
-    reply = (state.get("reply") or "").strip()
+    state = _finalize_hostile_gate(state)
+    reply = (state.get("reply_draft") or state.get("reply") or "").strip()
     tool_calls = state.get("tool_calls") or []
 
     if not reply and tool_calls:
@@ -256,6 +382,11 @@ def compose_reply(state: GraphState) -> GraphState:
 
     if not reply:
         reply = "好的，我会继续留意周围的情况。"
+
+    if state.get("gate_rejected"):
+        hint = "（当前关系较紧张，只能对话或等待。）"
+        if hint not in reply:
+            reply = f"{reply}{hint}"
 
     return {**state, "reply": sanitize_npc_reply(reply)}
 
@@ -273,18 +404,37 @@ def persist_turn_memory(
     if tool_note:
         text = f"{reply} [tools: {tool_note}]"
 
-    importance = score_importance(f"npc: {text}", settings)
+    player_message = (state.get("player_message") or "").strip()
+    if player_message:
+        player_importance, npc_importance = score_turn_importance(
+            player_message,
+            text,
+            settings,
+        )
+        append_player_memory(
+            client,
+            settings,
+            state["room_id"],
+            player_message,
+            importance=player_importance,
+            npc_id=state.get("npc_id") or "npc-1",
+            player_id=_player_id(state),
+        )
+    else:
+        player_importance = 0
+        npc_importance = score_importance(f"npc: {text}", settings)
+    importance = max(player_importance, npc_importance)
     append_npc_memory(
         client,
         settings,
         state["room_id"],
         text,
-        importance=importance,
+        importance=npc_importance,
         npc_id=state.get("npc_id") or "npc-1",
         player_id=_player_id(state),
     )
     count = int(state.get("memory_count") or 0) + 1
-    return {**state, "memory_count": count}
+    return {**state, "memory_count": count, "turn_importance": importance}
 
 
 def maybe_reflect_turn(
@@ -351,15 +501,22 @@ def _npc_turn_initial(
     player_message: str,
     npc_id: str,
     player_id: str,
+    recent_turns: list[dict[str, str]] | None = None,
 ) -> GraphState:
     return {
         "room_id": room_id,
         "npc_id": npc_id,
         "player_id": player_id,
         "player_message": player_message,
+        "recent_turns": recent_turns or [],
+        "collective_ambiguous": False,
         "tool_calls": [],
         "pending_actions": [],
         "reply": "",
+        "reply_draft": "",
+        "social_applied": False,
+        "collective_updated": False,
+        "just_happened_summary": "",
         "trace_run_id": None,
     }
 
@@ -373,21 +530,25 @@ def _with_client_node(cfg: Settings, node_fn):
 
 
 def build_npc_interactive_graph(settings: Settings | None = None):
-    """Player-visible path: fetch → LLM → apply tools → reply. Ends before memory LLM."""
+    """Player-visible path: social perceive → apply → refresh → tools → reply."""
     cfg = settings or get_settings()
     checkpointer = get_checkpointer(allow_memory_fallback=True)
 
     graph = StateGraph(GraphState)
     graph.add_node("fetch_state", _with_client_node(cfg, fetch_state))
     graph.add_node("load_memory_context", _with_client_node(cfg, load_memory_context))
-    graph.add_node("llm_turn", lambda state: llm_turn(state, settings=cfg))
+    graph.add_node("llm_social_turn", lambda state: llm_social_turn(state, settings=cfg))
+    graph.add_node("apply_social_event", apply_social_event)
+    graph.add_node("refresh_collective_in_state", refresh_collective_in_state)
     graph.add_node("apply_tools", _with_client_node(cfg, apply_tools))
     graph.add_node("compose_reply", compose_reply)
 
     graph.set_entry_point("fetch_state")
     graph.add_edge("fetch_state", "load_memory_context")
-    graph.add_edge("load_memory_context", "llm_turn")
-    graph.add_edge("llm_turn", "apply_tools")
+    graph.add_edge("load_memory_context", "llm_social_turn")
+    graph.add_edge("llm_social_turn", "apply_social_event")
+    graph.add_edge("apply_social_event", "refresh_collective_in_state")
+    graph.add_edge("refresh_collective_in_state", "apply_tools")
     graph.add_edge("apply_tools", "compose_reply")
     graph.add_edge("compose_reply", END)
 
@@ -428,6 +589,7 @@ def run_npc_turn_interactive(
     player_message: str,
     npc_id: str = "npc-1",
     player_id: str = "__legacy__",
+    recent_turns: list[dict[str, str]] | None = None,
     settings: Settings | None = None,
 ) -> GraphState:
     cfg = settings or get_settings()
@@ -437,6 +599,7 @@ def run_npc_turn_interactive(
         player_message=player_message,
         npc_id=npc_id,
         player_id=player_id,
+        recent_turns=recent_turns,
     )
     thread_id = _npc_graph_thread_id(initial)
     return graph.invoke(initial, config={"configurable": {"thread_id": thread_id}})
@@ -447,6 +610,7 @@ def run_npc_memory_tail(state: GraphState, settings: Settings | None = None) -> 
     cfg = settings or get_settings()
     with httpx.Client() as client:
         state = persist_turn_memory(state, settings=cfg, client=client)
+        state = maybe_collective_refine(state, settings=cfg)
         state = maybe_reflect_turn(state, settings=cfg, client=client)
         state = maybe_bulk_summarize_turn(state, settings=cfg, client=client)
     return state

@@ -1,14 +1,13 @@
 # GitHub Copilot — repository instructions
 
-Follow the root **[AGENTS.md](../AGENTS.md)** for all AI-assisted work in this repository:
+Follow [README.md](../README.md) and [CONTRIBUTING.md](../CONTRIBUTING.md) for setup and verification.
 
-- Behavioral rules (Guidelines.mdc alignment)
-- pnpm commands and verification scripts
-- Colyseus listener guardrails
-- Issue log workflow ([docs/ISSUE-LOG.md](../docs/ISSUE-LOG.md))
-- Phase evolution: [docs/PHASE-EVOLUTION.md](../docs/PHASE-EVOLUTION.md), [docs/CONTRACTS.md](../docs/CONTRACTS.md), [.cursor/rules/phase-evolution.mdc](../.cursor/rules/phase-evolution.mdc)
-- E2E/UAT: [docs/E2E-POLICY.md](../docs/E2E-POLICY.md) — `verify:phase*` / `uat:phase*` must use real LLM (`pnpm dev:stack`, never `LLM_MOCK=1`)
+Critical rules:
 
-For project background and GSD phase workflow, see [CLAUDE.md](../CLAUDE.md).
+- Do not commit `.env` or API keys.
+- Do not call `room.removeAllListeners()` on Colyseus rooms — use per-handler unsubscribe from `room.onMessage()`.
+- Do not block Colyseus `onMessage` handlers on LLM calls; use async worker + queue.
+- Multiplayer: human positions live in `players`, not lone `RoomState.player`; spatial NL needs `X-Player-Id`.
+- Phase verify scripts (`pnpm verify:phase*`) require real LLM — never `LLM_MOCK=1` or `dev:stack:mock`.
 
-Do not commit secrets. Do not call `room.removeAllListeners()` on Colyseus rooms.
+Cross-layer contracts: [docs/CONTRACTS.md](../docs/CONTRACTS.md), [docs/INVARIANTS-MULTIPLAYER.md](../docs/INVARIANTS-MULTIPLAYER.md).

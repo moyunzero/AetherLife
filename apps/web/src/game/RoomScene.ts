@@ -140,6 +140,7 @@ export class RoomScene extends Phaser.Scene {
   private cameraLerpY: number | null = null;
   private lastExploreGx = Number.NaN;
   private lastExploreGy = Number.NaN;
+  private collectiveDebugText: Phaser.GameObjects.Text | null = null;
 
   constructor() {
     super({ key: SCENE_KEY });
@@ -186,6 +187,19 @@ export class RoomScene extends Phaser.Scene {
     });
 
     this.syncEntities();
+    if (this.collectiveDebug()) {
+      this.collectiveDebugText = this.add
+        .text(8, this.scale.height - 8, "", {
+          fontFamily: ENTITY_LABEL_FONT,
+          fontSize: "11px",
+          color: "#9a9284",
+          backgroundColor: "#1a1814cc",
+          padding: { x: 6, y: 4 },
+        })
+        .setScrollFactor(0)
+        .setDepth(120)
+        .setOrigin(0, 1);
+    }
   }
 
   update(_time: number, delta: number): void {
@@ -197,6 +211,7 @@ export class RoomScene extends Phaser.Scene {
     );
     this.tickCameraFollow(delta);
     this.tickExploreGrid();
+    this.tickCollectiveDebug();
   }
 
   /** Explore HUD coords — game-loop tick (Wave 2); React reads registry `exploreGrid`. */
@@ -324,6 +339,21 @@ export class RoomScene extends Phaser.Scene {
     if (import.meta.env.DEV) return true;
     if (typeof window === "undefined") return false;
     return new URLSearchParams(window.location.search).get("terrainDebug") === "1";
+  }
+
+  private collectiveDebug(): boolean {
+    if (typeof window === "undefined") return false;
+    return new URLSearchParams(window.location.search).get("collectiveDebug") === "1";
+  }
+
+  private tickCollectiveDebug(): void {
+    if (!this.collectiveDebugText) return;
+    const line = this.registry.get("collectiveAttitudeLine") as string | null | undefined;
+    const next = line?.trim() ? line : "";
+    if (this.collectiveDebugText.text !== next) {
+      this.collectiveDebugText.setText(next);
+    }
+    this.collectiveDebugText.setY(this.scale.height - 8);
   }
 
   private getMoveMap(): RoomState {

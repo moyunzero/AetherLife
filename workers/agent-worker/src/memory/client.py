@@ -61,6 +61,25 @@ def fetch_memory_context(
     return res.json()
 
 
+def parse_collective_from_context(ctx: dict[str, Any]) -> dict[str, Any]:
+    """Extract collective attitude fields from memory-context JSON."""
+    from src.collective.scoring import allowed_tools_for_band
+
+    collective = ctx.get("collective") or {}
+    band = collective.get("band") or "neutral"
+    allowed = collective.get("allowedTools")
+    if not isinstance(allowed, list) or not allowed:
+        allowed = allowed_tools_for_band(band)
+    summaries = collective.get("recentSummaries")
+    effective = collective.get("effectiveScore")
+    return {
+        "attitude_band": band,
+        "effective_score": int(effective) if isinstance(effective, (int, float)) else None,
+        "allowed_tools": [str(t) for t in allowed],
+        "collective_summaries": [str(s) for s in summaries] if isinstance(summaries, list) else [],
+    }
+
+
 def fetch_recent_memories(
     client: httpx.Client,
     settings: Settings,
@@ -114,6 +133,33 @@ def append_npc_memory(
     importance: int | None = None,
 ) -> None:
     body: dict[str, Any] = {"text": text, "role": "npc", "npcId": npc_id, "playerId": player_id}
+    if importance is not None:
+        body["importance"] = importance
+    res = client.post(
+        f"{settings.game_server_url}/internal/rooms/{room_id}/memories",
+        json=body,
+        headers=_game_headers(settings),
+        timeout=30.0,
+    )
+    res.raise_for_status()
+
+
+def append_player_memory(
+    client: httpx.Client,
+    settings: Settings,
+    room_id: str,
+    text: str,
+    *,
+    npc_id: str = "npc-1",
+    player_id: str = "__legacy__",
+    importance: int | None = None,
+) -> None:
+    body: dict[str, Any] = {
+        "text": text,
+        "role": "player",
+        "npcId": npc_id,
+        "playerId": player_id,
+    }
     if importance is not None:
         body["importance"] = importance
     res = client.post(

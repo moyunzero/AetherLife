@@ -1,5 +1,5 @@
 import type { ChunkDelta } from "@aetherlife/shared";
-import postgres from "postgres";
+import { getSharedSql } from "@aetherlife/npc-memory";
 
 type ChunkKey = string;
 
@@ -9,13 +9,13 @@ function key(worldId: string, cx: number, cy: number): ChunkKey {
   return `${worldId}:${cx},${cy}`;
 }
 
-let sqlClient: ReturnType<typeof postgres> | null = null;
+let sqlClient: ReturnType<typeof getSharedSql> | null = null;
 
-function getSql(): ReturnType<typeof postgres> | null {
+function getSql(): ReturnType<typeof getSharedSql> | null {
   const url = process.env.DATABASE_URL;
   if (!url) return null;
   if (!sqlClient) {
-    sqlClient = postgres(url, { max: 3 });
+    sqlClient = getSharedSql(url);
   }
   return sqlClient;
 }
@@ -47,15 +47,23 @@ export async function saveChunkDelta(
     memoryDeltas.set(key(worldId, cx, cy), delta);
     return;
   }
+  // String JSON — sql.json() breaks with postgres.js prepare:false (PgBouncer 6543).
+  const deltaJson = JSON.stringify(delta);
   await sql`
     INSERT INTO world_chunks (world_id, cx, cy, delta_json, updated_at)
-    VALUES (${worldId}, ${cx}, ${cy}, ${sql.json(delta as Record<string, unknown>)}, now())
+    VALUES (${worldId}, ${cx}, ${cy}, ${deltaJson}, now())
     ON CONFLICT (world_id, cx, cy)
     DO UPDATE SET delta_json = EXCLUDED.delta_json, updated_at = now()
   `;
 }
 
-/** Test helper */
+/** Test helper — in-memory deltas only */
 export function clearChunkDeltaMemory(): void {
   memoryDeltas.clear();
+}
+
+/** Test helper — in-memory + drop cached SQL client (unset DATABASE_URL in vitest) */
+export function resetChunkRepositoryForTests(): void {
+  memoryDeltas.clear();
+  sqlClient = null;
 }

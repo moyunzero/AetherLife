@@ -8,7 +8,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const WEB = process.env.WEB_URL || "http://127.0.0.1:5173";
+const WEB = process.env.WEB_URL || "http://localhost:5173";
 const GS = process.env.GAME_SERVER_URL || "http://127.0.0.1:2567";
 const ROOM = "default";
 const NPC_ID = "npc-1";

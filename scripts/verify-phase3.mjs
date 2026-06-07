@@ -1,4 +1,22 @@
-import { assertE2eRealLlm } from "./lib/e2e-policy.mjs";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { assertE2eRealLlm, e2eSpeakTimeoutMs } from "./lib/e2e-policy.mjs";
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const envPath = resolve(root, ".env");
+if (existsSync(envPath)) {
+  for (const line of readFileSync(envPath, "utf8").split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq === -1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    if (!(key in process.env)) {
+      process.env[key] = trimmed.slice(eq + 1).trim();
+    }
+  }
+}
 
 const baseUrl =
   process.env.GAME_SERVER_URL ||
@@ -40,6 +58,62 @@ async function seedMemories(count) {
   }
 }
 
+async function pollJobDone(jobId, timeoutMs = 120_000) {
+  const started = Date.now();
+  const url = `${baseUrl}/rooms/${roomId}/events?jobId=${encodeURIComponent(jobId)}`;
+  const res = await fetch(url, { headers: { Accept: "text/event-stream" } });
+  if (!res.ok || !res.body) throw new Error(`SSE subscribe failed ${res.status}`);
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (Date.now() - started < timeoutMs) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() ?? "";
+
+    for (const block of parts) {
+      const lines = block.split("\n");
+      let event = "message";
+      let data = "";
+      for (const line of lines) {
+        if (line.startsWith("event:")) event = line.slice(6).trim();
+        if (line.startsWith("data:")) data += line.slice(5).trim();
+      }
+      if (event === "done") {
+        await reader.cancel();
+        return JSON.parse(data || "{}");
+      }
+      if (event === "error") {
+        throw new Error(`job error: ${data}`);
+      }
+    }
+  }
+  throw new Error(`job ${jobId} did not complete within ${timeoutMs}ms`);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForMemoryCounts(
+  predicate,
+  timeoutMs,
+  label,
+) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const state = await request(`/rooms/${roomId}/state`);
+    const counts = state.memoryCounts ?? {};
+    if (predicate(counts)) return counts;
+    await sleep(1000);
+  }
+  throw new Error(`${label} not satisfied within ${timeoutMs}ms`);
+}
+
 async function main() {
   assertE2eRealLlm("verify:phase3");
   if (!process.env.DATABASE_URL) {
@@ -62,6 +136,14 @@ async function main() {
   if (!chatRes.jobId) {
     throw new Error("chat did not return jobId");
   }
+  console.log(`chat jobId=${chatRes.jobId} — waiting for worker memory write…`);
+  await pollJobDone(chatRes.jobId, e2eSpeakTimeoutMs());
+  // Memory tail runs after SSE "done" (main.py) — wait for DB persist before recall/reset.
+  await waitForMemoryCounts(
+    (counts) => (counts["npc-1"] ?? 0) > 0,
+    e2eSpeakTimeoutMs(),
+    "npc-1 memoryCount > 0 after chat",
+  );
 
   if (seedBulk > 0) {
     console.log(`Seeding ${seedBulk} filler memories…`);
@@ -76,8 +158,13 @@ async function main() {
   const elapsed = Date.now() - start;
 
   const haystack = JSON.stringify(ctx).toLowerCase();
-  if (!haystack.includes(FACT.toLowerCase()) && !haystack.includes("7")) {
-    throw new Error(`memory-context missing ${FACT} or door code 7: ${JSON.stringify(ctx)}`);
+  const hasFact =
+    haystack.includes(FACT.toLowerCase()) || haystack.includes("door code is 7");
+  const hasStoredMemory = ctx.memoryCount > 0 || (ctx.retrieved || []).length > 0;
+  if (!hasFact || !hasStoredMemory) {
+    throw new Error(
+      `memory-context missing stored recall (${FACT} / door code 7): ${JSON.stringify(ctx)}`,
+    );
   }
 
   console.log(`memory-context OK in ${elapsed}ms`);
@@ -90,12 +177,12 @@ async function main() {
     console.warn(`WARN: memory-context took ${elapsed}ms (>500ms target in dev)`);
   }
 
-  const afterReset = await request(`/rooms/${roomId}/reset`, { method: "POST" });
-  for (const id of ["npc-1", "npc-2", "npc-3"]) {
-    if (afterReset.memoryCounts?.[id] !== 0) {
-      throw new Error(`reset did not clear memoryCounts for ${id}`);
-    }
-  }
+  await request(`/rooms/${roomId}/reset`, { method: "POST" });
+  await waitForMemoryCounts(
+    (counts) => ["npc-1", "npc-2", "npc-3"].every((id) => (counts[id] ?? 0) === 0),
+    30_000,
+    "reset clears all memoryCounts",
+  );
 
   console.log("verify:phase3 OK — FACT recall, latency logged, reset clears DB memory");
 }

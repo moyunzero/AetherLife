@@ -3,6 +3,7 @@ import type { StatePatchPayload } from "@aetherlife/shared";
 import { COLYSEUS_SERVER_MESSAGES } from "@aetherlife/shared";
 import type { GameRoom } from "../colyseus/GameRoom.js";
 import { getJobEntry, unregisterJob } from "../colyseus/job-registry.js";
+import { appendCompletedTurn } from "../npc/dialogue-session.js";
 import { getOrCreate, setState } from "../room/store.js";
 import { applyMapAndBumpVersion } from "../colyseus/version.js";
 import type { RoomState } from "@aetherlife/shared";
@@ -91,6 +92,23 @@ function routeColyseusEvent(jobId: string, type: JobEventType, data: unknown): v
     const payload = base as Record<string, unknown>;
     const npcId = typeof payload.npcId === "string" ? payload.npcId : undefined;
     const snapshot = payload.state as RoomState | undefined;
+    const reply = typeof payload.reply === "string" ? payload.reply.trim() : "";
+
+    if (
+      reply &&
+      entry.npcId &&
+      entry.playerId &&
+      entry.playerMessage &&
+      npcId
+    ) {
+      appendCompletedTurn({
+        roomId: entry.roomId,
+        playerId: entry.playerId,
+        npcId: entry.npcId,
+        playerMessage: entry.playerMessage,
+        npcReply: reply,
+      });
+    }
 
     if (snapshot && typeof snapshot === "object") {
       const patch = applyDoneStateToRoom(roomId, room, snapshot);

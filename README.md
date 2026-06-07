@@ -2,18 +2,14 @@
 
 AI 驱动的多人联机生活模拟 Web 游戏 — Phase 1 提供 monorepo、**Supabase + Upstash 云 dev 数据层**与 Core-4 action schema 基座。
 
-## For contributors & AI agents (VibeCoding)
+## For contributors
 
-| Doc | Audience |
-|-----|----------|
-| **[AGENTS.md](./AGENTS.md)** | Cursor, Copilot, Codex, Claude — commands, boundaries, Colyseus rules, definition of done |
-| **[CONTRIBUTING.md](./CONTRIBUTING.md)** | 人类 + AI 协作流程、PR 建议 |
-| **[docs/ISSUE-LOG.md](./docs/ISSUE-LOG.md)** | 问题台账与防复发 Guardrails |
-| **[docs/E2E-POLICY.md](./docs/E2E-POLICY.md)** | E2E/UAT 真实 LLM + 游戏体验验收矩阵 |
-| **[CLAUDE.md](./CLAUDE.md)** | GSD 项目背景与技术栈 |
-| **[.github/copilot-instructions.md](./.github/copilot-instructions.md)** | GitHub Copilot → 指向 AGENTS.md |
-
-Cursor 另加载 [`.cursor/rules/Guidelines.mdc`](.cursor/rules/Guidelines.mdc)。
+| Doc | Purpose |
+|-----|---------|
+| **[CONTRIBUTING.md](./CONTRIBUTING.md)** | 协作流程、PR 与验证建议 |
+| **[docs/CONTRACTS.md](./docs/CONTRACTS.md)** | game-server ↔ worker 跨层 API 契约 |
+| **[docs/INVARIANTS-MULTIPLAYER.md](./docs/INVARIANTS-MULTIPLAYER.md)** | 多人空间与自然语言硬约束 |
+| **[docs/MOVEMENT-ARCHITECTURE.md](./docs/MOVEMENT-ARCHITECTURE.md)** | Phaser 移动与 Colyseus 同步 |
 
 ## Prerequisites
 
@@ -83,7 +79,7 @@ pnpm dev:stack
 - 浏览器：http://localhost:5173
 - 按 `Ctrl+C` 会一起停掉（`-k`）
 
-OpenRouter 限流或离线 **UI 调试**（非 E2E 验收，见 [docs/E2E-POLICY.md](./docs/E2E-POLICY.md)）：
+OpenRouter 限流或离线 **UI 调试**（非 E2E 验收；`verify:phase*` 须真实 LLM）：
 
 ```bash
 pnpm dev:stack:mock
@@ -105,7 +101,7 @@ pnpm dev:stack:mock
 | 只改前端 UI | `pnpm dev`（仅 web+gs；聊天需另起 ai+worker 才走 gateway） |
 | 只改 game-server API | `pnpm dev` |
 | 只改 gateway | `pnpm dev:ai` + 已有 gs/worker |
-| 只跑自动化验收 | `pnpm dev:stack`（真实 LLM），然后 `pnpm verify:phaseN` — 见 [E2E-POLICY](./docs/E2E-POLICY.md) |
+| 只跑自动化验收 | `pnpm dev:stack`（真实 LLM），然后 `pnpm verify:phaseN` |
 | gateway 用 Docker | `pnpm docker:ai` 替代 `dev:ai`（无热重载） |
 
 ### 首次 / 拉代码后（只做一次）
@@ -229,7 +225,7 @@ pnpm turbo build
 pnpm turbo test
 cd workers/agent-worker && LLM_MOCK=1 uv run pytest -q
 
-# game-server + DATABASE_URL + 真实 embed（E2E 禁 mock，见 docs/E2E-POLICY.md）
+# game-server + DATABASE_URL + 真实 embed（E2E 禁 mock）
 pnpm dev:stack
 pnpm verify:phase3
 pnpm verify:phase3 -- --seed-bulk=100   # MEM-03 bulk smoke
@@ -267,7 +263,7 @@ pnpm turbo test --filter=@aetherlife/game-server
 # game-server 单独监听 http+ws :2567，再：
 pnpm verify:phase6
 
-# 全栈 speak（真实 LLM worker，见 docs/E2E-POLICY.md）：
+# 全栈 speak（真实 LLM worker）：
 pnpm dev:stack
 pnpm verify:phase6
 ```
@@ -292,6 +288,4 @@ pnpm verify:phase8:soak   # 可选：SOAK=1 默认 10min 四人在线 soak
 pnpm uat:phase8:playwright   # 浏览器 UAT + 截图
 ```
 
-详见 [.planning/phases/08-multiplayer-room/08-VALIDATION.md](./.planning/phases/08-multiplayer-room/08-VALIDATION.md) 与 [docs/E2E-POLICY.md](./docs/E2E-POLICY.md)。
-
-**Phase 9 语音暂缓：** 规划已完成、未实现；下一活跃阶段为 Phase 10，恢复语音见 [.planning/phases/09-voice-pipeline/09-STATUS.md](./.planning/phases/09-voice-pipeline/09-STATUS.md)。
+**Phase 9 语音暂缓：** 规划已完成、未实现；下一活跃阶段为 Phase 10+。

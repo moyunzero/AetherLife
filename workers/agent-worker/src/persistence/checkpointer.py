@@ -3,8 +3,10 @@ from typing import Any
 
 from langgraph.checkpoint.memory import MemorySaver
 
+from src.persistence.pg_kwargs import PG_CONNECT_KWARGS
+
 _checkpointer: Any | None = None
-_saver_cm: Any | None = None
+_checkpointer_conn: Any | None = None
 
 
 def setup_checkpointer(
@@ -13,7 +15,7 @@ def setup_checkpointer(
     allow_memory_fallback: bool = False,
 ) -> Any:
     """Initialize PostgresSaver when DATABASE_URL is set; call once at worker boot."""
-    global _checkpointer, _saver_cm
+    global _checkpointer, _checkpointer_conn
     if _checkpointer is not None:
         return _checkpointer
 
@@ -26,15 +28,23 @@ def setup_checkpointer(
 
     try:
         from langgraph.checkpoint.postgres import PostgresSaver
+        from psycopg import Connection
+        from psycopg.rows import dict_row
     except ImportError as exc:
         raise RuntimeError(
             "PostgresSaver unavailable — install psycopg[binary] "
             "(uv sync in workers/agent-worker)"
         ) from exc
 
-    # Must keep the context manager alive — exiting closes the psycopg connection.
-    _saver_cm = PostgresSaver.from_conn_string(database_url)
-    saver = _saver_cm.__enter__()
+    # LangGraph from_conn_string uses prepare_threshold=0; transaction pooler needs None.
+    global _checkpointer_conn
+    _checkpointer_conn = Connection.connect(
+        database_url,
+        autocommit=True,
+        row_factory=dict_row,
+        **PG_CONNECT_KWARGS,
+    )
+    saver = PostgresSaver(_checkpointer_conn)
     saver.setup()
     _checkpointer = saver
     return _checkpointer
@@ -48,8 +58,8 @@ def get_checkpointer(*, allow_memory_fallback: bool = True) -> Any:
 
 
 def reset_checkpointer_for_tests() -> None:
-    global _checkpointer, _saver_cm
-    if _saver_cm is not None:
-        _saver_cm.__exit__(None, None, None)
+    global _checkpointer, _checkpointer_conn
+    if _checkpointer_conn is not None:
+        _checkpointer_conn.close()
     _checkpointer = None
-    _saver_cm = None
+    _checkpointer_conn = None

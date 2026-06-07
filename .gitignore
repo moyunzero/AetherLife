@@ -10,3 +10,28 @@ __pycache__
 *.pyc
 .playwright-mcp/
 status
+
+# OS / tooling artifacts
+.DS_Store
+.cursorignore
+
+# Internal dev workflow (local only — not published)
+.planning/
+.cursor/
+.codegraph/
+.githooks/
+AGENTS.md
+CLAUDE.md
+apps/game-server/AGENTS.md
+apps/web/AGENTS.md
+
+# Internal development docs (local only)
+docs/ISSUE-LOG.md
+docs/E2E-POLICY.md
+docs/E2E-FULL-RUN.md
+docs/E2E-RUN-LOG.md
+docs/PHASE-EVOLUTION.md
+docs/LLM-MODEL-VERIFY.md
+docs/LLM-ROUTING.md
+docs/VIGNETTE-FIX-UAT.md
+docs/phase3-embed-spike.md

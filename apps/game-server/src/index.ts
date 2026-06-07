@@ -4,9 +4,11 @@ import { DEFAULT_PORTS } from "@aetherlife/shared";
 import { createRoomsRouter, createInternalRoomsRouter } from "./routes/rooms.js";
 import { createChatRouter } from "./routes/chat.js";
 import { createNpcMemoryRouter } from "./routes/npc-memory.js";
+import { createCollectiveStateRouter } from "./routes/collective-state.js";
 import { createAuditRouter } from "./routes/audit.js";
 import { createInternalJobsRouter } from "./routes/internal.js";
 import { createInternalMemoriesRouter } from "./routes/internal-memories.js";
+import { createInternalCollectiveRouter } from "./routes/internal-collective.js";
 import {
   createInternalLoreMetricsRouter,
   createInternalLoreRouter,
@@ -40,9 +42,11 @@ export function createApp(): Express {
   app.use("/rooms", json, createRoomsRouter());
   app.use("/rooms", json, createAuditRouter());
   app.use("/rooms", json, createNpcMemoryRouter());
+  app.use("/rooms", json, createCollectiveStateRouter());
   app.use("/rooms", json, createChatRouter());
   app.use("/internal/rooms", json, createInternalRoomsRouter());
   app.use("/internal/rooms", json, createInternalMemoriesRouter());
+  app.use("/internal/rooms", json, createInternalCollectiveRouter());
   app.use("/internal/jobs", json, createInternalJobsRouter());
   app.use("/internal/world", json, createInternalLoreRouter());
   app.use("/internal/metrics", json, createInternalLoreMetricsRouter());

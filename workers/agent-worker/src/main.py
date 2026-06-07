@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+from typing import Any
 
 import httpx
 import redis
@@ -76,12 +77,26 @@ def process_lore_job(client: httpx.Client, settings: Settings, payload: dict) ->
     run_lore_job(payload, settings=settings, client=client)
 
 
+def drain_one_lore_job(r: redis.Redis, client: httpx.Client, settings: Settings) -> bool:
+    """Process at most one pending chunk-lore job (non-blocking). Returns True if handled."""
+    raw = r.lpop(LORE_BRIDGE_LIST_KEY)
+    if not raw:
+        return False
+    payload = json.loads(raw)
+    try:
+        process_lore_job(client, settings, payload)
+    except Exception as exc:
+        print(f"lore job error jobId={payload.get('jobId')}: {exc}", file=sys.stderr)
+    return True
+
+
 def process_job(client: httpx.Client, settings: Settings, payload: dict) -> None:
     job_id = payload["jobId"]
     room_id = payload.get("roomId", "default")
     npc_id = payload.get("npcId", "npc-1")
     player_message = payload.get("playerMessage", "")
     player_id = payload.get("playerId", "__legacy__")
+    recent_turns = payload.get("recentTurns") or []
 
     emit_job_event(client, settings, job_id, "thinking", {"status": "planning", "npcId": npc_id})
 
@@ -90,8 +105,21 @@ def process_job(client: httpx.Client, settings: Settings, payload: dict) -> None
         player_message=player_message,
         npc_id=npc_id,
         player_id=player_id,
+        recent_turns=recent_turns if isinstance(recent_turns, list) else [],
         settings=settings,
     )
+    perception = result.get("social_perception")
+    if isinstance(perception, dict) and result.get("social_applied"):
+        print(
+            f"social applied jobId={job_id} npc={npc_id} kind={perception.get('kind')} "
+            f"eff={result.get('effective_score')} collectiveUpdated={result.get('collective_updated')}",
+            file=sys.stderr,
+        )
+    elif isinstance(perception, dict) and perception.get("kind") == "ignore":
+        print(
+            f"social skipped jobId={job_id} npc={npc_id} kind=ignore",
+            file=sys.stderr,
+        )
     reply = audit_reply(result.get("reply") or "", result.get("tool_calls") or [])
     trace_run_id = result.get("trace_run_id") or os.getenv("LANGCHAIN_RUN_ID")
     room_snapshot = result.get("room_snapshot") or {}
@@ -101,19 +129,28 @@ def process_job(client: httpx.Client, settings: Settings, payload: dict) -> None
             npc_name = str(npc.get("name") or "")
             break
 
+    done_payload: dict[str, Any] = {
+        "reply": reply,
+        "npcId": npc_id,
+        "npcName": npc_name,
+        "state": room_snapshot,
+        "toolCalls": result.get("tool_calls") or [],
+        "traceRunId": trace_run_id,
+    }
+    if result.get("gate_rejected"):
+        done_payload["gateRejected"] = True
+        gate_kind = result.get("gate_kind")
+        if isinstance(gate_kind, str) and gate_kind.strip():
+            done_payload["gateKind"] = gate_kind.strip()
+    if result.get("collective_updated"):
+        done_payload["collectiveUpdated"] = True
+
     emit_job_event(
         client,
         settings,
         job_id,
         "done",
-        {
-            "reply": reply,
-            "npcId": npc_id,
-            "npcName": npc_name,
-            "state": room_snapshot,
-            "toolCalls": result.get("tool_calls") or [],
-            "traceRunId": trace_run_id,
-        },
+        done_payload,
     )
 
     try:
@@ -132,6 +169,8 @@ def run_mock() -> None:
 def run_worker() -> None:
     settings = get_settings()
     configure_langsmith(settings)
+    if settings.database_url and not os.getenv("DATABASE_URL"):
+        os.environ["DATABASE_URL"] = settings.database_url
     print(
         f"agent-worker ready provider={settings.llm_provider} model={settings.llm_model}",
         file=sys.stderr,
@@ -197,6 +236,8 @@ def run_worker() -> None:
                         "error",
                         {"message": format_llm_error(exc, provider=settings.llm_provider)},
                     )
+                # Fairness: one lore job per speak job when lore backlog exists (ISSUE-030)
+                drain_one_lore_job(r, client, settings)
                 continue
             try:
                 process_lore_job(client, settings, payload)

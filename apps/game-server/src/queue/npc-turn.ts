@@ -2,12 +2,15 @@ import { randomUUID } from "node:crypto";
 import { Queue, type ConnectionOptions } from "bullmq";
 import { Redis } from "ioredis";
 
+export type DialogueTurnPayload = { role: "player" | "npc"; text: string };
+
 export type NpcTurnJobPayload = {
   roomId: string;
   jobId: string;
   npcId: string;
   playerId: string;
   playerMessage: string;
+  recentTurns?: DialogueTurnPayload[];
   enqueuedAt: string;
 };
 
@@ -56,6 +59,7 @@ export async function addNpcTurnJob(input: {
   playerMessage: string;
   npcId: string;
   playerId: string;
+  recentTurns?: DialogueTurnPayload[];
 }): Promise<string> {
   const jobId = randomUUID();
   const payload: NpcTurnJobPayload = {
@@ -64,6 +68,7 @@ export async function addNpcTurnJob(input: {
     npcId: input.npcId,
     playerId: input.playerId,
     playerMessage: input.playerMessage,
+    recentTurns: input.recentTurns,
     enqueuedAt: new Date().toISOString(),
   };
 

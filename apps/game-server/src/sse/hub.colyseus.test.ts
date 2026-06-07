@@ -2,12 +2,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { COLYSEUS_SERVER_MESSAGES } from "@aetherlife/shared";
 import { clearJobRegistry, registerJob } from "../colyseus/job-registry.js";
 import { GameRoomState } from "../colyseus/schema.js";
+import {
+  clearDialogueSessions,
+  getRecentTurns,
+} from "../npc/dialogue-session.js";
 import { clearJobSubscribers, emitJobEvent } from "./hub.js";
 
 describe("hub colyseus routing", () => {
   beforeEach(() => {
     clearJobSubscribers();
     clearJobRegistry();
+    clearDialogueSessions();
   });
 
   it("sends thinking only to initiator", () => {
@@ -77,5 +82,30 @@ describe("hub colyseus routing", () => {
     expect(initiatorSends.some((s) => s.type === COLYSEUS_SERVER_MESSAGES.done)).toBe(true);
     expect(broadcasts.some((b) => b.type === COLYSEUS_SERVER_MESSAGES.patch)).toBe(true);
     expect(state.stateVersion).toBeGreaterThan(0);
+  });
+
+  it("records completed turn in dialogue session on done", () => {
+    const mockRoom = {
+      broadcast: vi.fn(),
+      clients: [{ sessionId: "init", send: vi.fn() }],
+      state: new GameRoomState(),
+    };
+
+    registerJob("job-3", mockRoom as never, "default", "init", {
+      npcId: "npc-1",
+      playerId: "player-a",
+      playerMessage: "你好",
+    });
+
+    emitJobEvent("job-3", "done", {
+      reply: "你好呀",
+      npcId: "npc-1",
+      state: { width: 8, height: 8, player: { x: 0, y: 0 }, npcs: [], objects: [] },
+    });
+
+    expect(getRecentTurns("default", "player-a", "npc-1")).toEqual([
+      { role: "player", text: "你好" },
+      { role: "npc", text: "你好呀" },
+    ]);
   });
 });

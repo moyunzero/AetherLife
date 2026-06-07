@@ -1,6 +1,12 @@
 import type { Room } from "colyseus";
 
-type JobEntry = { room: Room; roomId: string; sessionId?: string };
+export type JobMeta = {
+  npcId: string;
+  playerId: string;
+  playerMessage: string;
+};
+
+type JobEntry = { room: Room; roomId: string; sessionId?: string } & Partial<JobMeta>;
 
 const jobs = new Map<string, JobEntry>();
 
@@ -9,8 +15,9 @@ export function registerJob(
   room: Room,
   roomId: string,
   sessionId?: string,
+  meta?: JobMeta,
 ): void {
-  jobs.set(jobId, { room, roomId, sessionId });
+  jobs.set(jobId, { room, roomId, sessionId, ...meta });
 }
 
 export function unregisterJob(jobId: string): void {

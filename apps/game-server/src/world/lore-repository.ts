@@ -3,7 +3,7 @@ import {
   validateChunkLoreStrings,
   type ChunkLore,
 } from "@aetherlife/shared";
-import postgres from "postgres";
+import { getSharedSql } from "@aetherlife/npc-memory";
 
 type LoreKey = string;
 
@@ -13,13 +13,13 @@ function key(worldId: string, cx: number, cy: number): LoreKey {
   return `${worldId}:${cx},${cy}`;
 }
 
-let sqlClient: ReturnType<typeof postgres> | null = null;
+let sqlClient: ReturnType<typeof getSharedSql> | null = null;
 
-function getSql(): ReturnType<typeof postgres> | null {
+function getSql(): ReturnType<typeof getSharedSql> | null {
   const url = process.env.DATABASE_URL;
   if (!url) return null;
   if (!sqlClient) {
-    sqlClient = postgres(url, { max: 3 });
+    sqlClient = getSharedSql(url);
   }
   return sqlClient;
 }
@@ -66,9 +66,10 @@ export async function upsertChunkLore(
     memoryLore.set(key(worldId, cx, cy), { lore: parsed, modelTier: tier });
     return parsed;
   }
+  const loreJson = JSON.stringify(parsed);
   await sql`
     INSERT INTO world_chunk_lore (world_id, cx, cy, lore_json, model_tier, updated_at)
-    VALUES (${worldId}, ${cx}, ${cy}, ${sql.json(parsed as Record<string, unknown>)}, ${tier}, now())
+    VALUES (${worldId}, ${cx}, ${cy}, ${loreJson}, ${tier}, now())
     ON CONFLICT (world_id, cx, cy)
     DO UPDATE SET lore_json = EXCLUDED.lore_json, model_tier = EXCLUDED.model_tier, updated_at = now()
   `;

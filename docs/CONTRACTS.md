@@ -71,9 +71,15 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 
 | 层 | 契约 |
 |----|------|
-| **键** | `roomId` + `npcId` + `playerId`（非匿名时必填） |
-| **Worker** | `fetch_memory` / `append` 等 internal API 带 `playerId` |
-| **与空间** | `playerId` 同时参与 C-01 状态视图（非仅记忆） |
+| **Per-player 叙事记忆** | `roomId` + `npcId` + `playerId` → `npc_memories`（既有） |
+| **Collective 事件** | `roomId` + `npcId` + `playerIds[]` → `collective_events`；**禁止**写入 `npc_memories` 双写 speak 全文 |
+| **态度分** | `roomId` + `npcId` + `playerId` → `npc_attitudes.reputation`；speak 取 **initiator** 行 |
+| **Worker 读** | `fetch_memory_context` / `GET .../memory-context` 返回含 `collective.{band,allowedTools,effectiveScore}` |
+| **Worker 写** | Speak 社交 event **仅 worker**（Phase 12.1 `source=worker`，structured `SocialTurnOut` 权威）；action **rule** 行仍由 game-server；legacy **llm_refine** tail 不对 speak 生效 |
+| **Speak 社交** | Server **禁止** `detectSpeak` / rude 词表；LLM parse 失败 → `ignore`（不写 event），**不回退** server 词表 |
+| **Reset** | `POST /rooms/:id/reset` 删除该 `roomId` 下所有 `collective_events` + `npc_attitudes` + 既有 per-player memories |
+| **与空间** | Witness 距离用 **当前** `RoomState` NPC 格；Chebyshev ≤2 |
+| **禁止** | `playerId=__room__` 伪玩家桶；禁止 collective 表存 speak 全文 |
 
 ---
 
