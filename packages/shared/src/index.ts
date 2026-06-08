@@ -154,6 +154,15 @@ export {
 } from "./attitude.js";
 
 export {
+  NPC_ACTIVITY_KEYS,
+  NPC_ACTIVITY_LABEL_ZH,
+  activityDisplayZh,
+  formatGameClock,
+  isKnownActivityKey,
+  type NpcActivityKey,
+} from "./npcActivity.js";
+
+export {
   COLLECTIVE_EVENT_KINDS,
   COLLECTIVE_EVENT_SOURCES,
   COLLECTIVE_EVENT_TTL_MS,
