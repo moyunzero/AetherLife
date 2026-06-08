@@ -12,6 +12,8 @@ export type NpcState = {
   y: number;
   status: string;
   inventory: string[];
+  /** Ambient activity key (server-authoritative; optional until ambient tick writes). */
+  activityKey?: string;
 };
 
 export type GameObject = {

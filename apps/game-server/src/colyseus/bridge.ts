@@ -84,15 +84,19 @@ export function syncColyseusFromMap(colyseus: GameRoomState, map: RoomState): vo
   for (const [slot, id] of npcSlots) {
     const npc = map.npcs.find((n) => n.id === id);
     if (!npc) continue;
+    const activityKey = npc.activityKey ?? "idle";
     if (slot === "npc1") {
       colyseus.npc1X = npc.x;
       colyseus.npc1Y = npc.y;
+      colyseus.npc1ActivityKey = activityKey;
     } else if (slot === "npc2") {
       colyseus.npc2X = npc.x;
       colyseus.npc2Y = npc.y;
+      colyseus.npc2ActivityKey = activityKey;
     } else {
       colyseus.npc3X = npc.x;
       colyseus.npc3Y = npc.y;
+      colyseus.npc3ActivityKey = activityKey;
     }
   }
 
