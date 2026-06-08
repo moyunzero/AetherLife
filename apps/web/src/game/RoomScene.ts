@@ -1070,6 +1070,12 @@ export class RoomScene extends Phaser.Scene {
           visualFallback: boolean;
         } | null;
         __aetherlife_uatFrameHomestead?: () => boolean;
+        __aetherlife_ambientDebug?: () => {
+          minute: number | null;
+          label: string | null;
+          npcActivityById: Record<string, string>;
+          visibleNpcIds: string[];
+        } | null;
       };
       w.__aetherlife_moveDebug = () => {
         const sid = this.getSessionId();
@@ -1167,6 +1173,20 @@ export class RoomScene extends Phaser.Scene {
           panelFillRatio,
           canvasUniqueColors,
           visualFallback: isVisualFallbackActive(this),
+        };
+      };
+      w.__aetherlife_ambientDebug = () => {
+        const clock = this.registry.get("gameClock") as
+          | { minute?: number; label?: string }
+          | undefined;
+        const minute = typeof clock?.minute === "number" ? clock.minute : null;
+        return {
+          minute,
+          label: clock?.label ?? null,
+          npcActivityById:
+            (this.registry.get("npcActivityById") as Record<string, string> | undefined) ?? {},
+          visibleNpcIds:
+            (this.registry.get("npcActivityVisible") as string[] | undefined) ?? [],
         };
       };
     }

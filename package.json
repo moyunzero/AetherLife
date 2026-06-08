@@ -38,6 +38,7 @@
     "art:import:character": "node scripts/import-character-art.mjs",
     "art:placeholder": "node scripts/generate-phase13-atlases.mjs",
     "verify:phase13": "node scripts/verify-phase13.mjs",
+    "verify:phase14": "node scripts/verify-phase14.mjs",
     "uat:phase13:playwright": "node scripts/uat-phase13-playwright.mjs",
     "uat:phase12.1:playwright": "node scripts/uat-phase12.1-playwright.mjs",
     "e2e:full-run": "node scripts/e2e-full-run.mjs",
