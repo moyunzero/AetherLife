@@ -42,6 +42,7 @@ from src.collective.social_turn import (
     refresh_collective_snapshot,
 )
 from src.graph.nodes.llm_social_turn import llm_social_turn
+from src.llm.call_budget import record_llm_call
 from src.memory.client import (
     append_npc_memory,
     append_player_memory,
@@ -98,14 +99,21 @@ def load_memory_context(
     client: httpx.Client,
 ) -> GraphState:
     npc_id = state.get("npc_id") or "npc-1"
-    ctx = fetch_memory_context(
-        client,
-        settings,
-        state["room_id"],
-        state.get("player_message") or "",
-        npc_id=npc_id,
-        player_id=_player_id(state),
-    )
+    try:
+        ctx = fetch_memory_context(
+            client,
+            settings,
+            state["room_id"],
+            state.get("player_message") or "",
+            npc_id=npc_id,
+            player_id=_player_id(state),
+        )
+    except httpx.TimeoutException as exc:
+        print(
+            f"memory-context timeout room={state['room_id']} npc={npc_id}: {exc}",
+            file=sys.stderr,
+        )
+        ctx = {}
     summary = format_memory_summary(
         latest_bulk=ctx.get("latestBulkSummary"),
         latest_reflection=ctx.get("latestReflection"),
@@ -130,8 +138,11 @@ def _invoke_llm_turn(
     *,
     player_message: str,
     room_snapshot: dict[str, Any],
+    provider: str,
+    model: str,
 ) -> tuple[list[dict[str, Any]], str]:
     response = llm.invoke(messages)
+    record_llm_call("main", provider, model)
     tool_calls = parse_tool_calls(response)
     reply = reply_from_turn(response, tool_calls)
 
@@ -142,6 +153,7 @@ def _invoke_llm_turn(
             HumanMessage(content=build_tool_retry_message(room_snapshot)),
         ]
         response = llm.invoke(retry_messages)
+        record_llm_call("main", provider, model)
         tool_calls = parse_tool_calls(response)
         reply = reply_from_turn(response, tool_calls)
 
@@ -221,6 +233,8 @@ def llm_turn(state: GraphState, *, settings: Settings) -> GraphState:
                         messages,
                         player_message=player_message,
                         room_snapshot=room_snapshot,
+                        provider=provider,
+                        model=model,
                     )
                     return {**state, "tool_calls": tool_calls, "reply": reply}
                 except Exception as exc:

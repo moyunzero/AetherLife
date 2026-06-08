@@ -37,10 +37,6 @@ def is_quota_error(exc: BaseException) -> bool:
     return "402" in str(exc) or "spend limit exceeded" in text
 
 
-def is_retryable_llm_error(exc: BaseException) -> bool:
-    return is_rate_limit_error(exc) or is_provider_error(exc) or is_model_not_found_error(exc)
-
-
 def is_connection_error(exc: BaseException) -> bool:
     text = str(exc).lower()
     needles = (
@@ -53,6 +49,15 @@ def is_connection_error(exc: BaseException) -> bool:
         "failed to establish",
     )
     return any(n in text for n in needles)
+
+
+def is_retryable_llm_error(exc: BaseException) -> bool:
+    return (
+        is_rate_limit_error(exc)
+        or is_provider_error(exc)
+        or is_model_not_found_error(exc)
+        or is_connection_error(exc)
+    )
 
 
 def should_try_lore_provider_fallback(exc: BaseException) -> bool:

@@ -1,6 +1,6 @@
 /**
- * Full-stack E2E orchestrator — Phase 2→12.1, real LLM only.
- * Requires: pnpm dev:stack running. See docs/E2E-FULL-RUN.md
+ * Full-stack E2E orchestrator — Phase 1 (cloud) + 2→13, real LLM only.
+ * Phase 9 voice deferred. Requires: pnpm dev:stack running. See docs/E2E-FULL-RUN.md
  */
 import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -34,6 +34,8 @@ const UAT_SHOT_DIRS = {
   "8": ".planning/phases/08-multiplayer-room/uat-screenshots",
   "10": ".planning/phases/10-chunk-terrain/uat-screenshots",
   "11": ".planning/phases/11-llm-world-lore/uat-screenshots",
+  "12.1": ".planning/phases/12.1-llm-social-perception/uat-screenshots",
+  "13": ".planning/phases/13-phaser-world-visuals/screenshots",
 };
 
 const httpGs = process.env.GAME_SERVER_URL || "http://127.0.0.1:2567";
@@ -45,6 +47,7 @@ const skipUat = process.env.E2E_FULL_SKIP_UAT === "1";
 
 /** @type {Array<{ phase: string; kind: string; script: string; env?: Record<string, string> }>} */
 const STEPS = [
+  { phase: "1", kind: "verify", script: "verify:cloud" },
   { phase: "2", kind: "verify", script: "verify:phase2" },
   { phase: "3", kind: "verify", script: "verify:phase3" },
   { phase: "4", kind: "verify", script: "verify:phase4" },
@@ -66,6 +69,9 @@ const STEPS = [
     script: "verify:phase12",
     env: { VERIFY_PHASE12_FAST: "1" },
   },
+  { phase: "12.1", kind: "uat", script: "uat:phase12.1:playwright" },
+  { phase: "13", kind: "verify", script: "verify:phase13" },
+  { phase: "13", kind: "uat", script: "uat:phase13:playwright" },
 ];
 
 function log(line) {

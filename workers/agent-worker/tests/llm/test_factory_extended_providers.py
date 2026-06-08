@@ -24,6 +24,22 @@ def test_create_siliconflow_model_injects_enable_thinking_false(monkeypatch):
     )
     assert captured["extra_body"] == {"enable_thinking": False}
     assert captured["base_url"] == "https://api.siliconflow.cn/v1"
+    assert captured["timeout"] == 120.0
+
+
+def test_create_chat_model_uses_llm_request_timeout(monkeypatch):
+    captured: dict = {}
+
+    class FakeChatOpenAI:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr("src.llm.factory.ChatOpenAI", FakeChatOpenAI)
+    create_chat_model(
+        provider="openrouter",
+        settings=Settings(openrouter_api_key="or-test", llm_request_timeout=90.0),
+    )
+    assert captured["timeout"] == 90.0
 
 
 def test_create_nvidia_model_uses_integrate_base(monkeypatch):

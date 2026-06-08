@@ -3,7 +3,8 @@ import os
 import re
 
 from src.config import Settings, get_settings
-from src.llm.errors import is_rate_limit_error
+from src.llm.call_budget import record_llm_call
+from src.llm.errors import is_connection_error, is_provider_error, is_rate_limit_error
 from src.llm.openrouter_chat import invoke_chat_llm
 from src.llm.roles import importance_provider_model
 
@@ -33,13 +34,15 @@ def _importance_provider(cfg: Settings) -> tuple[str, str]:
 
 def _invoke_importance_llm(messages: list[dict[str, str]], settings: Settings) -> str:
     provider, model = _importance_provider(settings)
-    return invoke_chat_llm(
+    content = invoke_chat_llm(
         messages,
         settings=settings,
         provider=provider,
         model=model,
         temperature=0,
     )
+    record_llm_call("importance", provider, model)
+    return content
 
 
 def score_importance(text: str, settings: Settings | None = None) -> int:
@@ -64,7 +67,7 @@ def score_importance(text: str, settings: Settings | None = None) -> int:
             cfg,
         )
     except Exception as exc:
-        if is_rate_limit_error(exc):
+        if is_rate_limit_error(exc) or is_connection_error(exc) or is_provider_error(exc):
             return DEFAULT_IMPORTANCE
         raise
     return _parse_importance(content) or DEFAULT_IMPORTANCE
@@ -121,7 +124,7 @@ def score_turn_importance(
             cfg,
         )
     except Exception as exc:
-        if is_rate_limit_error(exc):
+        if is_rate_limit_error(exc) or is_connection_error(exc) or is_provider_error(exc):
             return DEFAULT_IMPORTANCE, DEFAULT_IMPORTANCE
         raise
 

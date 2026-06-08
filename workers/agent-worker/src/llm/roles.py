@@ -1,7 +1,8 @@
 """Role-specific LLM provider/model resolution.
 
 Platform-aware defaults (see docs/LLM-ROUTING.md §3.1):
-- Zhipu glm-4.7-flash: NPC bind_tools only (concurrency=1)
+- SiliconFlow Qwen3.5-4B: NPC bind_tools primary (L0 ~1000 RPM)
+- Zhipu glm-4.7-flash: optional fallback only (concurrency=1)
 - SiliconFlow Qwen3.5-4B: high-RPM social / summarize / collective refine
 - NVIDIA nano: importance JSON
 - Agnes: reflect + lore primary + auxiliary fallback

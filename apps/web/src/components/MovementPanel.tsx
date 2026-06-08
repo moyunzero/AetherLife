@@ -110,6 +110,7 @@ export function MovementPanel({
         }
       }}
     >
+      <div className="movement-panel__frame">
       <h2 className="movement-panel__title">
         {fallbackMode ? "移动（回退模式 · WASD / 点击格子）" : "移动（WASD / 点击格子）"}
       </h2>
@@ -151,6 +152,7 @@ export function MovementPanel({
         style={{ gridTemplateColumns: `repeat(${width}, 2rem)` }}
       >
         {cells}
+      </div>
       </div>
     </section>
   );

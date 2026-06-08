@@ -30,6 +30,14 @@ export type LocalPlayerMovementDeps = {
   stopEntityMotion: (ent: MovementEntity) => void;
   /** Called after snapTo so the scene can reset camera lerp anchors. */
   onSnap?: (wx: number, wy: number) => void;
+  onStepStart?: (
+    ent: MovementEntity,
+    fromX: number,
+    fromY: number,
+    toX: number,
+    toY: number,
+  ) => void;
+  onStepEnd?: (ent: MovementEntity, gx: number, gy: number, continuing: boolean) => void;
 };
 
 /**
@@ -212,12 +220,17 @@ export class LocalPlayerMovementController {
       return;
     }
 
+    const fromX = ent.gridX;
+    const fromY = ent.gridY;
+    this.deps.onStepStart?.(ent, fromX, fromY, gx, gy);
+
     const { wx, wy } = gridToWorld(gx, gy);
     ent.container.setDepth(this.deps.entityDepth(gx, gy, ent.depthLayer));
     let overlapTriggered = false;
 
     const finishStep = () => {
       ent.moveTween = undefined;
+      this.deps.onStepEnd?.(ent, gx, gy, this.hasMoreLocalSteps());
       onComplete?.();
     };
 

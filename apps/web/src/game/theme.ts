@@ -4,11 +4,12 @@ export type BiomeFloorColors = { walkable: number; blocked: number };
 
 /** Phaser 0xRRGGBB tokens — aligned with apps/web/src/index.css */
 export const theme = {
-  bgDeep: 0x0f0e0c,
+  /** Camera letterbox + unloaded chunk void — matches `.room-scene-panel__canvas` (#1c1610) */
+  bgDeep: 0x1c1610,
   floorWalkable: 0x1a1814,
   floorBlocked: 0x252219,
   gridLine: 0x2e2a22,
-  biomeVoid: { walkable: 0x121110, blocked: 0x1a1816 } satisfies BiomeFloorColors,
+  biomeVoid: { walkable: 0x1c1610, blocked: 0x221c16 } satisfies BiomeFloorColors,
   biomeColors: {
     home: { walkable: 0x1a1814, blocked: 0x252219 },
     meadow: { walkable: 0x1c2418, blocked: 0x2a3324 },
@@ -21,7 +22,7 @@ export const theme = {
   playerOther: 0x9a9284,
   npcTint: 0x8a7d5c,
   /** Door fill — matches MovementPanel `.movement-cell--door` background (not accent fill). */
-  doorFill: 0x0f0e0c,
+  doorFill: 0x1c1610,
   doorClosed: 0xc9a227,
   doorOpen: 0x6b8f5e,
   destructive: 0xb54a4a,

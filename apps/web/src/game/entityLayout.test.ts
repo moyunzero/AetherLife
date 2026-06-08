@@ -13,4 +13,8 @@ describe("entityDepth", () => {
   it("preserves y-sort ordering for two cells in the same column", () => {
     expect(entityDepth(3, 4, 1)).toBeLessThan(entityDepth(3, 5, 1));
   });
+
+  it("renders entities above foot-aligned decor on the same cell", () => {
+    expect(entityDepth(4, 6, 0)).toBeLessThan(entityDepth(4, 6, 1));
+  });
 });

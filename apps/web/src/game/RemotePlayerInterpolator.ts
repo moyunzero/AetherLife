@@ -31,6 +31,14 @@ export type RemoteInterpDeps = {
   snapEntityToGrid: (ent: RemoteInterpEntity, gx: number, gy: number) => void;
   stopEntityMotion: (ent: RemoteInterpEntity) => void;
   stepMs?: number;
+  onStepStart?: (
+    ent: RemoteInterpEntity,
+    fromX: number,
+    fromY: number,
+    toX: number,
+    toY: number,
+  ) => void;
+  onStepEnd?: (ent: RemoteInterpEntity, gx: number, gy: number, continuing: boolean) => void;
 };
 
 /** Max Manhattan distance before snap (teleport / large desync). */
@@ -179,12 +187,17 @@ export class RemotePlayerInterpolator {
   ): void {
     ent.targetGridX = gx;
     ent.targetGridY = gy;
+    const fromX = ent.gridX;
+    const fromY = ent.gridY;
+    deps.onStepStart?.(ent, fromX, fromY, gx, gy);
+
     const { wx, wy } = gridToWorld(gx, gy);
     ent.container.setDepth(deps.entityDepth(gx, gy, ent.depthLayer));
     let overlapTriggered = false;
 
     const finishStep = () => {
       ent.moveTween = undefined;
+      deps.onStepEnd?.(ent, gx, gy, track.stepQueue.length > 0);
     };
 
     ent.moveTween = deps.tweens.add({

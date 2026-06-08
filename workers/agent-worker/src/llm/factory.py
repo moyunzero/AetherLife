@@ -73,7 +73,7 @@ def _npc_fallback_models(settings: Settings, fallback_provider: str) -> list[str
 
 def npc_provider_attempts(settings: Settings) -> list[tuple[str, str]]:
     """Provider+model pairs for NPC tool-calling (never mix provider with foreign model ids)."""
-    primary_provider = (settings.llm_provider or "zhipu").lower()
+    primary_provider = (settings.llm_provider or "siliconflow").lower()
     pin = (settings.llm_model_npc or os.getenv("LLM_MODEL_NPC") or "").strip()
     if primary_provider == "cerebras":
         primary_model = pin or settings.llm_model_cerebras
@@ -150,11 +150,16 @@ def create_chat_model(
         else:
             resolved_model = cfg.llm_model
 
+    timeout_s = float(cfg.llm_request_timeout)
+    if timeout_s <= 0:
+        timeout_s = 120.0
+
     kwargs: dict[str, Any] = {
         "model": resolved_model,
         "api_key": resolved_key,
         "base_url": base_url,
         "temperature": 0.7 if temperature is None else temperature,
+        "timeout": timeout_s,
     }
     if chosen_provider == "openrouter":
         kwargs["default_headers"] = {

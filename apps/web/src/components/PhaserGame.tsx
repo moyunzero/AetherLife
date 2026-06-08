@@ -20,6 +20,7 @@ import { lorePlaceLabel } from "../hooks/useChunkLore.js";
 import { VIEWPORT_CELLS, worldSize } from "../game/gridLayout.js";
 import { ROOM_SCENE_KEY, RoomScene } from "../game/RoomScene.js";
 import { theme } from "../game/theme.js";
+import { parseVisualFallbackQuery, setVisualFallbackRegistry } from "../game/visualFallback.js";
 
 export type MapNpcView = Pick<NpcState, "id" | "name" | "x" | "y">;
 export type MapObjectView = Pick<GameObject, "kind" | "x" | "y" | "state">;
@@ -38,7 +39,8 @@ type Props = {
   /** Client prediction queue depth — suppress schema snap while >0. */
   pendingMoves?: number;
   moveHint: string | null;
-  thinkingNpcId: string | null;
+  thinkingNpcId?: string | null;
+  activeNpcId?: string | null;
   /** When false, NPCs snap to grid (load / reset); when true, live moves animate step-by-step. */
   npcAnimateMoves: boolean;
   /** Bumped on new game — destroys NPC sprites so no tween carries over. */
@@ -82,6 +84,7 @@ type RegistrySnapshot = {
   pendingMoves: number;
   moveHint: string | null;
   thinkingNpcId: string | null;
+  activeNpcId: string | null;
   npcAnimateMoves: boolean;
   npcResetEpoch: number;
   reducedMotion: boolean;
@@ -104,6 +107,7 @@ function pushRoomRegistry(game: Phaser.Game, snap: RegistrySnapshot): void {
   game.registry.set("pendingMoves", snap.pendingMoves);
   game.registry.set("moveHint", snap.moveHint);
   game.registry.set("thinkingNpcId", snap.thinkingNpcId);
+  game.registry.set("activeNpcId", snap.activeNpcId);
   game.registry.set("npcAnimateMoves", snap.npcAnimateMoves);
   game.registry.set("npcResetEpoch", snap.npcResetEpoch);
   game.registry.set("reducedMotion", snap.reducedMotion);
@@ -120,8 +124,12 @@ export async function probePhaserBoot(timeoutMs = BOOT_TIMEOUT_MS): Promise<bool
 
   return new Promise((resolve) => {
     const parent = document.createElement("div");
-    parent.style.cssText = "position:fixed;left:-9999px;width:320px;height:320px;opacity:0";
+    parent.style.cssText = "position:fixed;left:-9999px;opacity:0";
     document.body.appendChild(parent);
+
+    const { w, h } = worldSize(VIEWPORT_CELLS, VIEWPORT_CELLS);
+    parent.style.width = `${w}px`;
+    parent.style.height = `${h}px`;
 
     let settled = false;
     const finish = (ok: boolean) => {
@@ -140,20 +148,22 @@ export async function probePhaserBoot(timeoutMs = BOOT_TIMEOUT_MS): Promise<bool
     const timer = window.setTimeout(() => finish(false), timeoutMs);
     let game: Phaser.Game | null = null;
     try {
-      const { w, h } = worldSize(VIEWPORT_CELLS, VIEWPORT_CELLS);
       game = new Phaser.Game({
         type: Phaser.AUTO,
         width: w,
         height: h,
         parent,
         backgroundColor: theme.bgDeep,
+        pixelArt: true,
         roundPixels: true,
+        render: { preserveDrawingBuffer: true, antialias: false },
         scale: {
           mode: Phaser.Scale.FIT,
           autoCenter: Phaser.Scale.CENTER_BOTH,
         },
         scene: [RoomScene],
       });
+      setVisualFallbackRegistry(game, parseVisualFallbackQuery());
       pushRoomRegistry(game, {
         width: 8,
         height: 8,
@@ -167,6 +177,7 @@ export async function probePhaserBoot(timeoutMs = BOOT_TIMEOUT_MS): Promise<bool
         pendingMoves: 0,
         moveHint: null,
         thinkingNpcId: null,
+        activeNpcId: null,
         npcAnimateMoves: false,
         npcResetEpoch: 0,
         reducedMotion: false,
@@ -195,6 +206,7 @@ export function PhaserGame({
   pendingMoves = 0,
   moveHint,
   thinkingNpcId,
+  activeNpcId = null,
   npcAnimateMoves,
   npcResetEpoch,
   remoteInterpMs = 130,
@@ -240,6 +252,7 @@ export function PhaserGame({
     pendingMoves,
     moveHint,
     thinkingNpcId,
+    activeNpcId,
     npcAnimateMoves,
     npcResetEpoch,
     remoteInterpMs,
@@ -259,6 +272,7 @@ export function PhaserGame({
     pendingMoves,
     moveHint,
     thinkingNpcId,
+    activeNpcId,
     npcAnimateMoves,
     npcResetEpoch,
     remoteInterpMs,
@@ -281,13 +295,16 @@ export function PhaserGame({
       height: h,
       parent: parentRef.current,
       backgroundColor: theme.bgDeep,
+      pixelArt: true,
       roundPixels: true,
+      render: { preserveDrawingBuffer: true, antialias: false },
       scale: {
         mode: Phaser.Scale.FIT,
         autoCenter: Phaser.Scale.CENTER_BOTH,
       },
       scene: [RoomScene],
     });
+    setVisualFallbackRegistry(game, parseVisualFallbackQuery());
 
     pushRoomRegistry(game, {
       width: snap.width,
@@ -302,6 +319,7 @@ export function PhaserGame({
       pendingMoves: snap.pendingMoves,
       moveHint: snap.moveHint,
       thinkingNpcId: snap.thinkingNpcId,
+      activeNpcId: snap.activeNpcId,
       npcAnimateMoves: snap.npcAnimateMoves,
       npcResetEpoch: snap.npcResetEpoch,
       reducedMotion,
@@ -319,6 +337,7 @@ export function PhaserGame({
 
     game.events.once("ready", () => {
       if (bootTimer) clearTimeout(bootTimer);
+      game.scale.refresh();
       const scene = game.scene.getScene(ROOM_SCENE_KEY) as RoomScene | undefined;
       if (scene?.scene.isActive()) {
         if (motionBridgeRef) {
@@ -329,8 +348,19 @@ export function PhaserGame({
       }
     });
 
+    const parentEl = parentRef.current;
+    const onParentResize = () => {
+      if (!destroyed) game.scale.refresh();
+    };
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined" && parentEl
+        ? new ResizeObserver(onParentResize)
+        : null;
+    resizeObserver?.observe(parentEl);
+
     return () => {
       destroyed = true;
+      resizeObserver?.disconnect();
       if (bootTimer) clearTimeout(bootTimer);
       game.destroy(true, false);
       gameRef.current = null;
@@ -382,6 +412,7 @@ export function PhaserGame({
       pendingMoves,
       moveHint,
       thinkingNpcId,
+      activeNpcId,
       npcAnimateMoves,
       npcResetEpoch,
       reducedMotion,
@@ -393,10 +424,12 @@ export function PhaserGame({
     game.registry.events.emit("changedata", game.registry, "roomSync");
 
     const scene = game.scene.getScene(ROOM_SCENE_KEY) as RoomScene | undefined;
-    if (scene && motionBridgeRef) {
+    if (scene && motionBridgeRef && scene.scene.isActive()) {
       motionBridgeRef.current = scene.getLocalPlayerMotionBridge();
     }
-    scene?.syncEntities();
+    if (scene?.scene.isActive()) {
+      scene.syncEntities();
+    }
   }, [
     players,
     sessionId,
@@ -408,12 +441,14 @@ export function PhaserGame({
     pendingMoves,
     moveHint,
     thinkingNpcId,
+    activeNpcId,
     npcAnimateMoves,
     npcResetEpoch,
     width,
     height,
     loadedChunks,
     collectiveAttitudeLine,
+    remoteInterpMs,
   ]);
 
   return (
@@ -439,13 +474,16 @@ export function PhaserGame({
           lorePending={exploreCoords.pending}
         />
       ) : null}
-      <div className="room-scene-panel__stage">
-        <div
-          ref={parentRef}
-          data-testid="phaser-parent"
-          className="room-scene-panel__canvas"
-        />
-        <div className="room-scene-panel__overlay" aria-live="polite">
+      <div className="room-scene-panel__viewport">
+        <div className="room-scene-panel__stage">
+          <div
+            ref={parentRef}
+            data-testid="phaser-parent"
+            className="room-scene-panel__canvas"
+            role="img"
+            aria-label="等轴房间地图：WASD 或方向键移动，点击格子寻路，选中 NPC 后在下方对话框发言"
+          />
+          <div className="room-scene-panel__overlay" aria-live="polite">
           {!connected ? (
             <p className="room-scene-panel__hint">正在连接 Colyseus…</p>
           ) : null}
@@ -461,6 +499,7 @@ export function PhaserGame({
             toast={discoverToast}
             onDismiss={onDismissDiscoverToast ?? noopDismiss}
           />
+          </div>
         </div>
       </div>
     </section>
