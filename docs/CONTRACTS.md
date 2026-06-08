@@ -35,6 +35,8 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 | **内容安全** | speak 与 `POST /chat` 在入队前经 `@aetherlife/shared` `checkContentBlocked`（与 gateway blocklist 同规则）；拒绝 `{ code: "content_blocked" }`。**不**替代 gateway Moderation API |
 | **队列** | 按 `npcId` 互斥（`npcSpeakJobs`），不同 NPC 可并行 |
 | **事件** | worker → `POST /internal/jobs/:id/events` → SSE / `speakAck` / `speakIdle` |
+| **可观测（可选）** | job `done` 可含 `llmCallSummary: { calls[], total }`（Phase 12.2；客户端可忽略） |
+| **客户端 speak UX** | 方案 A（life-sim）：同 NPC in-flight 时 UI 禁用 composer，`sendMessage` 不 enqueue；server `speakBusy` 时内部 FIFO drain 仍保留（Phase 12.2 STAB-04） |
 | **禁止** | Room handler 内同步 LLM；房间级 speak 全局锁 |
 
 **验证：** 两玩家同时对不同 NPC speak，均进入 thinking 且互不阻塞；`verify:phase8` 断言 injection 文本 → `content_blocked`；`verify:phase5` 断言 `/nl/parse` → `content_blocked`。

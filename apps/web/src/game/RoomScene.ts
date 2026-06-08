@@ -25,13 +25,18 @@ import { entityDepth } from "./entityLayout.js";
 import { CELL_PX, VIEWPORT_CELLS, gridToWorld, worldSize, worldToGrid } from "./gridLayout.js";
 import { isGlobalFloorBlocked } from "./floorBlocked.js";
 import {
+  applyNameplateStyle,
   ENTITY_LABEL_COLOR,
   ENTITY_LABEL_FONT,
   ENTITY_LABEL_FONT_SIZE,
   npcDisplayName,
   THINKING_PULSE_MS,
 } from "./entityLabels.js";
-import { playerDisplayName } from "../lib/playerDisplayName.js";
+import {
+  truncateNameplate,
+  updateNameplates,
+  type NameplateTarget,
+} from "./ProximityNameplate.js";
 import {
   attachGridMovementKeys,
   CAMERA_LERP,
@@ -45,6 +50,33 @@ import {
   RemotePlayerInterpolator,
   type RemoteInterpDeps,
 } from "./RemotePlayerInterpolator.js";
+import { biomesFromChunks, preloadAdjacentBiomes, loadCoreAreaPack } from "./areaLoader.js";
+import { DecorRenderer } from "./DecorRenderer.js";
+import { FloorRenderer } from "./FloorRenderer.js";
+import {
+  applyFacingFromSchema,
+  applyStepAnimation,
+  applyStepEndAnimation,
+  createDoorSprite,
+  createNpcSprite,
+  createPlayerSprite,
+  createSpeechBubble,
+  npcVariantForId,
+  paletteRowForPlayerId,
+  playIdleAnim,
+  registerCharacterAnims,
+  registerNpcAnims,
+  setThinkingBubble,
+  SPRITE_NAMEPLATE_Y,
+} from "./entitySprites.js";
+import type { AnimatableEntity } from "./entitySprites.js";
+import { playerDisplayName } from "../lib/playerDisplayName.js";
+import { ASSET_KEYS, TILE_PX } from "./assetManifest.js";
+import {
+  logBootTiming,
+  markVisualFallbackFromLoadError,
+  isVisualFallbackActive,
+} from "./visualFallback.js";
 import { theme } from "./theme.js";
 
 const STEP_MS = GRID_STEP_MS;
@@ -85,7 +117,7 @@ type DiscStyle = {
   radius?: number;
 };
 
-type EntitySprite = {
+type EntitySprite = AnimatableEntity & {
   container: Phaser.GameObjects.Container;
   body: Phaser.GameObjects.Arc;
   ring: Phaser.GameObjects.Arc;
@@ -97,7 +129,13 @@ type EntitySprite = {
   targetGridY?: number;
   bobTween?: Phaser.Tweens.Tween;
   pulseTween?: Phaser.Tweens.Tween;
+  nameplateAlpha?: number;
+  nameplateTween?: Phaser.Tweens.Tween;
+  nameplateWantShow?: boolean;
   moveTween?: Phaser.Tweens.Tween;
+  npcId?: string;
+  playerSessionId?: string;
+  spriteMode?: boolean;
 };
 
 function facingFlipX(facing: string): boolean {
@@ -141,12 +179,24 @@ export class RoomScene extends Phaser.Scene {
   private lastExploreGx = Number.NaN;
   private lastExploreGy = Number.NaN;
   private collectiveDebugText: Phaser.GameObjects.Text | null = null;
+  private preloadStartMs = 0;
+  private floorRenderer = new FloorRenderer();
+  private decorRenderer = new DecorRenderer();
 
   constructor() {
     super({ key: SCENE_KEY });
   }
 
+  preload(): void {
+    this.preloadStartMs = performance.now();
+    loadCoreAreaPack(this.load);
+    this.load.on("loaderror", () => {
+      markVisualFallbackFromLoadError(this);
+    });
+  }
+
   create(): void {
+    logBootTiming(this, this.preloadStartMs);
     this.floorGfx = this.add.graphics();
     this.pathGfx = this.add.graphics();
     this.flashGfx = this.add.graphics();
@@ -159,6 +209,12 @@ export class RoomScene extends Phaser.Scene {
 
     this.drawFloor();
     this.fitCamera();
+    this.scale.on("resize", this.handleScaleResize, this);
+    this.time.delayedCall(0, () => this.fitCamera());
+    if (this.useSpriteEntities()) {
+      registerCharacterAnims(this);
+      registerNpcAnims(this);
+    }
     this.setupInput();
     this.movementController = new LocalPlayerMovementController({
       getEntity: () => this.getLocalPlayerEnt(),
@@ -171,12 +227,17 @@ export class RoomScene extends Phaser.Scene {
         this.cameraLerpX = wx;
         this.cameraLerpY = wy;
       },
+      onStepStart: (ent, fx, fy, tx, ty) =>
+        this.handleEntityStepStart(ent as EntitySprite, fx, fy, tx, ty),
+      onStepEnd: (ent, gx, gy, cont) =>
+        this.handleEntityStepEnd(ent as EntitySprite, gx, gy, cont),
     });
     this.motionBridge = this.movementController.buildBridge();
     this.registry.set("localPlayerMotion", this.motionBridge);
 
     this.registry.events.on("changedata", this.onRegistryChange, this);
     this.events.on("shutdown", () => {
+      this.scale.off("resize", this.handleScaleResize, this);
       this.registry.events.off("changedata", this.onRegistryChange, this);
       this.keyHandle?.destroy();
       this.keyHandle = null;
@@ -184,6 +245,8 @@ export class RoomScene extends Phaser.Scene {
       this.movementController = null;
       this.remoteInterp.reset();
       this.motionBridge = null;
+      this.floorRenderer.destroy();
+      this.decorRenderer.destroy();
     });
 
     this.syncEntities();
@@ -212,6 +275,54 @@ export class RoomScene extends Phaser.Scene {
     this.tickCameraFollow(delta);
     this.tickExploreGrid();
     this.tickCollectiveDebug();
+    this.refreshNameplates();
+  }
+
+  private useSpriteEntities(): boolean {
+    return !isVisualFallbackActive(this) && this.textures.exists(ASSET_KEYS.spritesCharacters);
+  }
+
+  private handleEntityStepStart(
+    ent: EntitySprite,
+    fromX: number,
+    fromY: number,
+    toX: number,
+    toY: number,
+  ): void {
+    applyStepAnimation(ent, fromX, fromY, toX, toY);
+  }
+
+  private handleEntityStepEnd(ent: EntitySprite, gx: number, gy: number, continuing: boolean): void {
+    ent.container.setDepth(entityDepth(gx, gy, ent.depthLayer));
+    applyStepEndAnimation(ent, continuing);
+  }
+
+  private refreshNameplates(): void {
+    if (this.registry.get("uatHomesteadFrame") === true) return;
+
+    const sessionId = this.getSessionId();
+    if (!sessionId) return;
+    const logic = this.motionBridge?.getLogicGrid();
+    const self = this.playerSprites.get(sessionId);
+    const localCell = logic
+      ? { x: logic.x, y: logic.y }
+      : self
+        ? { x: self.gridX, y: self.gridY }
+        : null;
+    const activeNpcId = (this.registry.get("activeNpcId") as string | null) ?? null;
+    const thinkingNpcId = (this.registry.get("thinkingNpcId") as string | null) ?? null;
+    const targets: NameplateTarget[] = [];
+    for (const ent of this.playerSprites.values()) {
+      if (ent.playerSessionId === sessionId) {
+        ent.label.setAlpha(0);
+        continue;
+      }
+      targets.push(ent);
+    }
+    for (const ent of this.npcSprites.values()) {
+      targets.push(ent);
+    }
+    updateNameplates(this, targets, localCell, activeNpcId, thinkingNpcId);
   }
 
   /** Explore HUD coords — game-loop tick (Wave 2); React reads registry `exploreGrid`. */
@@ -269,10 +380,16 @@ export class RoomScene extends Phaser.Scene {
         this.snapEntityToGrid(ent as EntitySprite, gx, gy),
       stopEntityMotion: (ent) => this.stopEntityMotion(ent as EntitySprite),
       stepMs: GRID_STEP_MS,
+      onStepStart: (ent, fx, fy, tx, ty) =>
+        this.handleEntityStepStart(ent as EntitySprite, fx, fy, tx, ty),
+      onStepEnd: (ent, gx, gy, cont) =>
+        this.handleEntityStepEnd(ent as EntitySprite, gx, gy, cont),
     };
   }
 
   private tickCameraFollow(delta: number): void {
+    if (this.registry.get("uatHomesteadFrame") === true) return;
+
     const sessionId = this.getSessionId();
     if (!sessionId) return;
 
@@ -381,6 +498,22 @@ export class RoomScene extends Phaser.Scene {
   }
 
   private drawFloor(): void {
+    if (isVisualFallbackActive(this)) {
+      this.drawFloorGraphics();
+      return;
+    }
+    this.floorGfx.clear();
+    this.floorRenderer.refresh(
+      this,
+      this.getLoadedChunks(),
+      this.getMoveMap(),
+      this.terrainDebug(),
+    );
+    this.decorRenderer.refresh(this, this.getLoadedChunks());
+  }
+
+  /** Graphics fallback — visualFallback query or loader failure (D-23). */
+  private drawFloorGraphics(): void {
     const chunks = this.getLoadedChunks();
     this.floorGfx.clear();
     if (chunks.length === 0) {
@@ -417,13 +550,17 @@ export class RoomScene extends Phaser.Scene {
     }
   }
 
+  private handleScaleResize(): void {
+    this.fitCamera();
+  }
+
   private fitCamera(): void {
     const w = this.getViewportW();
     const h = this.getViewportH();
     const cam = this.cameras.main;
     const zx = cam.width / w;
     const zy = cam.height / h;
-    const z = Math.min(zx, zy) * 0.92;
+    const z = Math.min(zx, zy);
     this.zoomBase = z;
     this.zoomMin = z * 0.55;
     this.zoomMax = z * 1.85;
@@ -434,6 +571,41 @@ export class RoomScene extends Phaser.Scene {
   /** Phaser cam.pan() returns Camera, not Tween — stop via panEffect.reset(). */
   private stopCameraPan(): void {
     this.cameras.main.panEffect.reset();
+  }
+
+  /** Pin AE-08 homestead shot — camera + zoom; re-applied after syncEntities. */
+  private applyHomesteadScreenshotFrame(): void {
+    const cam = this.cameras.main;
+    this.stopCameraPan();
+
+    const homeSpan = CHUNK_SIZE * CELL_PX;
+    cam.setBounds(0, 0, homeSpan, homeSpan);
+
+    cam.centerOn(homeSpan / 2, homeSpan / 2);
+    this.cameraLerpX = homeSpan / 2;
+    this.cameraLerpY = homeSpan / 2;
+
+    // Show full 8×8 homestead; UAT script crops Phaser FIT letterbox afterward.
+    const zoomForHome = Math.min(cam.width / homeSpan, cam.height / homeSpan);
+    cam.setZoom(zoomForHome);
+
+    for (const ent of this.playerSprites.values()) {
+      ent.container.setVisible(false);
+    }
+    for (const ent of this.npcSprites.values()) {
+      ent.container.setVisible(false);
+    }
+  }
+
+  /**
+   * AE-08 marketing frame: center on homestead path/well, zoom to home chunk, hide avatars.
+   * Used by `uat:phase13:playwright` only — not gameplay state.
+   */
+  private frameHomesteadScreenshot(): boolean {
+    this.registry.set("uatHomesteadFrame", true);
+    this.applyHomesteadScreenshotFrame();
+    this.decorRenderer.refresh(this, this.getLoadedChunks());
+    return true;
   }
 
   /** One-shot camera snap (fit / no local sprite). Per-frame follow is `tickCameraFollow`. */
@@ -609,12 +781,16 @@ export class RoomScene extends Phaser.Scene {
   }
 
   syncEntities(): void {
+    if (!this.floorGfx) {
+      return;
+    }
     const map = this.getMoveMap();
     const chunks = this.getLoadedChunks();
     const floorFp = chunkViewsFingerprint(chunks);
     if (map && floorFp !== this.lastFloorFingerprint) {
       this.lastFloorFingerprint = floorFp;
       this.drawFloor();
+      preloadAdjacentBiomes(this, biomesFromChunks(chunks));
     }
 
     const connected = this.registry.get("connected") as boolean;
@@ -641,13 +817,14 @@ export class RoomScene extends Phaser.Scene {
       const playerColor = isSelf ? theme.accent : theme.playerOther;
       let ent = this.playerSprites.get(p.sessionId);
       if (!ent) {
-        ent = this.createDiscMarker(label, p.x, p.y, {
-          fill: theme.bgDeep,
-          fillAlpha: 0,
-          stroke: playerColor,
-          strokeAlpha: 1,
-          labelColor: isSelf ? "#c9a227" : undefined,
-        }, 2);
+        ent = this.createPlayerEntity(
+          label,
+          p.x,
+          p.y,
+          paletteRowForPlayerId(p.playerId, p.sessionId, sessionId ?? ""),
+          2,
+        );
+        ent.playerSessionId = p.sessionId;
         this.playerSprites.set(p.sessionId, ent);
         if (isSelf) {
           this.cameraLerpX = ent.container.x;
@@ -683,9 +860,20 @@ export class RoomScene extends Phaser.Scene {
       ent.body.setFillStyle(theme.bgDeep, 0);
       ent.body.setStrokeStyle(MARKER_STROKE, playerColor, connected ? 1 : 0.35);
       ent.ring.setStrokeStyle(MARKER_STROKE, playerColor, connected ? 0.45 : 0.15);
-      ent.label.setText(label);
-      ent.label.setColor(isSelf ? "#c9a227" : ENTITY_LABEL_COLOR);
-      ent.container.setScale(facingFlipX(p.facing) ? -1 : 1, 1);
+      ent.label.setText(truncateNameplate(label));
+      if (isSelf) {
+        ent.label.setAlpha(0);
+      } else {
+        applyNameplateStyle(ent.label, "player");
+      }
+      if (ent.spriteMode) {
+        ent.container.setScale(1, 1);
+        if (!ent.moveTween?.isPlaying()) {
+          applyFacingFromSchema(ent, p.facing);
+        }
+      } else {
+        ent.container.setScale(facingFlipX(p.facing) ? -1 : 1, 1);
+      }
       ent.container.setDepth(entityDepth(localX, localY, ent.depthLayer));
     }
     for (const [id, ent] of this.playerSprites) {
@@ -712,13 +900,7 @@ export class RoomScene extends Phaser.Scene {
       seenNpcs.add(npc.id);
       let ent = this.npcSprites.get(npc.id);
       if (!ent) {
-        ent = this.createDiscMarker(npcDisplayName(npc.name), npc.x, npc.y, {
-          fill: theme.npcTint,
-          fillAlpha: 0.85,
-          stroke: theme.npcTint,
-          strokeAlpha: 1,
-          labelColor: "#c9a227",
-        }, 1);
+        ent = this.createNpcEntity(npcDisplayName(npc.name), npc.x, npc.y, npc.id, 1);
         this.npcSprites.set(npc.id, ent);
       }
       if (animateNpcMoves) {
@@ -726,14 +908,21 @@ export class RoomScene extends Phaser.Scene {
       } else {
         this.snapNpcTo(ent, npc.x, npc.y);
       }
-      ent.label.setText(npcDisplayName(npc.name));
-      ent.body.setFillStyle(theme.npcTint, connected ? 0.85 : 0.35);
-      ent.ring.setStrokeStyle(MARKER_STROKE, theme.npcTint, connected ? 0.5 : 0.2);
+      ent.label.setText(truncateNameplate(npcDisplayName(npc.name)));
+      applyNameplateStyle(ent.label, "npc");
+      if (!ent.spriteMode) {
+        ent.body.setFillStyle(theme.npcTint, connected ? 0.85 : 0.35);
+        ent.ring.setStrokeStyle(MARKER_STROKE, theme.npcTint, connected ? 0.5 : 0.2);
+      } else {
+        ent.body.setVisible(false);
+        ent.ring.setVisible(false);
+        setThinkingBubble(ent, thinkingNpcId === npc.id);
+      }
 
       if (!ent.moveTween?.isPlaying()) {
         this.startNpcBob(ent, ent.gridX, ent.gridY, reduced, thinkingNpcId === npc.id);
       }
-      if (thinkingNpcId === npc.id && !reduced) {
+      if (thinkingNpcId === npc.id && !reduced && !ent.spriteMode) {
         ent.pulseTween?.stop();
         ent.pulseTween = this.tweens.add({
           targets: [ent.body, ent.ring],
@@ -745,6 +934,15 @@ export class RoomScene extends Phaser.Scene {
             ent!.body.setFillStyle(theme.accent, ent!.body.alpha);
           },
         });
+      } else if (ent.pulseTween) {
+        ent.pulseTween.stop();
+        ent.pulseTween = undefined;
+        if (!ent.spriteMode) {
+          ent.body.setAlpha(1);
+          ent.ring.setAlpha(1);
+          ent.body.setFillStyle(theme.npcTint, connected ? 0.85 : 0.35);
+          ent.ring.setStrokeStyle(MARKER_STROKE, theme.npcTint, connected ? 0.5 : 0.2);
+        }
       }
     }
     for (const [id, ent] of this.npcSprites) {
@@ -773,21 +971,22 @@ export class RoomScene extends Phaser.Scene {
       const strokeColor = obj.state === "closed" ? theme.doorClosed : theme.doorOpen;
       let ent = this.doorSprites.get(key);
       if (!ent) {
-        ent = this.createDiscMarker("门", obj.x, obj.y, {
-          fill: theme.doorFill,
-          fillAlpha: 0.9,
-          stroke: strokeColor,
-          strokeAlpha: 1,
-          radius: MARKER_RADIUS - 2,
-        }, 0);
+        ent = this.createDoorEntity(obj.x, obj.y, obj.state === "closed", 0);
         this.doorSprites.set(key, ent);
       }
       ent.container.setVisible(true);
       this.tweenEntityTo(ent, obj.x, obj.y, STEP_MS);
-      ent.body.setFillStyle(theme.doorFill, connected ? 0.9 : 0.35);
-      ent.body.setStrokeStyle(MARKER_STROKE, strokeColor, connected ? 1 : 0.35);
-      ent.ring.setStrokeStyle(1, strokeColor, connected ? 0.45 : 0.15);
-      ent.label.setText("门");
+      if (ent.spriteMode && ent.doorSprite) {
+        ent.doorSprite.setFrame(obj.state === "closed" ? 0 : 1);
+        ent.body.setVisible(false);
+        ent.ring.setVisible(false);
+        ent.label.setAlpha(0);
+      } else {
+        ent.body.setFillStyle(theme.doorFill, connected ? 0.9 : 0.35);
+        ent.body.setStrokeStyle(MARKER_STROKE, strokeColor, connected ? 1 : 0.35);
+        ent.ring.setStrokeStyle(1, strokeColor, connected ? 0.45 : 0.15);
+        ent.label.setText("门");
+      }
     }
     for (const [id, ent] of this.doorSprites) {
       if (!seenDoors.has(id)) {
@@ -797,6 +996,10 @@ export class RoomScene extends Phaser.Scene {
     }
 
     this.tickExploreGrid();
+
+    if (this.registry.get("uatHomesteadFrame") === true) {
+      this.applyHomesteadScreenshotFrame();
+    }
 
     if (import.meta.env.DEV && typeof window !== "undefined") {
       const w = window as Window & {
@@ -813,6 +1016,13 @@ export class RoomScene extends Phaser.Scene {
           locomoting: boolean;
           suppressSnap: boolean;
         } | null;
+        __aetherlife_visualDebug?: () => {
+          playerDisplayHeightPx: number;
+          panelFillRatio: number;
+          canvasUniqueColors: number;
+          visualFallback: boolean;
+        } | null;
+        __aetherlife_uatFrameHomestead?: () => boolean;
       };
       w.__aetherlife_moveDebug = () => {
         const sid = this.getSessionId();
@@ -865,6 +1075,53 @@ export class RoomScene extends Phaser.Scene {
           tweening: Boolean(ent.moveTween?.isPlaying()),
         })),
       });
+      w.__aetherlife_uatFrameHomestead = () => this.frameHomesteadScreenshot();
+      w.__aetherlife_visualDebug = () => {
+        const sid = this.getSessionId();
+        const ent = sid ? this.playerSprites.get(sid) : undefined;
+        const avatar = ent?.avatar;
+        const canvas = this.game.canvas;
+        const stage = document.querySelector(".room-scene-panel__stage");
+        if (!avatar || !canvas || !stage) return null;
+        const stageRect = stage.getBoundingClientRect();
+        const canvasRect = canvas.getBoundingClientRect();
+        const panelFillRatio =
+          stageRect.width * stageRect.height > 0
+            ? (canvasRect.width * canvasRect.height) / (stageRect.width * stageRect.height)
+            : 0;
+        const cam = this.cameras.main;
+        const scale = canvasRect.width / cam.width;
+        const playerDisplayHeightPx = avatar.displayHeight * scale;
+        let canvasUniqueColors = 0;
+        if (this.textures.exists(ASSET_KEYS.tilesBiomes)) {
+          const src = this.textures.get(ASSET_KEYS.tilesBiomes).getSourceImage() as
+            | HTMLCanvasElement
+            | HTMLImageElement;
+          const probe = document.createElement("canvas");
+          probe.width = src.width;
+          probe.height = src.height;
+          const ctx = probe.getContext("2d");
+          if (ctx) {
+            ctx.drawImage(src, 0, 0);
+            const colors = new Set<string>();
+            for (let row = 0; row < 5; row += 1) {
+              for (let col = 0; col < 4; col += 1) {
+                const x = col * TILE_PX + Math.floor(TILE_PX / 2);
+                const y = row * TILE_PX + Math.floor(TILE_PX / 2);
+                const [r, g, b] = ctx.getImageData(x, y, 1, 1).data;
+                colors.add(`${r},${g},${b}`);
+              }
+            }
+            canvasUniqueColors = colors.size;
+          }
+        }
+        return {
+          playerDisplayHeightPx,
+          panelFillRatio,
+          canvasUniqueColors,
+          visualFallback: isVisualFallbackActive(this),
+        };
+      };
     }
   }
 
@@ -908,11 +1165,113 @@ export class RoomScene extends Phaser.Scene {
     };
   }
 
+  private createPlayerEntity(
+    label: string,
+    gx: number,
+    gy: number,
+    paletteRow: number,
+    layer: 0 | 1 | 2,
+  ): EntitySprite {
+    const ent = this.createDiscMarker(label, gx, gy, {
+      fill: theme.bgDeep,
+      fillAlpha: 0,
+      stroke: 0xc9a227,
+      strokeAlpha: 0,
+    }, layer);
+    ent.label.setText(truncateNameplate(label));
+    applyNameplateStyle(ent.label, "player");
+    if (!this.useSpriteEntities()) return ent;
+
+    ent.spriteMode = true;
+    ent.paletteRow = paletteRow;
+    ent.facingDir = "down";
+    const avatar = createPlayerSprite(this, paletteRow);
+    ent.body.setVisible(false);
+    ent.ring.setVisible(false);
+    ent.label.setText(truncateNameplate(label));
+    ent.label.setAlpha(0);
+    ent.label.y = SPRITE_NAMEPLATE_Y;
+    applyNameplateStyle(ent.label, "player");
+    ent.container.addAt(avatar, 0);
+    ent.avatar = avatar;
+    playIdleAnim(ent, "down");
+    return ent;
+  }
+
+  private createNpcEntity(
+    label: string,
+    gx: number,
+    gy: number,
+    npcId: string,
+    layer: 0 | 1 | 2,
+  ): EntitySprite {
+    const ent = this.createDiscMarker(label, gx, gy, {
+      fill: theme.npcTint,
+      fillAlpha: 0.85,
+      stroke: theme.npcTint,
+      strokeAlpha: 1,
+      labelColor: "#c9a227",
+    }, layer);
+    ent.label.setText(truncateNameplate(label));
+    applyNameplateStyle(ent.label, "npc");
+    if (!this.useSpriteEntities()) return ent;
+
+    ent.spriteMode = true;
+    ent.isNpc = true;
+    ent.paletteRow = npcVariantForId(npcId);
+    ent.npcId = npcId;
+    ent.facingDir = "down";
+    const avatar = createNpcSprite(this, npcId);
+    const bubble = createSpeechBubble(this);
+    ent.body.setVisible(false);
+    ent.ring.setVisible(false);
+    ent.label.setText(truncateNameplate(label));
+    ent.label.setAlpha(0);
+    ent.label.y = SPRITE_NAMEPLATE_Y;
+    applyNameplateStyle(ent.label, "npc");
+    ent.container.addAt(avatar, 0);
+    ent.container.add(bubble);
+    ent.avatar = avatar;
+    ent.bubble = bubble;
+    playIdleAnim(ent, "down");
+    return ent;
+  }
+
+  private createDoorEntity(
+    gx: number,
+    gy: number,
+    closed: boolean,
+    layer: 0 | 1 | 2,
+  ): EntitySprite {
+    const stroke = closed ? theme.doorClosed : theme.doorOpen;
+    const ent = this.createDiscMarker("门", gx, gy, {
+      fill: theme.doorFill,
+      fillAlpha: 0.9,
+      stroke,
+      strokeAlpha: 1,
+      radius: MARKER_RADIUS - 2,
+    }, layer);
+    if (!this.useSpriteEntities() || !this.textures.exists(ASSET_KEYS.tilesDecor)) {
+      return ent;
+    }
+
+    ent.spriteMode = true;
+    const doorSprite = createDoorSprite(this, closed);
+    ent.body.setVisible(false);
+    ent.ring.setVisible(false);
+    ent.label.setAlpha(0);
+    ent.container.addAt(doorSprite, 0);
+    ent.doorSprite = doorSprite;
+    return ent;
+  }
+
   private stopEntityMotion(ent: EntitySprite): void {
     ent.bobTween?.stop();
     ent.bobTween = undefined;
     ent.pulseTween?.stop();
     ent.pulseTween = undefined;
+    ent.nameplateTween?.stop();
+    ent.nameplateTween = undefined;
     ent.moveTween?.stop();
     ent.moveTween = undefined;
     this.tweens.killTweensOf(ent.container);
@@ -1016,9 +1375,11 @@ export class RoomScene extends Phaser.Scene {
       }
       const cell = path[stepIndex]!;
       stepIndex += 1;
-      ent.gridX = cell.x;
-      ent.gridY = cell.y;
+      const fromX = ent.gridX;
+      const fromY = ent.gridY;
       const { wx, wy } = gridToWorld(cell.x, cell.y);
+      ent.container.setDepth(entityDepth(cell.x, cell.y, ent.depthLayer));
+      applyStepAnimation(ent, fromX, fromY, cell.x, cell.y);
       ent.moveTween = this.tweens.add({
         targets: ent.container,
         x: wx,
@@ -1026,7 +1387,11 @@ export class RoomScene extends Phaser.Scene {
         duration: STEP_MS,
         ease: "Linear",
         onComplete: () => {
-          if (stepIndex < path.length) {
+          ent.gridX = cell.x;
+          ent.gridY = cell.y;
+          const continuing = stepIndex < path.length;
+          applyStepEndAnimation(ent, continuing);
+          if (continuing) {
             walkNext();
           } else {
             ent.moveTween = undefined;
@@ -1093,12 +1458,13 @@ export class RoomScene extends Phaser.Scene {
       let ny = cy;
       if (cx !== gx) nx += cx < gx ? 1 : -1;
       else if (cy !== gy) ny += cy < gy ? 1 : -1;
+      const fromX = cx;
+      const fromY = cy;
       cx = nx;
       cy = ny;
-      ent.gridX = nx;
-      ent.gridY = ny;
       const { wx, wy } = gridToWorld(nx, ny);
       ent.container.setDepth(entityDepth(nx, ny, ent.depthLayer));
+      applyStepAnimation(ent, fromX, fromY, nx, ny);
       ent.moveTween = this.tweens.add({
         targets: ent.container,
         x: wx,
@@ -1106,8 +1472,12 @@ export class RoomScene extends Phaser.Scene {
         duration: STEP_MS,
         ease: "Linear",
         onComplete: () => {
-          if (cx === gx && cy === gy) ent.moveTween = undefined;
-          else walkNext();
+          ent.gridX = nx;
+          ent.gridY = ny;
+          const continuing = !(cx === gx && cy === gy);
+          applyStepEndAnimation(ent, continuing);
+          if (continuing) walkNext();
+          else ent.moveTween = undefined;
         },
       });
     };
@@ -1123,14 +1493,18 @@ export class RoomScene extends Phaser.Scene {
     const reduced = this.registry.get("reducedMotion") as boolean;
     ent.targetGridX = gx;
     ent.targetGridY = gy;
+    const fromX = ent.gridX;
+    const fromY = ent.gridY;
     ent.container.setDepth(entityDepth(gx, gy, ent.depthLayer));
     const { wx, wy } = gridToWorld(gx, gy);
     if (reduced) {
       ent.gridX = gx;
       ent.gridY = gy;
       ent.container.setPosition(wx, wy);
+      applyStepEndAnimation(ent, false);
       return;
     }
+    applyStepAnimation(ent, fromX, fromY, gx, gy);
     ent.moveTween = this.tweens.add({
       targets: ent.container,
       x: wx,
@@ -1140,6 +1514,7 @@ export class RoomScene extends Phaser.Scene {
       onComplete: () => {
         ent.gridX = gx;
         ent.gridY = gy;
+        applyStepEndAnimation(ent, false);
         ent.moveTween = undefined;
       },
     });
@@ -1152,11 +1527,19 @@ export class RoomScene extends Phaser.Scene {
     reduced: boolean,
     thinking: boolean,
   ): void {
-    if (reduced || thinking) return;
-    ent.label.y = MARKER_LABEL_Y;
+    const labelY = ent.spriteMode ? SPRITE_NAMEPLATE_Y : MARKER_LABEL_Y;
+    if (reduced || thinking) {
+      ent.bobTween?.stop();
+      ent.bobTween = undefined;
+      ent.label.y = labelY;
+      return;
+    }
+    if (ent.bobTween?.isPlaying()) return;
+    ent.bobTween?.stop();
+    ent.label.y = labelY;
     ent.bobTween = this.tweens.add({
       targets: ent.label,
-      y: MARKER_LABEL_Y - 2,
+      y: labelY - 2,
       duration: 900,
       yoyo: true,
       repeat: -1,

@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+import threading
 from typing import Any
 
 import httpx
@@ -9,6 +10,12 @@ import redis
 from src.config import Settings, get_settings
 from src.graph.lore_loop import run_lore_job
 from src.graph.npc_loop import run_npc_memory_tail, run_npc_turn_interactive
+from src.llm.call_budget import (
+    get_recorder,
+    llm_call_summary_payload,
+    start_recorder,
+    summarize_for_log,
+)
 from src.persistence.checkpointer import setup_checkpointer
 from src.guard.reply_audit import audit_reply
 from src.llm.errors import format_llm_error
@@ -20,7 +27,7 @@ LORE_BLPOP_TIMEOUT_S = 1
 
 
 def create_redis_client(redis_url: str) -> redis.Redis:
-    """Upstash + BLPOP needs socket_timeout=None so block timeout is not treated as socket error."""
+    """Upstash + blocking pop needs socket_timeout=None so block timeout is not treated as socket error."""
     client = redis.from_url(
         redis_url,
         decode_responses=True,
@@ -79,7 +86,8 @@ def process_lore_job(client: httpx.Client, settings: Settings, payload: dict) ->
 
 def drain_one_lore_job(r: redis.Redis, client: httpx.Client, settings: Settings) -> bool:
     """Process at most one pending chunk-lore job (non-blocking). Returns True if handled."""
-    raw = r.lpop(LORE_BRIDGE_LIST_KEY)
+    # game-server LPUSH → RPOP oldest first (FIFO), same as main-loop BRPOP
+    raw = r.rpop(LORE_BRIDGE_LIST_KEY)
     if not raw:
         return False
     payload = json.loads(raw)
@@ -100,6 +108,7 @@ def process_job(client: httpx.Client, settings: Settings, payload: dict) -> None
 
     emit_job_event(client, settings, job_id, "thinking", {"status": "planning", "npcId": npc_id})
 
+    start_recorder()
     result = run_npc_turn_interactive(
         room_id=room_id,
         player_message=player_message,
@@ -145,6 +154,15 @@ def process_job(client: httpx.Client, settings: Settings, payload: dict) -> None
     if result.get("collective_updated"):
         done_payload["collectiveUpdated"] = True
 
+    interactive_recorder = get_recorder()
+    interactive_summary = llm_call_summary_payload(interactive_recorder)
+    if interactive_summary is not None:
+        done_payload["llmCallSummary"] = interactive_summary
+        print(
+            f"llmCallSummary jobId={job_id} interactive={summarize_for_log(interactive_recorder)}",
+            file=sys.stderr,
+        )
+
     emit_job_event(
         client,
         settings,
@@ -153,13 +171,22 @@ def process_job(client: httpx.Client, settings: Settings, payload: dict) -> None
         done_payload,
     )
 
-    try:
-        run_npc_memory_tail(result, settings)
-    except Exception as exc:
-        print(
-            f"memory tail failed jobId={job_id} (player already got done): {exc}",
-            file=sys.stderr,
-        )
+    def _memory_tail_worker() -> None:
+        try:
+            run_npc_memory_tail(result, settings)
+            tail_recorder = get_recorder()
+            if tail_recorder is not None and tail_recorder.total > 0:
+                print(
+                    f"llmCallSummary jobId={job_id} full={summarize_for_log(tail_recorder)}",
+                    file=sys.stderr,
+                )
+        except Exception as exc:
+            print(
+                f"memory tail failed jobId={job_id} (player already got done): {exc}",
+                file=sys.stderr,
+            )
+
+    threading.Thread(target=_memory_tail_worker, daemon=True).start()
 
 
 def run_mock() -> None:
@@ -201,16 +228,24 @@ def run_worker() -> None:
         sys.exit(1)
 
     r = create_redis_client(settings.redis_url)
+    stale_npc = r.llen(BRIDGE_LIST_KEY)
+    if stale_npc:
+        r.delete(BRIDGE_LIST_KEY)
+        print(
+            f"npc-turn bridge queue cleared on startup ({stale_npc} stale jobs)",
+            file=sys.stderr,
+        )
     print("connected to Redis; waiting for npc-turn + chunk-lore jobs", file=sys.stderr)
 
     with httpx.Client() as client:
         while True:
             try:
-                # npc-turn first — lore flood must not starve speak jobs
-                item = r.blpop(BRIDGE_LIST_KEY, timeout=BLPOP_TIMEOUT_S)
+                # npc-turn first — lore flood must not starve speak jobs.
+                # game-server LPUSH → BRPOP = FIFO (BLPOP would be LIFO / stack).
+                item = r.brpop(BRIDGE_LIST_KEY, timeout=BLPOP_TIMEOUT_S)
                 queue = "npc" if item else None
                 if not item:
-                    item = r.blpop(LORE_BRIDGE_LIST_KEY, timeout=LORE_BLPOP_TIMEOUT_S)
+                    item = r.brpop(LORE_BRIDGE_LIST_KEY, timeout=LORE_BLPOP_TIMEOUT_S)
                     queue = "lore" if item else None
             except redis.exceptions.TimeoutError:
                 continue

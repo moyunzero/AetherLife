@@ -87,9 +87,11 @@ def test_format_llm_error_quota_spend_limit():
 
 
 def test_is_connection_error():
-    from src.llm.errors import is_connection_error, should_try_lore_provider_fallback
+    from src.llm.errors import is_connection_error, is_retryable_llm_error, should_try_lore_provider_fallback
 
     assert is_connection_error(Exception("Connection refused"))
+    assert is_connection_error(Exception("Request timed out"))
+    assert is_retryable_llm_error(Exception("Request timed out"))
     assert not is_connection_error(Exception("Error code: 429"))
 
 

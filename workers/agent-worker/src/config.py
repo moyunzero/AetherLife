@@ -17,8 +17,8 @@ class Settings(BaseSettings):
     game_server_url: str = "http://127.0.0.1:2567"
     internal_worker_token: str | None = None
 
-    llm_provider: str = "zhipu"
-    llm_model: str = "glm-4.7-flash"
+    llm_provider: str = "siliconflow"
+    llm_model: str = "Qwen/Qwen3.5-4B"
     # Optional pin for NPC bind_tools (empty = LLM_MODEL only); see LLM_MODEL_NPC env
     llm_model_npc: str | None = None
     # NPC fallback models (OpenRouter ids); empty = provider-specific default in factory
@@ -64,6 +64,9 @@ class Settings(BaseSettings):
     llm_provider_lore_fallback: str = "nvidia"
     # Optional quality slot when NVIDIA/OpenRouter exhausted (5 RPM — rare)
     llm_provider_lore_fallback_2: str | None = None
+
+    # Per-request HTTP timeout for ChatOpenAI (seconds); prevents bind_tools hang blocking dequeue
+    llm_request_timeout: float = 120.0
 
     llm_mock: bool = False
     reflect_every_n: int = 5

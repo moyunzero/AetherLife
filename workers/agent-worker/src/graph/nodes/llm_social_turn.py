@@ -22,6 +22,7 @@ from src.graph.action_intent import (
 from src.graph.prompt import build_room_constraints, format_attitude_context
 from src.graph.state import GraphState
 from src.graph.tools import load_tools_for_binding, parse_tool_calls, reply_from_turn
+from src.llm.call_budget import record_llm_call
 from src.llm.errors import (
     LlmCallError,
     is_auth_error,
@@ -133,6 +134,7 @@ def run_social_turn_llm(state: GraphState, *, settings: Settings | None = None) 
             for attempt in range(3):
                 try:
                     response = llm.invoke(messages)
+                    record_llm_call("social", provider, model)
                     content = getattr(response, "content", "") or str(response)
                     parsed = _parse_social_turn_json(str(content))
                     if parsed is not None:
@@ -150,6 +152,11 @@ def run_social_turn_llm(state: GraphState, *, settings: Settings | None = None) 
                             )
                         return parsed.model_copy(update={"social": reconciled})
                     last_error = ValueError("social turn JSON parse failed")
+                    print(
+                        f"social JSON parse failed provider={provider} model={model}",
+                        file=sys.stderr,
+                    )
+                    break
                 except Exception as exc:
                     last_error = exc
                     if is_auth_error(exc):
@@ -173,7 +180,15 @@ def run_social_turn_llm(state: GraphState, *, settings: Settings | None = None) 
                 break
 
     if last_error is not None and not isinstance(last_error, ValueError):
-        raise LlmCallError(last_error, provider=last_provider, model=last_model) from last_error
+        if is_auth_error(last_error):
+            raise LlmCallError(last_error, provider=last_provider, model=last_model) from last_error
+        if not is_retryable_llm_error(last_error):
+            raise LlmCallError(last_error, provider=last_provider, model=last_model) from last_error
+        print(
+            f"social LLM degraded provider={last_provider} model={last_model} "
+            f"error={type(last_error).__name__}",
+            file=sys.stderr,
+        )
 
     msg = (state.get("player_message") or "").strip()
     return SocialTurnOut(
@@ -223,6 +238,7 @@ def _invoke_tool_turn(
         llm = create_chat_model(settings=settings, provider=provider, model=model).bind_tools(tools)
         try:
             response = llm.invoke(messages)
+            record_llm_call("main", provider, model)
             tool_calls = parse_tool_calls(response)
             if player_requests_physical_action(player_message) and not has_state_changing_tool(tool_calls):
                 retry_messages = [
@@ -230,6 +246,7 @@ def _invoke_tool_turn(
                     HumanMessage(content=build_tool_retry_message(room_snapshot)),
                 ]
                 response = llm.invoke(retry_messages)
+                record_llm_call("main", provider, model)
                 tool_calls = parse_tool_calls(response)
             return inject_relative_move_tool(
                 tool_calls,
@@ -238,16 +255,29 @@ def _invoke_tool_turn(
             )
         except Exception:
             continue
-    return []
+    return inject_relative_move_tool(
+        [],
+        player_message=player_message,
+        room=room_snapshot,
+    )
 
 
 def llm_social_turn(state: GraphState, *, settings: Settings | None = None) -> GraphState:
     cfg = settings or get_settings()
     turn = run_social_turn_llm(state, settings=cfg)
     player_message = state.get("player_message") or ""
+    room_snapshot = state.get("room_snapshot") or {}
     tool_calls: list[dict[str, Any]] = []
     if player_requests_physical_action(player_message):
-        tool_calls = _invoke_tool_turn(state, settings=cfg, reply_draft=turn.reply)
+        fast_path = inject_relative_move_tool(
+            [],
+            player_message=player_message,
+            room=room_snapshot,
+        )
+        if has_state_changing_tool(fast_path):
+            tool_calls = fast_path
+        else:
+            tool_calls = _invoke_tool_turn(state, settings=cfg, reply_draft=turn.reply)
 
     return {
         **state,

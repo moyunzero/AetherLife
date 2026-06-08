@@ -77,7 +77,7 @@ export const GOLDEN_FLOWS = [
   {
     id: "GF-02",
     name: "Movement sync (no speak)",
-    verify: ["verify:phase6:move-only"],
+    verify: ["verify:phase6:move-only", "verify:phase13"],
     requiresStack: true,
     triggers: [
       /apps\/web\/src\/game\//,

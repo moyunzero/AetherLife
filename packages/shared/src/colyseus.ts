@@ -79,6 +79,11 @@ export type ColyseusNpcJobDonePayload = {
   gateKind?: string;
   /** Worker persisted a collective social event — client should refetch collective-state once. */
   collectiveUpdated?: boolean;
+  /** Optional per-speak LLM call budget (Phase 12.2 debug). */
+  llmCallSummary?: {
+    calls: Array<{ role: string; provider: string; model: string }>;
+    total: number;
+  };
 };
 
 /** Loaded chunk tile window for client render (Phase 10). */

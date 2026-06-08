@@ -42,7 +42,7 @@ function getQueue(): Queue | null {
   return queue;
 }
 
-/** Push payload for Python worker bridge (BLPOP) alongside BullMQ. */
+/** Push payload for Python worker bridge (LPUSH + worker BRPOP = FIFO) alongside BullMQ. */
 async function pushBridgeJob(payload: NpcTurnJobPayload): Promise<void> {
   const url = getRedisUrl();
   if (!url) return;

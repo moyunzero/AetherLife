@@ -55,6 +55,54 @@ const apiBase = import.meta.env.VITE_GAME_SERVER_URL || "/api";
 const chatBase = import.meta.env.VITE_AI_GATEWAY_URL || "/v1";
 const DEFAULT_NPC_ID = "npc-1";
 
+/** Per-NPC pending speak texts — server `speakBusy` retry only (Phase 12.2 FIFO).
+ * Option A UX: `sendMessage` does not enqueue while in-flight; composer is disabled instead. */
+export type NpcSpeakQueue = Map<string, string[]>;
+
+export function enqueueNpcSpeak(queues: NpcSpeakQueue, npcId: string, text: string): number {
+  const q = queues.get(npcId) ?? [];
+  q.push(text);
+  queues.set(npcId, q);
+  return q.length;
+}
+
+export function dequeueNpcSpeak(queues: NpcSpeakQueue, npcId: string): string | undefined {
+  const q = queues.get(npcId);
+  if (!q?.length) return undefined;
+  const next = q.shift()!;
+  if (q.length === 0) queues.delete(npcId);
+  else queues.set(npcId, q);
+  return next;
+}
+
+export function npcSpeakQueueDepth(queues: NpcSpeakQueue, npcId: string): number {
+  return queues.get(npcId)?.length ?? 0;
+}
+
+export function isNpcSpeakInFlight(params: {
+  npcId: string;
+  speakBusyNpcId: string | null;
+  sendingNpcId: string | null;
+  thinkingNpcId: string | null;
+}): boolean {
+  const { npcId, speakBusyNpcId, sendingNpcId, thinkingNpcId } = params;
+  return speakBusyNpcId === npcId || sendingNpcId === npcId || thinkingNpcId === npcId;
+}
+
+/** Sync in-flight refs before queueMicrotask drain — setState lags; refs still block drain. */
+export function clearInFlightRefsForDrain(
+  refs: {
+    thinkingNpcId: { current: string | null };
+    speakBusyNpcId: { current: string | null };
+    sendingNpcId: { current: string | null };
+  },
+  npcId: string,
+): void {
+  if (refs.thinkingNpcId.current === npcId) refs.thinkingNpcId.current = null;
+  if (refs.speakBusyNpcId.current === npcId) refs.speakBusyNpcId.current = null;
+  if (refs.sendingNpcId.current === npcId) refs.sendingNpcId.current = null;
+}
+
 export type UseNpcChatOptions = {
   onCollectiveUpdated?: () => void;
 };
@@ -83,21 +131,79 @@ export function useNpcChat(
   const [thinkingNpcId, setThinkingNpcId] = useState<string | null>(null);
   const [sendingNpcId, setSendingNpcId] = useState<string | null>(null);
   const [attitudeGateCue, setAttitudeGateCue] = useState<AttitudeGateCue | null>(null);
+  const [speakQueueDepthByNpc, setSpeakQueueDepthByNpc] = useState<Record<string, number>>({});
   const stateVersionRef = useRef(0);
   const thinkingNpcIdRef = useRef<string | null>(null);
   thinkingNpcIdRef.current = thinkingNpcId;
+  const speakBusyNpcIdRef = useRef<string | null>(null);
+  speakBusyNpcIdRef.current = speakBusyNpcId;
+  const speakQueuesRef = useRef<NpcSpeakQueue>(new Map());
+  const inFlightTextRef = useRef<Map<string, string>>(new Map());
+  const dispatchSpeakRef = useRef<
+    ((text: string, npcId: string, opts?: { skipPlayerBubble?: boolean }) => Promise<void>) | null
+  >(null);
+  const drainSpeakQueueRef = useRef<((npcId: string) => void) | null>(null);
+
+  const syncQueueDepth = useCallback((npcId: string) => {
+    const depth = npcSpeakQueueDepth(speakQueuesRef.current, npcId);
+    setSpeakQueueDepthByNpc((prev) => ({ ...prev, [npcId]: depth }));
+  }, []);
+
+  const enqueueSpeak = useCallback(
+    (npcId: string, text: string, opts?: { showPlayerBubble?: boolean }) => {
+      enqueueNpcSpeak(speakQueuesRef.current, npcId, text);
+      syncQueueDepth(npcId);
+      if (opts?.showPlayerBubble !== false) {
+        setMessages((prev) => [
+          ...prev,
+          { id: crypto.randomUUID(), role: "player", text },
+        ]);
+      }
+    },
+    [syncQueueDepth],
+  );
+
+  const isNpcInFlightNow = useCallback((npcId: string) => {
+    return isNpcSpeakInFlight({
+      npcId,
+      speakBusyNpcId: speakBusyNpcIdRef.current,
+      sendingNpcId: sendingNpcIdRef.current,
+      thinkingNpcId: thinkingNpcIdRef.current,
+    });
+  }, []);
+
+  const drainSpeakQueue = useCallback(
+    (npcId: string) => {
+      if (isNpcInFlightNow(npcId)) return;
+      const next = dequeueNpcSpeak(speakQueuesRef.current, npcId);
+      syncQueueDepth(npcId);
+      if (!next) return;
+      void dispatchSpeakRef.current?.(next, npcId, { skipPlayerBubble: true });
+    },
+    [isNpcInFlightNow, syncQueueDepth],
+  );
+
+  drainSpeakQueueRef.current = drainSpeakQueue;
 
   const clearSendingState = useCallback((npcId: string | null) => {
     if (!npcId) return;
     setSendingNpcId((prev) => (prev === npcId ? null : prev));
     setThinkingNpcId((prev) => (prev === npcId ? null : prev));
-    if (sendingNpcIdRef.current === npcId) {
-      sendingNpcIdRef.current = null;
-    }
+    clearInFlightRefsForDrain(
+      {
+        thinkingNpcId: thinkingNpcIdRef,
+        speakBusyNpcId: speakBusyNpcIdRef,
+        sendingNpcId: sendingNpcIdRef,
+      },
+      npcId,
+    );
   }, []);
 
   const releaseNpcBusy = useCallback((npcId: string) => {
     setSpeakBusyNpcId((prev) => (prev === npcId ? null : prev));
+    if (speakBusyNpcIdRef.current === npcId) {
+      speakBusyNpcIdRef.current = null;
+    }
   }, []);
 
   const refetchState = useCallback(async (opts?: { retryUntilMs?: number }) => {
@@ -139,6 +245,9 @@ export function useNpcChat(
       sendingNpcIdRef.current = null;
       setSpeakBusyNpcId(null);
       if (npcId) {
+        inFlightTextRef.current.delete(npcId);
+        thinkingNpcIdRef.current = npcId;
+        speakBusyNpcIdRef.current = null;
         setThinkingNpcId(npcId);
         setStatus("thinking");
       }
@@ -177,9 +286,17 @@ export function useNpcChat(
       setThinkingNpcId(null);
       setSpeakBusyNpcId(null);
       setSendingNpcId(null);
-      sendingNpcIdRef.current = null;
       pendingJobIdRef.current = null;
+      clearInFlightRefsForDrain(
+        {
+          thinkingNpcId: thinkingNpcIdRef,
+          speakBusyNpcId: speakBusyNpcIdRef,
+          sendingNpcId: sendingNpcIdRef,
+        },
+        replyNpcId,
+      );
       void refetchState();
+      queueMicrotask(() => drainSpeakQueueRef.current?.(replyNpcId));
     };
     const onError = (data: { jobId?: string; message?: string }) => {
       if (data?.jobId && !matchesJob(data.jobId)) return;
@@ -188,11 +305,25 @@ export function useNpcChat(
       const npcId = sendingNpcIdRef.current ?? thinkingNpcIdRef.current;
       clearSendingState(npcId);
       pendingJobIdRef.current = null;
+      if (npcId) {
+        queueMicrotask(() => drainSpeakQueueRef.current?.(npcId));
+      }
     };
     const onSpeakBusy = (data: ColyseusSpeakBusyPayload) => {
       const busyNpc = typeof data.npcId === "string" ? data.npcId : sendingNpcIdRef.current;
       if (busyNpc) {
-        clearSendingState(busyNpc);
+        const inflight = inFlightTextRef.current.get(busyNpc);
+        if (inflight) {
+          inFlightTextRef.current.delete(busyNpc);
+          enqueueSpeak(busyNpc, inflight, { showPlayerBubble: false });
+          // Clear sending so composerSpeakBusyOtherPlayer → banner / status (not "正在思考…")
+          setSendingNpcId((prev) => (prev === busyNpc ? null : prev));
+          if (sendingNpcIdRef.current === busyNpc) {
+            sendingNpcIdRef.current = null;
+          }
+        } else {
+          clearSendingState(busyNpc);
+        }
         setSpeakBusyNpcId(busyNpc);
       }
       setStatus("idle");
@@ -202,6 +333,7 @@ export function useNpcChat(
     const onSpeakIdle = (data: ColyseusSpeakIdlePayload) => {
       if (typeof data.npcId === "string") {
         releaseNpcBusy(data.npcId);
+        queueMicrotask(() => drainSpeakQueueRef.current?.(data.npcId));
       }
     };
     const onPatch = (data: StatePatchPayload & { jobId?: string }) => {
@@ -213,9 +345,8 @@ export function useNpcChat(
           return applyStatePatch(prev, data.delta);
         });
       }
-      if (typeof data.npcId === "string") {
-        releaseNpcBusy(data.npcId);
-      }
+      // Do not release speak busy / drain here — patch can arrive mid-turn.
+      // speakIdle + done/error handle queue drain with job-id guards.
     };
 
     const offSpeakAck = room.onMessage("speakAck", onSpeakAck);
@@ -235,54 +366,12 @@ export function useNpcChat(
       offSpeakIdle();
       offPatch();
     };
-  }, [colyseusRoom, refetchState, clearSendingState, releaseNpcBusy]);
+  }, [colyseusRoom, refetchState, clearSendingState, releaseNpcBusy, enqueueSpeak]);
 
-  const resetGame = useCallback(async (): Promise<RoomState | null> => {
-    try {
-      const res = await fetch(`${apiBase}/rooms/${mapRoomId}/reset`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...playerApiHeaders(),
-        },
-      });
-      if (!res.ok) {
-        setError("重置房间失败");
-        setStatus("error");
-        return null;
-      }
-      const body = await res.json();
-      setMessages([]);
-      setRoomState(body.state);
-      setMemoryCounts(body.memoryCounts ?? {});
-      setActiveNpcId(DEFAULT_NPC_ID);
-      setStatus("idle");
-      setError(null);
-      setJobId(null);
-      setSpeakBusyNpcId(null);
-      setThinkingNpcId(null);
-      setSendingNpcId(null);
-      sendingNpcIdRef.current = null;
-      pendingJobIdRef.current = null;
-      stateVersionRef.current = 0;
-      setLastParsedIntent(null);
-      setParseError(null);
-      setAttitudeGateCue(null);
-      return body.state as RoomState;
-    } catch {
-      setError("重置房间失败");
-      setStatus("error");
-      return null;
-    }
-  }, [mapRoomId]);
-
-  const sendMessage = useCallback(
-    async (text: string, npcId: string) => {
+  const dispatchSpeak = useCallback(
+    async (text: string, npcId: string, opts?: { skipPlayerBubble?: boolean }) => {
       const trimmed = text.trim();
       if (!trimmed) return;
-      if (speakBusyNpcId === npcId) return;
-      if (sendingNpcId === npcId) return;
-      if (status === "thinking" && thinkingNpcId === npcId) return;
       const room = colyseusRoom;
       if (!room) {
         setError("未连接游戏房间");
@@ -292,10 +381,13 @@ export function useNpcChat(
 
       setError(null);
       setParseError(null);
-      setMessages((prev) => [
-        ...prev,
-        { id: crypto.randomUUID(), role: "player", text: trimmed },
-      ]);
+      if (!opts?.skipPlayerBubble) {
+        setMessages((prev) => [
+          ...prev,
+          { id: crypto.randomUUID(), role: "player", text: trimmed },
+        ]);
+      }
+      inFlightTextRef.current.set(npcId, trimmed);
       setSendingNpcId(npcId);
       sendingNpcIdRef.current = npcId;
       pendingJobIdRef.current = null;
@@ -325,12 +417,86 @@ export function useNpcChat(
       } catch {
         setError("无法联系 AI 网关或游戏服务器");
         setStatus("error");
+        inFlightTextRef.current.delete(npcId);
         clearSendingState(npcId);
         pendingJobIdRef.current = null;
       }
     },
-    [status, speakBusyNpcId, sendingNpcId, thinkingNpcId, colyseusRoom, mapRoomId, clearSendingState],
+    [colyseusRoom, mapRoomId, clearSendingState],
   );
+
+  dispatchSpeakRef.current = dispatchSpeak;
+
+  const resetGame = useCallback(async (): Promise<RoomState | null> => {
+    try {
+      const res = await fetch(`${apiBase}/rooms/${mapRoomId}/reset`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...playerApiHeaders(),
+        },
+      });
+      if (!res.ok) {
+        setError("重置房间失败");
+        setStatus("error");
+        return null;
+      }
+      const body = await res.json();
+      setMessages([]);
+      setRoomState(body.state);
+      setMemoryCounts(body.memoryCounts ?? {});
+      setActiveNpcId(DEFAULT_NPC_ID);
+      setStatus("idle");
+      setError(null);
+      setJobId(null);
+      setSpeakBusyNpcId(null);
+      setThinkingNpcId(null);
+      setSendingNpcId(null);
+      thinkingNpcIdRef.current = null;
+      speakBusyNpcIdRef.current = null;
+      sendingNpcIdRef.current = null;
+      pendingJobIdRef.current = null;
+      stateVersionRef.current = 0;
+      setLastParsedIntent(null);
+      setParseError(null);
+      setAttitudeGateCue(null);
+      speakQueuesRef.current = new Map();
+      setSpeakQueueDepthByNpc({});
+      inFlightTextRef.current = new Map();
+      return body.state as RoomState;
+    } catch {
+      setError("重置房间失败");
+      setStatus("error");
+      return null;
+    }
+  }, [mapRoomId]);
+
+  const sendMessage = useCallback(
+    async (text: string, npcId: string) => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      if (!colyseusRoom) {
+        setError("未连接游戏房间");
+        setStatus("error");
+        return;
+      }
+      if (
+        isNpcSpeakInFlight({
+          npcId,
+          speakBusyNpcId,
+          sendingNpcId,
+          thinkingNpcId,
+        })
+      ) {
+        // Option A: no client-side "type while thinking" queue — composer stays disabled.
+        return;
+      }
+      await dispatchSpeak(trimmed, npcId);
+    },
+    [colyseusRoom, speakBusyNpcId, sendingNpcId, thinkingNpcId, dispatchSpeak],
+  );
+
+  const speakQueueDepth = speakQueueDepthByNpc[activeNpcId] ?? 0;
 
   return {
     messages,
@@ -344,7 +510,13 @@ export function useNpcChat(
     lastParsedIntent,
     parseError,
     thinkingNpcId,
-    speakQueueBusy: speakBusyNpcId === activeNpcId,
+    speakBusyNpcId,
+    sendingNpcId,
+    speakQueueDepth,
+    speakQueueBusy:
+      speakBusyNpcId === activeNpcId ||
+      speakQueueDepth > 0 ||
+      (status === "thinking" && thinkingNpcId === activeNpcId),
     composerBusyForActiveNpc:
       sendingNpcId === activeNpcId ||
       (status === "thinking" && thinkingNpcId === activeNpcId) ||

@@ -184,9 +184,9 @@ async function main() {
   const cerebrasKey = env.CEREBRAS_API_KEY ?? "";
   const cerebrasModel = env.LLM_MODEL_CEREBRAS ?? "gpt-oss-120b";
 
-  const llmProvider = (env.LLM_PROVIDER ?? "zhipu").toLowerCase();
+  const llmProvider = (env.LLM_PROVIDER ?? "siliconflow").toLowerCase();
   const npcModelPin = (env.LLM_MODEL_NPC ?? "").trim();
-  const npcModel = npcModelPin || env.LLM_MODEL || "glm-4.7-flash";
+  const npcModel = npcModelPin || env.LLM_MODEL || "Qwen/Qwen3.5-4B";
 
   const orHeaders = {
     "HTTP-Referer": env.OPENROUTER_HTTP_REFERER ?? "http://localhost:5173",
@@ -233,6 +233,65 @@ async function main() {
           apiKey: zhipuKey,
           model: npcModel,
           extraBody: zhipuThinking,
+        })),
+      });
+    }
+  }
+
+  // --- SiliconFlow NPC primary (LLM_PROVIDER=siliconflow) ---
+  if (llmProvider === "siliconflow") {
+    if (!siliconflowKey) {
+      push({
+        role: "NPC chat (primary)",
+        provider: "siliconflow",
+        model: npcModel,
+        keyLabel: "SILICONFLOW_API_KEY",
+        consumer: "worker npc_loop bind_tools",
+        ok: false,
+        latencyMs: 0,
+        error: "missing SILICONFLOW_API_KEY",
+      });
+    } else {
+      push({
+        role: "NPC chat (primary)",
+        provider: "siliconflow",
+        model: npcModel,
+        keyLabel: "SILICONFLOW_API_KEY",
+        consumer: "worker npc_loop bind_tools",
+        ...(await probeChat({
+          baseUrl: "https://api.siliconflow.cn/v1",
+          apiKey: siliconflowKey,
+          model: npcModel,
+          extraBody: { enable_thinking: false },
+        })),
+      });
+    }
+  }
+
+  // --- NVIDIA NIM NPC primary (LLM_PROVIDER=nvidia) ---
+  if (llmProvider === "nvidia") {
+    if (!nvidiaKey) {
+      push({
+        role: "NPC chat (primary)",
+        provider: "nvidia",
+        model: npcModel,
+        keyLabel: "NVIDIA_API_KEY",
+        consumer: "worker npc_loop bind_tools",
+        ok: false,
+        latencyMs: 0,
+        error: "missing NVIDIA_API_KEY",
+      });
+    } else {
+      push({
+        role: "NPC chat (primary)",
+        provider: "nvidia",
+        model: npcModel,
+        keyLabel: "NVIDIA_API_KEY",
+        consumer: "worker npc_loop bind_tools",
+        ...(await probeChat({
+          baseUrl: "https://integrate.api.nvidia.com/v1",
+          apiKey: nvidiaKey,
+          model: npcModel,
         })),
       });
     }

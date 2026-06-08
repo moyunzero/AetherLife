@@ -97,39 +97,109 @@ function waitSpeakTerminal(room, timeoutMs, label, expectedJobId = null) {
   });
 }
 
+/**
+ * Register terminal listeners before speak send (ISSUE-032).
+ * Worker may emit done before speakAck wait returns; buffer until setJobId.
+ */
+function createSpeakDrain(room, timeoutMs, label) {
+  let expectedJobId = null;
+  let settled = false;
+  let pendingDone = null;
+
+  let resolveWait;
+  let rejectWait;
+  const wait = new Promise((resolve, reject) => {
+    resolveWait = resolve;
+    rejectWait = reject;
+  });
+
+  const finish = (fn) => {
+    if (settled) return;
+    settled = true;
+    offDone();
+    offErr();
+    clearTimeout(timer);
+    fn();
+  };
+
+  const maybeResolveDone = (data) => {
+    if (!expectedJobId) {
+      pendingDone = data;
+      return;
+    }
+    if (data?.jobId && data.jobId !== expectedJobId) return;
+    finish(() => resolveWait(data));
+  };
+
+  const offDone = room.onMessage(COLYSEUS_SERVER_MESSAGES.done, maybeResolveDone);
+  const offErr = room.onMessage(COLYSEUS_SERVER_MESSAGES.error, (data) => {
+    finish(() =>
+      rejectWait(new Error(`${label}: ${data?.message ?? JSON.stringify(data)}`)),
+    );
+  });
+  const timer = setTimeout(() => {
+    finish(() =>
+      rejectWait(
+        new Error(`${label}: timeout ${timeoutMs}ms (jobId=${expectedJobId ?? "any"})`),
+      ),
+    );
+  }, timeoutMs);
+
+  return {
+    setJobId(id) {
+      expectedJobId = id;
+      if (pendingDone) {
+        const data = pendingDone;
+        pendingDone = null;
+        maybeResolveDone(data);
+      }
+    },
+    wait,
+    cleanup() {
+      finish(() => {});
+    },
+  };
+}
+
 /** Send speak and wait for done/error for that turn only. */
 async function runSpeakTurn(room, payload, label, timeoutMs) {
-  const ackPromise = new Promise((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error(`${label}: no speakAck within 30s`)),
-      30_000,
-    );
-    const cleanup = () => {
-      clearTimeout(timer);
-      offAck();
-      offBusy();
-    };
-    const offAck = room.onMessage(COLYSEUS_SERVER_MESSAGES.speakAck, (data) => {
-      cleanup();
-      if (!data?.jobId) {
-        reject(new Error(`${label}: speakAck missing jobId`));
-        return;
-      }
-      resolve(data.jobId);
-    });
-    const offBusy = room.onMessage(COLYSEUS_SERVER_MESSAGES.speakBusy, (data) => {
-      if (data?.npcId && payload.npcId && data.npcId !== payload.npcId) return;
-      cleanup();
-      reject(
-        new Error(
-          `${label}: speakBusy npc=${data?.npcId ?? "?"} reason=${data?.reason ?? "busy"}`,
-        ),
+  const drain = createSpeakDrain(room, timeoutMs, label);
+  try {
+    const ackPromise = new Promise((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error(`${label}: no speakAck within 30s`)),
+        30_000,
       );
+      const cleanup = () => {
+        clearTimeout(timer);
+        offAck();
+        offBusy();
+      };
+      const offAck = room.onMessage(COLYSEUS_SERVER_MESSAGES.speakAck, (data) => {
+        cleanup();
+        if (!data?.jobId) {
+          reject(new Error(`${label}: speakAck missing jobId`));
+          return;
+        }
+        resolve(data.jobId);
+      });
+      const offBusy = room.onMessage(COLYSEUS_SERVER_MESSAGES.speakBusy, (data) => {
+        if (data?.npcId && payload.npcId && data.npcId !== payload.npcId) return;
+        cleanup();
+        reject(
+          new Error(
+            `${label}: speakBusy npc=${data?.npcId ?? "?"} reason=${data?.reason ?? "busy"}`,
+          ),
+        );
+      });
     });
-  });
-  room.send("speak", payload);
-  const id = await ackPromise;
-  return waitSpeakTerminal(room, timeoutMs, label, id);
+    room.send("speak", payload);
+    const id = await ackPromise;
+    drain.setJobId(id);
+    return await drain.wait;
+  } finally {
+    drain.cleanup();
+  }
 }
 
 async function healthOk() {
@@ -337,11 +407,29 @@ async function main() {
     let jobIdBParallel = null;
     let bSpeakBusySameNpc = false;
 
+    const parallelDrainMs = speakTimeoutMs * 2;
+    const drainParallelA = createSpeakDrain(
+      roomA,
+      parallelDrainMs,
+      "parallel npc-1 A",
+    );
+    const drainParallelB = createSpeakDrain(
+      roomB,
+      parallelDrainMs,
+      "parallel npc-3 B",
+    );
+
     const offAckA = roomA.onMessage(COLYSEUS_SERVER_MESSAGES.speakAck, (data) => {
-      if (data?.jobId) jobIdAParallel = data.jobId;
+      if (data?.jobId) {
+        jobIdAParallel = data.jobId;
+        drainParallelA.setJobId(data.jobId);
+      }
     });
     const offAckB = roomB.onMessage(COLYSEUS_SERVER_MESSAGES.speakAck, (data) => {
-      if (data?.jobId) jobIdBParallel = data.jobId;
+      if (data?.jobId) {
+        jobIdBParallel = data.jobId;
+        drainParallelB.setJobId(data.jobId);
+      }
     });
     roomB.onMessage(COLYSEUS_SERVER_MESSAGES.speakBusy, () => {
       bSpeakBusySameNpc = true;
@@ -374,20 +462,9 @@ async function main() {
     await waitFor(() => bSpeakBusySameNpc, 5000, 50, "speakBusy same npc-1");
     console.log("verify:phase8: same-NPC speakBusy OK");
 
-    await Promise.all([
-      waitSpeakTerminal(
-        roomA,
-        speakTimeoutMs,
-        "parallel npc-1 A",
-        jobIdAParallel,
-      ),
-      waitSpeakTerminal(
-        roomB,
-        speakTimeoutMs,
-        "parallel npc-3 B",
-        jobIdBParallel,
-      ),
-    ]);
+    await Promise.all([drainParallelA.wait, drainParallelB.wait]);
+    drainParallelA.cleanup();
+    drainParallelB.cleanup();
     offAckA();
     offAckB();
     console.log("verify:phase8: parallel speak rounds drained OK");

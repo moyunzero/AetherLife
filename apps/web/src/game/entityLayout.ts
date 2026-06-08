@@ -5,8 +5,8 @@ import { CELL_PX } from "./gridLayout.js";
  */
 export { CELL_PX };
 
-/** Disc radius (fits inside 40px cell with label above). */
-export const MARKER_RADIUS = 12;
+/** Disc radius (fits inside 48px cell with label above). */
+export const MARKER_RADIUS = 14;
 
 /** Disc center — container origin = cell center (gridToWorld). */
 export const MARKER_CY = 0;
@@ -16,7 +16,7 @@ export const MARKER_LABEL_Y = -(MARKER_RADIUS + 6);
 
 export const MARKER_STROKE = 2;
 
-export const MARKER_LABEL_MAX_WIDTH = 36;
+export const MARKER_LABEL_MAX_WIDTH = 44;
 
 /** Floor/path layers use 0–2; entities sit above via this baseline. */
 export const ENTITY_DEPTH_BASE = 10_000;

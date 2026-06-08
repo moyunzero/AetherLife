@@ -66,9 +66,10 @@ export function ChatPage() {
     refetchState,
     lastParsedIntent,
     parseError,
-    speakQueueBusy,
-    composerBusyForActiveNpc,
+    speakBusyNpcId,
     thinkingNpcId,
+    sendingNpcId,
+    composerBusyForActiveNpc,
     attitudeGateCue,
     clearAttitudeGateCue,
     attitudeGateHintCopy,
@@ -255,8 +256,9 @@ export function ChatPage() {
 
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
+    if (composerBusyForActiveNpc) return;
     const text = draft;
-    if (!text.trim() || composerBusyForActiveNpc) return;
+    if (!text.trim()) return;
     setDraft("");
     await sendMessage(text, activeNpcId);
   };
@@ -264,12 +266,21 @@ export function ChatPage() {
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      if (!draft.trim() || composerBusyForActiveNpc) return;
+      if (composerBusyForActiveNpc || !draft.trim()) return;
       const text = draft;
       setDraft("");
       void sendMessage(text, activeNpcId);
     }
   };
+
+  const composerPlaceholder = composerBusyForActiveNpc
+    ? `请等待${activeNpcName}回复…`
+    : `你想让${activeNpcName}做什么？`;
+
+  const composerSpeakBusyOtherPlayer =
+    speakBusyNpcId === activeNpcId &&
+    thinkingNpcId !== activeNpcId &&
+    sendingNpcId !== activeNpcId;
 
   const sceneMapNpcs = displayNpcs;
   const sceneMapObjects = roomState?.objects ?? moveMap.objects;
@@ -342,18 +353,18 @@ export function ChatPage() {
 
       <main className="chat-main">
         {roomFull ? (
-          <div className="error-banner" data-testid="banner-room-full">
+          <div className="error-banner error-banner--warn" data-testid="banner-room-full">
             房间已满（最多 4 人同时在线），请关闭其他标签页或稍后再试。
           </div>
         ) : null}
         {colyseusError && !roomFull ? <div className="error-banner">{colyseusError}</div> : null}
-        {speakQueueBusy ? (
-          <div className="error-banner" data-testid="banner-speak-queue">
+        {composerSpeakBusyOtherPlayer ? (
+          <div className="error-banner error-banner--warn" data-testid="banner-speak-queue">
             该 NPC 正在响应其他玩家的指令，请稍候再试。
           </div>
         ) : null}
         {duplicateTab ? (
-          <div className="error-banner">
+          <div className="error-banner error-banner--info">
             检测到另一个标签页也在使用同一存档。同时游玩可能导致记忆与对话不同步，建议只保留一个标签页。
           </div>
         ) : null}
@@ -400,6 +411,7 @@ export function ChatPage() {
             animating={animating}
             moveHint={sceneHint}
             thinkingNpcId={thinkingNpcId}
+            activeNpcId={activeNpcId}
             npcAnimateMoves={npcWorldLive}
             npcResetEpoch={npcResetEpoch}
             remoteInterpMs={remoteInterpMs}
@@ -448,23 +460,39 @@ export function ChatPage() {
             {attitudeGateHint}
           </p>
         ) : null}
-        <textarea
-          ref={composerRef}
-          className="composer__input"
-          rows={2}
-          placeholder={`你想让${activeNpcName}做什么？`}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={onKeyDown}
-          disabled={composerBusyForActiveNpc || roomFull}
-        />
-        <button
-          type="submit"
-          className="btn btn--primary"
-          disabled={composerBusyForActiveNpc || roomFull || !draft.trim()}
-        >
-          发送指令
-        </button>
+        {composerBusyForActiveNpc ? (
+          <p
+            className="composer__speak-status"
+            data-testid="composer-speak-status"
+            role="status"
+          >
+            {composerSpeakBusyOtherPlayer
+              ? "该 NPC 正在响应其他玩家的指令，请稍候再试。"
+              : `${activeNpcName} 正在思考…`}
+          </p>
+        ) : null}
+        <div className="composer__shell">
+          <div className="composer__inner">
+            <textarea
+              ref={composerRef}
+              className="composer__input"
+              rows={2}
+              placeholder={composerPlaceholder}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={onKeyDown}
+              disabled={roomFull || composerBusyForActiveNpc}
+              aria-busy={composerBusyForActiveNpc}
+            />
+            <button
+              type="submit"
+              className="btn btn--primary composer__submit"
+              disabled={roomFull || composerBusyForActiveNpc || !draft.trim()}
+            >
+              发送指令
+            </button>
+          </div>
+        </div>
       </form>
 
       {connected && players.length > 0 ? (

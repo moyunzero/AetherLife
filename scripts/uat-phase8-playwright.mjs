@@ -1,5 +1,6 @@
 /**
- * Phase 8 UAT — 4 人同 room、满员 banner、speak 队列、player-strip、verify:phase8。
+ * Phase 8 UAT — 4 人同 room、满员 banner、speak 占用（方案 A）、player-strip、verify:phase8。
+ * 方案 A：无客户端 speak 排队 UI；B 抢发时见 banner-speak-queue 或 composer-speak-status（其他玩家占用）。
  * Requires: pnpm dev:stack (real LLM). See docs/E2E-POLICY.md
  */
 import { spawn } from "node:child_process";
@@ -145,19 +146,33 @@ async function main() {
   log("  ✓ Test 3 pass\n");
 
   currentTest = 4;
-  log("Test 4/5: speak 队列 banner（A 发言时 B 抢发）");
+  log("Test 4/5: speak 占用（方案 A：A 发言时 B 抢发 → 占用提示，非发起者无 NPC 全文）");
   const pageA = pages[0];
   const pageB = pages[1];
   await pageA.locator("textarea.composer__input").fill("phase8 uat speak A");
   await pageA.locator("button.btn--primary").click();
-  await pageA.locator(".message--thinking").waitFor({ state: "visible", timeout: 20_000 }).catch(() => {});
+  await pageA
+    .locator('[data-testid="composer-speak-status"], .message--thinking')
+    .first()
+    .waitFor({ state: "visible", timeout: 20_000 });
+
   await pageB.locator("textarea.composer__input").fill("phase8 uat speak B should queue");
   await pageB.locator("button.btn--primary").click();
-  await pageB.locator('[data-testid="banner-speak-queue"]').waitFor({ timeout: 15_000 });
-  await screenshot(pageB, "04-speak-queue-banner");
-  const thinkingB = pageB.locator(".message--thinking");
-  if (await thinkingB.isVisible().catch(() => false)) {
-    log("  ✓ 标签 B 可见房间级 thinking");
+
+  const busyLocator = pageB.locator(
+    '[data-testid="banner-speak-queue"], [data-testid="composer-speak-status"]',
+  );
+  await busyLocator.first().waitFor({ timeout: 30_000 });
+  const busyText = (await busyLocator.first().textContent()) ?? "";
+  if (!busyText.includes("其他玩家") && !busyText.includes("稍候")) {
+    await stop(`B 未显示 speak 占用提示，got: ${busyText.trim() || "(empty)"}`);
+  }
+  await screenshot(pageB, "04-speak-busy-banner");
+  const composerDisabled = await pageB.locator("textarea.composer__input").isDisabled();
+  if (!composerDisabled) {
+    log("  WARN: B composer 未禁用（speakBusy 后仍应 composerBusyForActiveNpc）");
+  } else {
+    log("  ✓ B composer 已禁用（方案 A 占用）");
   }
   const npcA = pageA.locator(".message--npc").last();
   await npcA.waitFor({ state: "visible", timeout: SPEAK_TIMEOUT_MS });
