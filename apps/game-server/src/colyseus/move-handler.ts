@@ -28,6 +28,7 @@ export function buildMoveGrid(
   state: GameRoomState,
   sessionId: string,
   loader: ChunkLoader,
+  options?: { excludeNpcId?: string },
 ): GlobalMoveGrid {
   const otherPlayers: { x: number; y: number }[] = [];
   state.players.forEach((p, sid) => {
@@ -39,6 +40,7 @@ export function buildMoveGrid(
     homeMap: map,
     otherPlayerCells: otherPlayers,
     isTerrainWalkable: (gx, gy) => loader.getWalkability(gx, gy) === true,
+    excludeNpcId: options?.excludeNpcId,
   });
 }
 
