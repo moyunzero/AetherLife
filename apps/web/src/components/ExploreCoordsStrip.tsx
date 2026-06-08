@@ -31,14 +31,13 @@ export function ExploreCoordsStrip({
       </p>
       <p className="explore-coords-strip__meta">
         格 ({gx}, {gy}) · chunk ({cx}, {cy}) · {biomeLabel}
-        {gameClockLabel ? (
-          <>
-            {" "}
-            ·{" "}
-            <span data-testid="explore-game-clock">{gameClockLabel}</span>
-          </>
-        ) : null}
       </p>
+      {gameClockLabel ? (
+        <p className="explore-coords-strip__clock" aria-label={`游戏时间 ${gameClockLabel}`}>
+          游戏时间{" "}
+          <span data-testid="explore-game-clock">{gameClockLabel}</span>
+        </p>
+      ) : null}
       {lorePending ? (
         <p className="explore-coords-strip__pending" data-testid="lore-pending-hint">
           正在书写这片土地…
