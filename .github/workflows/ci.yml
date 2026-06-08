@@ -28,7 +28,9 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build shared packages
-        run: pnpm turbo build --filter=@aetherlife/shared --filter=@aetherlife/game-actions
+        run: |
+          pnpm turbo build --filter=@aetherlife/shared --filter=@aetherlife/game-actions
+          pnpm --filter @aetherlife/game-actions run export:tools
 
       - name: Node unit tests
         run: pnpm turbo test
@@ -41,6 +43,7 @@ jobs:
 
       - name: Agent worker tests (LLM_MOCK)
         run: |
+          cp .env.example .env
           cd workers/agent-worker
           uv sync --extra dev
           LLM_MOCK=1 uv run pytest -q
