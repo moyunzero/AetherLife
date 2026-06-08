@@ -36,11 +36,11 @@ jobs:
       - name: AI gateway tests
         run: |
           cd apps/ai-gateway
-          uv sync
+          uv sync --extra dev
           uv run pytest tests -q
 
       - name: Agent worker tests (LLM_MOCK)
         run: |
           cd workers/agent-worker
-          uv sync
+          uv sync --extra dev
           LLM_MOCK=1 uv run pytest -q
