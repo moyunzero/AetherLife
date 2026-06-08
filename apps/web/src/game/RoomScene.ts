@@ -33,6 +33,12 @@ import {
   THINKING_PULSE_MS,
 } from "./entityLabels.js";
 import {
+  activityLabelY,
+  createActivityLabel,
+  updateActivityLabels,
+  type ActivityTarget,
+} from "./activityLabels.js";
+import {
   truncateNameplate,
   updateNameplates,
   type NameplateTarget,
@@ -132,6 +138,10 @@ type EntitySprite = AnimatableEntity & {
   nameplateAlpha?: number;
   nameplateTween?: Phaser.Tweens.Tween;
   nameplateWantShow?: boolean;
+  activityLabel?: Phaser.GameObjects.Text;
+  activityLabelAlpha?: number;
+  activityLabelTween?: Phaser.Tweens.Tween;
+  activityLabelWantShow?: boolean;
   moveTween?: Phaser.Tweens.Tween;
   npcId?: string;
   playerSessionId?: string;
@@ -276,6 +286,7 @@ export class RoomScene extends Phaser.Scene {
     this.tickExploreGrid();
     this.tickCollectiveDebug();
     this.refreshNameplates();
+    this.refreshActivityLabels();
   }
 
   private useSpriteEntities(): boolean {
@@ -323,6 +334,42 @@ export class RoomScene extends Phaser.Scene {
       targets.push(ent);
     }
     updateNameplates(this, targets, localCell, activeNpcId, thinkingNpcId);
+  }
+
+  private refreshActivityLabels(): void {
+    if (this.registry.get("uatHomesteadFrame") === true) return;
+
+    const sessionId = this.getSessionId();
+    if (!sessionId) return;
+    const logic = this.motionBridge?.getLogicGrid();
+    const self = this.playerSprites.get(sessionId);
+    const localCell = logic
+      ? { x: logic.x, y: logic.y }
+      : self
+        ? { x: self.gridX, y: self.gridY }
+        : null;
+    const activeNpcId = (this.registry.get("activeNpcId") as string | null) ?? null;
+    const thinkingNpcId = (this.registry.get("thinkingNpcId") as string | null) ?? null;
+    const speakBusyNpcId = (this.registry.get("speakBusyNpcId") as string | null) ?? null;
+    const npcActivityById =
+      (this.registry.get("npcActivityById") as Record<string, string> | undefined) ?? {};
+
+    const targets: ActivityTarget[] = [];
+    for (const ent of this.npcSprites.values()) {
+      if (!ent.activityLabel || !ent.npcId) continue;
+      targets.push(ent as ActivityTarget);
+    }
+
+    const visibleNpcIds = updateActivityLabels(
+      this,
+      targets,
+      localCell,
+      npcActivityById,
+      thinkingNpcId,
+      activeNpcId,
+      speakBusyNpcId,
+    );
+    this.registry.set("npcActivityVisible", visibleNpcIds);
   }
 
   /** Explore HUD coords — game-loop tick (Wave 2); React reads registry `exploreGrid`. */
@@ -1214,13 +1261,15 @@ export class RoomScene extends Phaser.Scene {
     }, layer);
     ent.label.setText(truncateNameplate(label));
     applyNameplateStyle(ent.label, "npc");
+    ent.npcId = npcId;
+    this.attachNpcActivityLabel(ent);
     if (!this.useSpriteEntities()) return ent;
 
     ent.spriteMode = true;
     ent.isNpc = true;
     ent.paletteRow = npcVariantForId(npcId);
-    ent.npcId = npcId;
     ent.facingDir = "down";
+    ent.activityLabel?.setY(activityLabelY(true));
     const avatar = createNpcSprite(this, npcId);
     const bubble = createSpeechBubble(this);
     ent.body.setVisible(false);
@@ -1235,6 +1284,14 @@ export class RoomScene extends Phaser.Scene {
     ent.bubble = bubble;
     playIdleAnim(ent, "down");
     return ent;
+  }
+
+  private attachNpcActivityLabel(ent: EntitySprite): void {
+    if (!ent.npcId) return;
+    const activityLabel = createActivityLabel(this, ent.npcId);
+    activityLabel.y = activityLabelY(ent.spriteMode === true);
+    ent.container.add(activityLabel);
+    ent.activityLabel = activityLabel;
   }
 
   private createDoorEntity(
@@ -1272,6 +1329,8 @@ export class RoomScene extends Phaser.Scene {
     ent.pulseTween = undefined;
     ent.nameplateTween?.stop();
     ent.nameplateTween = undefined;
+    ent.activityLabelTween?.stop();
+    ent.activityLabelTween = undefined;
     ent.moveTween?.stop();
     ent.moveTween = undefined;
     this.tweens.killTweensOf(ent.container);
