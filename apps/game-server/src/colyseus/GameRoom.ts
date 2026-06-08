@@ -34,8 +34,10 @@ import {
 } from "./room-registry.js";
 import { GameRoomState, PlayerSchema } from "./schema.js";
 import { bumpStateVersion } from "./version.js";
+import { runAmbientTick } from "../ambient/tick.js";
+import { getChunkLoader } from "../world/chunk-loader.js";
 
-const TICK_MS = 1000 / 20;
+export const AMBIENT_MS = 6000;
 
 type JoinOptions = { mapRoomId?: string; playerId?: string };
 
@@ -44,6 +46,8 @@ export class GameRoom extends Room {
   mapRoomId = "default";
   /** npcId → jobId (or pending token before job is created) */
   private npcSpeakJobs = new Map<string, string>();
+  /** Per-NPC patrol waypoint cursor (room-local ambient state). */
+  private ambientWaypointCursors = new Map<string, number>();
   private lastAckedSeq = new Map<string, number>();
   private lastChunksFingerprint = "";
   /** Set when matchmaker spawned a duplicate shard for the same mapRoomId. */
@@ -176,6 +180,7 @@ export class GameRoom extends Room {
     this.mapRoomId = options.mapRoomId ?? "default";
     this.maxClients = COLYSEUS_MAX_CLIENTS;
     this.setState(new GameRoomState());
+    this.gameState.gameMinute = 360;
 
     const { state: mapState } = getOrCreate(this.mapRoomId);
     syncColyseusFromMap(this.gameState, mapState);
@@ -187,7 +192,7 @@ export class GameRoom extends Room {
     } else {
       this.setMetadata({ mapRoomId: this.mapRoomId, clientCount: 0 });
     }
-    this.setSimulationInterval(() => {}, TICK_MS);
+    this.setSimulationInterval((dt) => this.onAmbientTick(dt), AMBIENT_MS);
 
     this.onMessage(COLYSEUS_CLIENT_MESSAGES.move, (client, raw: ColyseusMovePayload) => {
       this.enqueuePlayerMove(client, raw);
@@ -314,6 +319,20 @@ export class GameRoom extends Room {
     if (getColyseusRoom(this.mapRoomId) === this) {
       unregisterColyseusRoom(this.mapRoomId);
     }
+  }
+
+  private onAmbientTick(_dt: number): void {
+    if (this.orphanShard) return;
+    const { state: mapState } = getOrCreate(this.mapRoomId);
+    const loader = getChunkLoader(this.mapRoomId);
+    runAmbientTick({
+      roomId: this.mapRoomId,
+      gameState: this.gameState,
+      map: mapState,
+      loader,
+      npcSpeakJobs: this.npcSpeakJobs,
+      waypointCursors: this.ambientWaypointCursors,
+    });
   }
 
   /** Release per-NPC speak slot when job completes (called from hub after terminal emit). */
