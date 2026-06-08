@@ -1,0 +1,59 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "NpcPersonaSchedule",
+  "type": "object",
+  "required": ["npcId", "persona", "segments"],
+  "additionalProperties": false,
+  "properties": {
+    "npcId": { "type": "string", "pattern": "^npc-[1-3]$" },
+    "persona": { "type": "string" },
+    "segments": {
+      "type": "array",
+      "maxItems": 48,
+      "items": { "$ref": "#/$defs/segment" }
+    }
+  },
+  "$defs": {
+    "waypoint": {
+      "type": "object",
+      "required": ["gx", "gy"],
+      "additionalProperties": false,
+      "properties": {
+        "gx": { "type": "integer" },
+        "gy": { "type": "integer" }
+      }
+    },
+    "segment": {
+      "type": "object",
+      "required": ["fromMinute", "toMinute", "activityKey", "stationary", "waypoints"],
+      "additionalProperties": false,
+      "properties": {
+        "fromMinute": { "type": "integer", "minimum": 0, "maximum": 1439 },
+        "toMinute": { "type": "integer", "minimum": 0, "maximum": 1439 },
+        "activityKey": {
+          "type": "string",
+          "enum": [
+            "idle",
+            "patrol",
+            "fishing",
+            "tending_crops",
+            "watering",
+            "chopping_wood",
+            "reading",
+            "cooking",
+            "socializing",
+            "resting",
+            "unknown"
+          ]
+        },
+        "stationary": { "type": "boolean" },
+        "waypoints": {
+          "type": "array",
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/waypoint" }
+        },
+        "waypointMode": { "type": "string", "enum": ["loop", "once"] }
+      }
+    }
+  }
+}

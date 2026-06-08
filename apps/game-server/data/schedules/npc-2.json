@@ -1,0 +1,47 @@
+{
+  "npcId": "npc-2",
+  "persona": "farmer",
+  "_comment": "Farm persona — waypoints near npc-2 home slot (gx5 gy2) and adjacent tiles.",
+  "segments": [
+    {
+      "fromMinute": 360,
+      "toMinute": 540,
+      "activityKey": "tending_crops",
+      "stationary": true,
+      "waypoints": [{ "gx": 5, "gy": 2 }]
+    },
+    {
+      "fromMinute": 540,
+      "toMinute": 720,
+      "activityKey": "watering",
+      "stationary": false,
+      "waypoints": [
+        { "gx": 5, "gy": 2 },
+        { "gx": 6, "gy": 2 },
+        { "gx": 5, "gy": 3 }
+      ],
+      "waypointMode": "loop"
+    },
+    {
+      "fromMinute": 720,
+      "toMinute": 1080,
+      "activityKey": "fishing",
+      "stationary": true,
+      "waypoints": [{ "gx": 7, "gy": 4 }]
+    },
+    {
+      "fromMinute": 1080,
+      "toMinute": 1200,
+      "activityKey": "tending_crops",
+      "stationary": true,
+      "waypoints": [{ "gx": 5, "gy": 2 }]
+    },
+    {
+      "fromMinute": 1200,
+      "toMinute": 360,
+      "activityKey": "resting",
+      "stationary": true,
+      "waypoints": [{ "gx": 5, "gy": 2 }]
+    }
+  ]
+}
