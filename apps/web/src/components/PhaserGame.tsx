@@ -55,6 +55,9 @@ type Props = {
   movementSyncRef?: MutableRefObject<MovementSyncController | null>;
   /** DEV: one-line collective attitude (collectiveDebug=1). */
   collectiveAttitudeLine?: string | null;
+  gameClock?: { minute: number; label: string } | null;
+  npcActivityById?: Record<string, string>;
+  speakBusyNpcId?: string | null;
   onBootFailed?: () => void;
 };
 
@@ -92,6 +95,9 @@ type RegistrySnapshot = {
   loadedChunks: ChunkView[];
   movementSync: MovementSyncController | null;
   collectiveAttitudeLine: string | null;
+  gameClock: { minute: number; label: string } | null;
+  npcActivityById: Record<string, string>;
+  speakBusyNpcId: string | null;
 };
 
 function pushRoomRegistry(game: Phaser.Game, snap: RegistrySnapshot): void {
@@ -115,6 +121,9 @@ function pushRoomRegistry(game: Phaser.Game, snap: RegistrySnapshot): void {
   game.registry.set("loadedChunks", snap.loadedChunks);
   game.registry.set("movementSync", snap.movementSync);
   game.registry.set("collectiveAttitudeLine", snap.collectiveAttitudeLine);
+  game.registry.set("gameClock", snap.gameClock);
+  game.registry.set("npcActivityById", snap.npcActivityById);
+  game.registry.set("speakBusyNpcId", snap.speakBusyNpcId);
   game.registry.set("roomSync", Date.now());
 }
 
@@ -184,6 +193,10 @@ export async function probePhaserBoot(timeoutMs = BOOT_TIMEOUT_MS): Promise<bool
         remoteInterpMs: 130,
         loadedChunks: [],
         movementSync: null,
+        collectiveAttitudeLine: null,
+        gameClock: null,
+        npcActivityById: {},
+        speakBusyNpcId: null,
       });
       game.events.once("ready", () => finish(true));
     } catch {
@@ -217,6 +230,9 @@ export function PhaserGame({
   motionBridgeRef,
   movementSyncRef,
   collectiveAttitudeLine = null,
+  gameClock = null,
+  npcActivityById = {},
+  speakBusyNpcId = null,
   onBootFailed,
 }: Props) {
   const parentRef = useRef<HTMLDivElement>(null);
@@ -258,6 +274,9 @@ export function PhaserGame({
     remoteInterpMs,
     loadedChunks,
     collectiveAttitudeLine,
+    gameClock,
+    npcActivityById,
+    speakBusyNpcId,
   });
   registryRef.current = {
     width,
@@ -278,6 +297,9 @@ export function PhaserGame({
     remoteInterpMs,
     loadedChunks,
     collectiveAttitudeLine,
+    gameClock,
+    npcActivityById,
+    speakBusyNpcId,
   };
 
   useEffect(() => {
@@ -327,6 +349,9 @@ export function PhaserGame({
       loadedChunks: snap.loadedChunks,
       movementSync: movementSyncRef?.current ?? null,
       collectiveAttitudeLine,
+      gameClock,
+      npcActivityById,
+      speakBusyNpcId,
     });
 
     gameRef.current = game;
@@ -420,6 +445,9 @@ export function PhaserGame({
       loadedChunks,
       movementSync: movementSyncRef?.current ?? null,
       collectiveAttitudeLine,
+      gameClock,
+      npcActivityById,
+      speakBusyNpcId,
     });
     game.registry.events.emit("changedata", game.registry, "roomSync");
 
@@ -449,6 +477,9 @@ export function PhaserGame({
     loadedChunks,
     collectiveAttitudeLine,
     remoteInterpMs,
+    gameClock,
+    npcActivityById,
+    speakBusyNpcId,
   ]);
 
   return (
@@ -472,6 +503,7 @@ export function PhaserGame({
           placeName={exploreCoords.placeName}
           flavorLine={exploreCoords.flavor}
           lorePending={exploreCoords.pending}
+          gameClockLabel={gameClock?.label}
         />
       ) : null}
       <div className="room-scene-panel__viewport">
