@@ -7,6 +7,7 @@ type Props = {
   placeName?: string;
   flavorLine?: string;
   lorePending?: boolean;
+  gameClockLabel?: string;
 };
 
 export function ExploreCoordsStrip({
@@ -16,6 +17,7 @@ export function ExploreCoordsStrip({
   placeName,
   flavorLine,
   lorePending,
+  gameClockLabel,
 }: Props) {
   const { cx, cy } = chunkOf(gx, gy);
   const biomeLabel = biome === "void" ? "生成中" : BIOME_LABEL_ZH[biome];
@@ -29,6 +31,13 @@ export function ExploreCoordsStrip({
       </p>
       <p className="explore-coords-strip__meta">
         格 ({gx}, {gy}) · chunk ({cx}, {cy}) · {biomeLabel}
+        {gameClockLabel ? (
+          <>
+            {" "}
+            ·{" "}
+            <span data-testid="explore-game-clock">{gameClockLabel}</span>
+          </>
+        ) : null}
       </p>
       {lorePending ? (
         <p className="explore-coords-strip__pending" data-testid="lore-pending-hint">

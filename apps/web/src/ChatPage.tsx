@@ -49,6 +49,8 @@ export function ChatPage() {
     loreToastQueue,
     motionBridgeRef,
     movementSyncRef,
+    gameClock,
+    npcActivityById,
   } = useColyseusRoom(mapRoomId, moveMap);
   const discoverToast = loreToastQueue[0] ?? null;
   const dismissDiscoverToast = useCallback(() => {
@@ -422,6 +424,9 @@ export function ChatPage() {
             motionBridgeRef={motionBridgeRef}
             movementSyncRef={movementSyncRef}
             collectiveAttitudeLine={collectiveAttitudeLine}
+            gameClock={gameClock}
+            npcActivityById={npcActivityById}
+            speakBusyNpcId={speakBusyNpcId}
             onBootFailed={() => {
               setPhaserOk(false);
               setBootOk(false);
