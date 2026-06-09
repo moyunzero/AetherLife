@@ -36,9 +36,15 @@ export {
 } from "./world.js";
 
 export {
+  HOME_DEFAULT_PLAYER_SPAWN,
   HOME_MAP_TILE_H,
   HOME_MAP_TILE_W,
+  HOME_NPC_SPAWNS,
+  HOME_SPAWN_CONFIG_VERSION,
+  homeDefaultPlayerSpawn,
+  homeNpcSpawn,
   isHomeMapRegionCell,
+  type HomeNpcId,
 } from "./homeMap.js";
 
 export {

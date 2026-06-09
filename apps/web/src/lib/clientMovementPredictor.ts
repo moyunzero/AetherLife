@@ -231,8 +231,12 @@ export class ClientMovementPredictor {
     return this.pending.some((m) => m.dx === undefined && m.dy === undefined);
   }
 
-  /** Restore saved grid on join (single target move). */
-  pushRestoreMove(ctx: MovementPredictorContext, target: GridPos): void {
+  /** Restore saved grid on join (single target move). Returns false if target is not walkable. */
+  pushRestoreMove(ctx: MovementPredictorContext, target: GridPos): boolean {
+    const mapState = ctx.map ?? createDefaultRoom(ctx.roomId);
+    if (!clientCanStep(mapState, target.x, target.y, ctx.otherCells, ctx.loadedChunks)) {
+      return false;
+    }
     const seq = ++this.clientSeq;
     this.pending.push({
       clientSeq: seq,
@@ -246,6 +250,7 @@ export class ClientMovementPredictor {
     ctx.motionBridge?.snapTo(target.x, target.y);
     ctx.onPendingCount(this.pending.length);
     ctx.sendMove({ targetX: target.x, targetY: target.y, clientSeq: seq });
+    return true;
   }
 
   enqueueStep(

@@ -46,12 +46,14 @@ export const ASSET_KEYS = {
   tilesScrubPack: "tiles/biome-scrub",
   tilesWetlandPack: "tiles/biome-wetland",
   tilesHighlandPack: "tiles/biome-highland",
-  /** SpriteFusion Tiled export — initial homestead background */
-  mapTestHome: "map-test/home",
-  mapTestTiles: "map-test/spritefusion",
+  /** Beginning Fields — Fan-tasy tileset homestead (Phaser cache key) */
+  oneCityHome: "one-city/beginning-fields",
 } as const;
 
 export const BASE = "/assets";
+
+/** Baked Tiled map served to the client (source: assets/one-city/BeginningFields.json). */
+export const ONE_CITY_MAP_URL = `${BASE}/one-city/BeginningFields.json`;
 
 export const CORE_AREA_ASSETS: AssetSheetDef[] = [
   { kind: "image", key: ASSET_KEYS.tilesBiomes, url: `${BASE}/tiles/biomes.png` },

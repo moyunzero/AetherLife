@@ -1,7 +1,7 @@
 import { CHUNK_SIZE, type BiomeId, type ChunkView } from "@aetherlife/shared";
 import type * as Phaser from "phaser";
 import { ASSET_KEYS, TILE_PX } from "./assetManifest.js";
-import { CELL_PX, entityDepth } from "./entityLayout.js";
+import { CELL_PX, ySortDepth, YSORT_LAYER } from "./entityLayout.js";
 import { gridToWorld } from "./gridLayout.js";
 import { isHomeMapCell } from "./HomeMapBackground.js";
 import { decorForBlockedCell, homeDecorPlacements, type DecorPlacement } from "./homeLayout.js";
@@ -17,8 +17,6 @@ type DecorSpawn = {
   biome: BiomeId;
 };
 
-/** Foot-aligned decor sits below entities (layer 1+) on the same grid cell. */
-const DECOR_DEPTH_LAYER = 0 as const;
 
 function parseWorldSeed(): number {
   if (typeof import.meta !== "undefined" && import.meta.env?.VITE_WORLD_SEED) {
@@ -104,7 +102,9 @@ export class DecorRenderer {
           img.setOrigin(0.5, 1);
           img.setScale(scale);
           img.setTint(tint);
-          img.setDepth(entityDepth(p.gx + dx, p.gy + dy, DECOR_DEPTH_LAYER));
+          img.setDepth(
+            ySortDepth(wx + dx * CELL_PX, wy + dy * CELL_PX, YSORT_LAYER.DECOR),
+          );
           this.sprites.push(img);
         }
       }
@@ -115,7 +115,7 @@ export class DecorRenderer {
     img.setOrigin(0.5, 1);
     img.setScale(scale);
     img.setTint(tint);
-    img.setDepth(entityDepth(p.gx, p.gy, DECOR_DEPTH_LAYER));
+    img.setDepth(ySortDepth(wx, wy, YSORT_LAYER.DECOR));
     this.sprites.push(img);
   }
 

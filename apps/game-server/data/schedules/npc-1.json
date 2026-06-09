@@ -1,14 +1,14 @@
 {
   "npcId": "npc-1",
   "persona": "scholar",
-  "_comment": "Waypoints anchor near default home spawn (npc-1 @ gx2 gy2) and nearby walkable tiles.",
+  "_comment": "Waypoints anchor near npc-1 home (Tiled gx23 gy10) on Beginning Fields.",
   "segments": [
     {
       "fromMinute": 360,
       "toMinute": 480,
       "activityKey": "reading",
       "stationary": true,
-      "waypoints": [{ "gx": 2, "gy": 2 }]
+      "waypoints": [{ "gx": 23, "gy": 10 }]
     },
     {
       "fromMinute": 480,
@@ -16,9 +16,9 @@
       "activityKey": "patrol",
       "stationary": false,
       "waypoints": [
-        { "gx": 2, "gy": 2 },
-        { "gx": 5, "gy": 2 },
-        { "gx": 2, "gy": 5 }
+        { "gx": 23, "gy": 10 },
+        { "gx": 26, "gy": 10 },
+        { "gx": 23, "gy": 13 }
       ],
       "waypointMode": "loop"
     },
@@ -27,21 +27,21 @@
       "toMinute": 1080,
       "activityKey": "socializing",
       "stationary": true,
-      "waypoints": [{ "gx": 4, "gy": 4 }]
+      "waypoints": [{ "gx": 34, "gy": 13 }]
     },
     {
       "fromMinute": 1080,
       "toMinute": 1200,
       "activityKey": "reading",
       "stationary": true,
-      "waypoints": [{ "gx": 2, "gy": 2 }]
+      "waypoints": [{ "gx": 23, "gy": 10 }]
     },
     {
       "fromMinute": 1200,
       "toMinute": 360,
       "activityKey": "resting",
       "stationary": true,
-      "waypoints": [{ "gx": 2, "gy": 2 }]
+      "waypoints": [{ "gx": 23, "gy": 10 }]
     }
   ]
 }

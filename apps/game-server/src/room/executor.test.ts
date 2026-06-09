@@ -8,8 +8,8 @@ describe("applyGameAction", () => {
     const { room: next } = applyGameAction(room, { type: "move", x: 5, y: 5 }, "npc-1");
     expect(findNpc(next, "npc-1")?.x).toBe(5);
     expect(findNpc(next, "npc-1")?.y).toBe(5);
-    expect(findNpc(next, "npc-2")?.x).toBe(5);
-    expect(findNpc(next, "npc-2")?.y).toBe(2);
+    expect(findNpc(next, "npc-2")?.x).toBe(9);
+    expect(findNpc(next, "npc-2")?.y).toBe(21);
   });
 
   it("interact toggles door for acting npc context", () => {
@@ -79,6 +79,10 @@ describe("applyGameAction", () => {
 
   it("snaps move onto another npc to nearest walkable cell", () => {
     const room = createDefaultRoom();
+    findNpc(room, "npc-1")!.x = 4;
+    findNpc(room, "npc-1")!.y = 2;
+    findNpc(room, "npc-2")!.x = 5;
+    findNpc(room, "npc-2")!.y = 2;
     const { room: next } = applyGameAction(room, { type: "move", x: 5, y: 2 }, "npc-1");
     const npc = findNpc(next, "npc-1");
     expect(npc?.x === 5 && npc?.y === 2).toBe(false);
@@ -88,6 +92,9 @@ describe("applyGameAction", () => {
 
   it("snaps move onto player cell to adjacent walkable cell", () => {
     const room = createDefaultRoom();
+    room.player = { x: 4, y: 4 };
+    findNpc(room, "npc-1")!.x = 3;
+    findNpc(room, "npc-1")!.y = 4;
     const { room: next } = applyGameAction(room, { type: "move", x: 4, y: 4 }, "npc-1");
     const npc = findNpc(next, "npc-1");
     expect(npc?.x === 4 && npc?.y === 4).toBe(false);

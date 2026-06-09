@@ -174,10 +174,11 @@ export async function probePhaserBoot(timeoutMs = BOOT_TIMEOUT_MS): Promise<bool
         scene: [RoomScene],
       });
       setVisualFallbackRegistry(game, parseVisualFallbackQuery());
+      const initialRoom = createDefaultRoom();
       pushRoomRegistry(game, {
-        width: 8,
-        height: 8,
-        moveMap: createDefaultRoom(),
+        width: initialRoom.width,
+        height: initialRoom.height,
+        moveMap: initialRoom,
         players: [],
         sessionId: null,
         mapNpcs: [],

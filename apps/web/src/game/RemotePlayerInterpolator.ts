@@ -1,6 +1,7 @@
 import type Phaser from "phaser";
 import { GRID_STEP_MS, STEP_OVERLAP } from "./gridMovement.js";
 import { gridToWorld } from "./gridLayout.js";
+import { entityYSortDepth, entityYSortDepthFromCenter } from "./entityLayout.js";
 
 export type GridCell = { x: number; y: number };
 
@@ -27,7 +28,6 @@ export type RemoteInterpEntity = {
 export type RemoteInterpDeps = {
   tweens: Phaser.Tweens.TweenManager;
   getReducedMotion: () => boolean;
-  entityDepth: (gx: number, gy: number, layer: 0 | 1 | 2) => number;
   snapEntityToGrid: (ent: RemoteInterpEntity, gx: number, gy: number) => void;
   stopEntityMotion: (ent: RemoteInterpEntity) => void;
   stepMs?: number;
@@ -192,7 +192,7 @@ export class RemotePlayerInterpolator {
     deps.onStepStart?.(ent, fromX, fromY, gx, gy);
 
     const { wx, wy } = gridToWorld(gx, gy);
-    ent.container.setDepth(deps.entityDepth(gx, gy, ent.depthLayer));
+    ent.container.setDepth(entityYSortDepth(gx, gy, ent.depthLayer));
     let overlapTriggered = false;
 
     const finishStep = () => {
@@ -207,6 +207,10 @@ export class RemotePlayerInterpolator {
       duration: stepMs,
       ease: "Cubic.easeInOut",
       onUpdate: (tween) => {
+        const target = tween.targets[0] as Phaser.GameObjects.Container;
+        ent.container.setDepth(
+          entityYSortDepthFromCenter(target.x, target.y, ent.depthLayer),
+        );
         if (overlapTriggered || tween.progress < STEP_OVERLAP) return;
         if (track.stepQueue.length === 0) return;
         overlapTriggered = true;

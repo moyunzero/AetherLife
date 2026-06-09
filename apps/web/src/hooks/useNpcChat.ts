@@ -12,7 +12,7 @@ import {
 } from "@aetherlife/shared";
 import { shouldRefetchCollectiveOnJobDone } from "./useCollectiveAttitude.js";
 import { applyStatePatch } from "../lib/applyStatePatch.js";
-import { getOrCreatePlayerId, playerApiHeaders } from "../lib/playerSession.js";
+import { clearLastGridPos, getOrCreatePlayerId, playerApiHeaders } from "../lib/playerSession.js";
 
 export type ChatMessage = {
   id: string;
@@ -449,6 +449,7 @@ export function useNpcChat(
         return null;
       }
       const body = await res.json();
+      clearLastGridPos(mapRoomId);
       setMessages([]);
       setRoomState(body.state);
       setMemoryCounts(body.memoryCounts ?? {});

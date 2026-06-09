@@ -37,7 +37,7 @@ export function isTerrainWalkable(
   gy: number,
   worldSeed: number = clientWorldSeed(),
 ): boolean {
-  // map-test homestead art covers 24×24; terrain is open (NPC/door/players still block).
+  // Beginning Fields art covers 40×40; terrain is open (NPC/door/players still block).
   if (isHomeMapRegionCell(gx, gy)) return true;
 
   const { cx, cy } = chunkOf(gx, gy);

@@ -120,8 +120,8 @@ export class MovementSyncController {
     this.predictor.syncAuthoritativeFromSchema(self);
   }
 
-  pushRestoreMove(self: PlayerSnapshot, snapshots: PlayerSnapshot[], target: { x: number; y: number }): void {
-    this.predictor.pushRestoreMove(this.buildCtx(self, snapshots), target);
+  pushRestoreMove(self: PlayerSnapshot, snapshots: PlayerSnapshot[], target: { x: number; y: number }): boolean {
+    return this.predictor.pushRestoreMove(this.buildCtx(self, snapshots), target);
   }
 
   sendWasd(dx: number, dy: number): void {

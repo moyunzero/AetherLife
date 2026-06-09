@@ -5,6 +5,8 @@ import {
   type RoomState,
 } from "@aetherlife/shared";
 import { getOrCreate } from "../room/store.js";
+import { getChunkLoader } from "../world/chunk-loader.js";
+import { buildMoveGrid, findNearestWalkableCell } from "./move-handler.js";
 import { getColyseusRoom } from "./room-registry.js";
 import { bumpStateVersion } from "./version.js";
 import type { GameRoomState } from "./schema.js";
@@ -110,9 +112,12 @@ export function syncColyseusFromMap(colyseus: GameRoomState, map: RoomState): vo
 export function resetColyseusFromMap(roomId: string, map: RoomState): void {
   const colyseus = getColyseusRoom(roomId);
   if (!colyseus) return;
-  const spawn = map.player;
-  const state = colyseus.state as import("./schema.js").GameRoomState;
-  state.players.forEach((player) => {
+  const loader = getChunkLoader(roomId);
+  const anchor = map.player;
+  const state = colyseus.state as GameRoomState;
+  state.players.forEach((player, sessionId) => {
+    const grid = buildMoveGrid(map, state, sessionId, loader);
+    const spawn = findNearestWalkableCell(anchor.x, anchor.y, grid);
     player.x = spawn.x;
     player.y = spawn.y;
   });

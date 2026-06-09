@@ -8,7 +8,7 @@ import {
   COLYSEUS_SERVER_MESSAGES,
   chunkOf,
   chunkViewsFingerprint,
-  defaultSpawnGlobal,
+  homeDefaultPlayerSpawn,
   normalizePlayerId,
   type ColyseusMovePayload,
   type ColyseusSpeakPayload,
@@ -35,7 +35,6 @@ import {
 import { GameRoomState, PlayerSchema } from "./schema.js";
 import { bumpStateVersion } from "./version.js";
 import { runAmbientTick } from "../ambient/tick.js";
-import { getChunkLoader } from "../world/chunk-loader.js";
 
 export const AMBIENT_MS = 6000;
 
@@ -270,7 +269,7 @@ export class GameRoom extends Room {
     }
     const { state: mapState } = getOrCreate(this.mapRoomId);
     const loader = getChunkLoader(this.mapRoomId);
-    const defaultSpawn = defaultSpawnGlobal();
+    const defaultSpawn = homeDefaultPlayerSpawn();
     const occupied: { x: number; y: number }[] = [];
     this.gameState.players.forEach((p) => {
       occupied.push({ x: p.x, y: p.y });

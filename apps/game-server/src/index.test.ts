@@ -92,7 +92,7 @@ describe("game-server", () => {
     const res = await request(app).post("/rooms/default/reset");
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
-    expect(res.body.state.npcs[0]).toEqual(expect.objectContaining({ id: "npc-1", x: 2, y: 2 }));
+    expect(res.body.state.npcs[0]).toEqual(expect.objectContaining({ id: "npc-1", x: 23, y: 10 }));
     expect(res.body.memoryCounts).toEqual({
       "npc-1": 0,
       "npc-2": 0,

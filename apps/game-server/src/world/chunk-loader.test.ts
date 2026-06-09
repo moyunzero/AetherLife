@@ -21,11 +21,11 @@ describe("ChunkLoader", () => {
     expect(loader.getWalkability(40, 40)).toBe("void");
   });
 
-  it("map-test homestead region (24×24) is walkable without loading chunks", () => {
+  it("Beginning Fields homestead region (40×40) is walkable without loading chunks", () => {
     const loader = new ChunkLoader({ worldId: "test-homemap", worldSeed: 42 });
     expect(loader.getWalkability(10, 10)).toBe(true);
-    expect(loader.getWalkability(23, 23)).toBe(true);
-    expect(loader.getWalkability(24, 0)).toBe("void");
+    expect(loader.getWalkability(39, 39)).toBe(true);
+    expect(loader.getWalkability(40, 0)).toBe("void");
   });
 
   it("evicts chunks outside union after TTL", async () => {

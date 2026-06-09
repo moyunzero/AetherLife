@@ -4,6 +4,7 @@ import {
   STEP_OVERLAP,
 } from "./gridMovement.js";
 import { gridToWorld } from "./gridLayout.js";
+import { entityYSortDepth, entityYSortDepthFromCenter } from "./entityLayout.js";
 import type {
   GridCell as MotionCell,
   LocalPlayerMotionBridge,
@@ -25,7 +26,6 @@ export type LocalPlayerMovementDeps = {
   getEntity: () => MovementEntity | undefined;
   tweens: Phaser.Tweens.TweenManager;
   getReducedMotion: () => boolean;
-  entityDepth: (gx: number, gy: number, layer: 0 | 1 | 2) => number;
   snapEntityToGrid: (ent: MovementEntity, gx: number, gy: number) => void;
   stopEntityMotion: (ent: MovementEntity) => void;
   /** Called after snapTo so the scene can reset camera lerp anchors. */
@@ -230,7 +230,7 @@ export class LocalPlayerMovementController {
     this.deps.onStepStart?.(ent, fromX, fromY, gx, gy);
 
     const { wx, wy } = gridToWorld(gx, gy);
-    ent.container.setDepth(this.deps.entityDepth(gx, gy, ent.depthLayer));
+    ent.container.setDepth(entityYSortDepth(gx, gy, ent.depthLayer));
     let overlapTriggered = false;
 
     const finishStep = () => {
@@ -246,6 +246,10 @@ export class LocalPlayerMovementController {
       duration: GRID_STEP_MS,
       ease: "Cubic.easeInOut",
       onUpdate: (tween) => {
+        const target = tween.targets[0] as Phaser.GameObjects.Container;
+        ent.container.setDepth(
+          entityYSortDepthFromCenter(target.x, target.y, ent.depthLayer),
+        );
         if (overlapTriggered || tween.progress < STEP_OVERLAP) return;
         if (!this.hasMoreLocalSteps()) return;
         overlapTriggered = true;

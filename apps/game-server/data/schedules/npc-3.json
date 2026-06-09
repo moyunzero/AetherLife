@@ -1,21 +1,21 @@
 {
   "npcId": "npc-3",
   "persona": "host",
-  "_comment": "Host persona — waypoints near npc-3 home slot (gx2 gy5) and social tiles.",
+  "_comment": "Host persona — waypoints near npc-3 home (Tiled gx28 gy27).",
   "segments": [
     {
       "fromMinute": 360,
       "toMinute": 540,
       "activityKey": "cooking",
       "stationary": true,
-      "waypoints": [{ "gx": 2, "gy": 5 }]
+      "waypoints": [{ "gx": 28, "gy": 27 }]
     },
     {
       "fromMinute": 540,
       "toMinute": 900,
       "activityKey": "socializing",
       "stationary": true,
-      "waypoints": [{ "gx": 4, "gy": 4 }]
+      "waypoints": [{ "gx": 34, "gy": 13 }]
     },
     {
       "fromMinute": 900,
@@ -23,9 +23,9 @@
       "activityKey": "patrol",
       "stationary": false,
       "waypoints": [
-        { "gx": 2, "gy": 5 },
-        { "gx": 5, "gy": 5 },
-        { "gx": 2, "gy": 2 }
+        { "gx": 28, "gy": 27 },
+        { "gx": 31, "gy": 27 },
+        { "gx": 28, "gy": 24 }
       ],
       "waypointMode": "loop"
     },
@@ -34,7 +34,7 @@
       "toMinute": 360,
       "activityKey": "resting",
       "stationary": true,
-      "waypoints": [{ "gx": 2, "gy": 5 }]
+      "waypoints": [{ "gx": 28, "gy": 27 }]
     }
   ]
 }

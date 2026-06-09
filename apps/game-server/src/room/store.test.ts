@@ -11,6 +11,6 @@ describe("room store", () => {
     getOrCreate(roomId);
     reset(roomId);
     const fresh = getOrCreate(roomId);
-    expect(fresh.state.npcs[0]).toEqual(expect.objectContaining({ id: "npc-1", x: 2, y: 2 }));
+    expect(fresh.state.npcs[0]).toEqual(expect.objectContaining({ id: "npc-1", x: 23, y: 10 }));
   });
 });

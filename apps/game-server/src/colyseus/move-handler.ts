@@ -3,6 +3,7 @@ import {
   canStepGlobal,
   findGlobalGridPath,
   findNearestGlobalWalkable,
+  type Facing,
   type GlobalMoveGrid,
   type RoomState,
 } from "@aetherlife/shared";

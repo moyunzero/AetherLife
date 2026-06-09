@@ -1,4 +1,5 @@
 import {
+  HOME_SPAWN_CONFIG_VERSION,
   PLAYER_ID_STORAGE_KEY,
   TAB_PRESENCE_CHANNEL,
   isValidPlayerId,
@@ -6,8 +7,16 @@ import {
 
 const TAB_ID_KEY = "aetherlife:tabId";
 
+/** Max global grid index accepted for session restore (outside home uses same coords). */
+const MAX_GRID_RESTORE = 512;
+
 export function lastGridPosKey(roomId: string): string {
   return `aetherlife:lastGridPos:${roomId}`;
+}
+
+export function clearLastGridPos(roomId: string): void {
+  if (typeof sessionStorage === "undefined") return;
+  sessionStorage.removeItem(lastGridPosKey(roomId));
 }
 
 export function readLastGridPos(
@@ -17,17 +26,20 @@ export function readLastGridPos(
   const raw = sessionStorage.getItem(lastGridPosKey(roomId));
   if (!raw) return null;
   try {
-    const { x, y } = JSON.parse(raw) as { x?: number; y?: number };
+    const parsed = JSON.parse(raw) as { x?: number; y?: number; v?: number };
+    const { x, y, v } = parsed;
+    if (v !== HOME_SPAWN_CONFIG_VERSION) return null;
     if (
-      Number.isInteger(x) &&
-      Number.isInteger(y) &&
-      x >= 0 &&
-      y >= 0 &&
-      x < 8 &&
-      y < 8
+      !Number.isInteger(x) ||
+      !Number.isInteger(y) ||
+      x < 0 ||
+      y < 0 ||
+      x >= MAX_GRID_RESTORE ||
+      y >= MAX_GRID_RESTORE
     ) {
-      return { x, y };
+      return null;
     }
+    return { x, y };
   } catch {
     /* ignore */
   }
@@ -40,7 +52,12 @@ export function writeLastGridPos(
   y: number,
 ): void {
   if (typeof sessionStorage === "undefined") return;
-  sessionStorage.setItem(lastGridPosKey(roomId), JSON.stringify({ x, y }));
+  if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0) return;
+  if (x >= MAX_GRID_RESTORE || y >= MAX_GRID_RESTORE) return;
+  sessionStorage.setItem(
+    lastGridPosKey(roomId),
+    JSON.stringify({ x, y, v: HOME_SPAWN_CONFIG_VERSION }),
+  );
 }
 
 export function getOrCreatePlayerId(): string {

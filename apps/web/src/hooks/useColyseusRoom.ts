@@ -45,7 +45,7 @@ function snapshotAmbientState(room: Room): {
   };
 }
 import { useChunkLore } from "./useChunkLore.js";
-import { getOrCreatePlayerId, readLastGridPos } from "../lib/playerSession.js";
+import { clearLastGridPos, getOrCreatePlayerId, readLastGridPos } from "../lib/playerSession.js";
 
 export type PlayerSnapshot = {
   sessionId: string;
@@ -255,8 +255,10 @@ export function useColyseusRoom(roomId = "default", map: RoomState | null = null
         restoredGridPos = true;
         const saved = readLastGridPos(roomId);
         if (saved && (saved.x !== self.x || saved.y !== self.y)) {
-          sync.pushRestoreMove(self, snapshots, saved);
-          return;
+          if (sync.pushRestoreMove(self, snapshots, saved)) {
+            return;
+          }
+          clearLastGridPos(roomId);
         }
       }
 

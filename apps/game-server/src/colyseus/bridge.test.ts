@@ -61,7 +61,7 @@ describe("initiator player view", () => {
 
     const view = roomStateForInitiator(map, "default", "player-bravo001");
     expect(view.player).toEqual({ x: 1, y: 7 });
-    expect(map.player).toEqual({ x: 4, y: 4 });
+    expect(map.player).toEqual({ x: 34, y: 13 });
   });
 });
 
