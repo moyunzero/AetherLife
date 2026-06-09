@@ -19,7 +19,7 @@
 | MP-01 | **每名人类玩家** 在 Colyseus `GameRoomState.players` 中有独立 `(x,y)` 与 `playerId`。 |
 | MP-02 | `RoomState.player` 是 **遗留单人字段**，仅作默认/回退；**不得**作为多人空间推理的唯一依据。 |
 | MP-03 | `syncMapPlayerPosition` 写入的 `map.player` = **最后移动者**，不表示「当前说话的玩家」。 |
-| MP-04 | Worker / LLM 拉取的 `GET /rooms/:id/state` 必须在带 `X-Player-Id` 时，将 `state.player` **覆盖为** 该玩家在 Colyseus 中的实时格（见 `roomStateForInitiator`）。 |
+| MP-04 | Worker speak 热路径 `GET /internal/rooms/:id/worker-state`（legacy `GET /rooms/:id/state` 仍可用）必须在带 `X-Player-Id` 时，将 `state.player` **覆盖为** 该玩家在 Colyseus 中的实时格（见 `roomStateForInitiator`）。 |
 | MP-05 | `playerId` 除记忆分桶外，必须参与 **空间上下文**（state 视图 + `apply-actions` 的 `initiatorPlayerId`）。 |
 
 ## 2. NL 指令与执行

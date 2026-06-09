@@ -36,6 +36,18 @@ export {
 } from "./world.js";
 
 export {
+  HOME_DEFAULT_PLAYER_SPAWN,
+  HOME_MAP_TILE_H,
+  HOME_MAP_TILE_W,
+  HOME_NPC_SPAWNS,
+  HOME_SPAWN_CONFIG_VERSION,
+  homeDefaultPlayerSpawn,
+  homeNpcSpawn,
+  isHomeMapRegionCell,
+  type HomeNpcId,
+} from "./homeMap.js";
+
+export {
   BIOME_LABEL_ZH,
   chunkViewsFingerprint,
   type BiomeId,
@@ -152,6 +164,15 @@ export {
   clampAttitudeScore,
   type AttitudeBand,
 } from "./attitude.js";
+
+export {
+  NPC_ACTIVITY_KEYS,
+  NPC_ACTIVITY_LABEL_ZH,
+  activityDisplayZh,
+  formatGameClock,
+  isKnownActivityKey,
+  type NpcActivityKey,
+} from "./npcActivity.js";
 
 export {
   COLLECTIVE_EVENT_KINDS,

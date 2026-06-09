@@ -13,10 +13,39 @@ import {
   type ChunkView,
   type ColyseusChunksSyncPayload,
   type ColyseusLoreSyncPayload,
+  formatGameClock,
   type RoomState,
 } from "@aetherlife/shared";
+
+export type GameClockState = {
+  minute: number;
+  label: string;
+};
+
+type AmbientColyseusState = {
+  gameMinute?: number;
+  npc1ActivityKey?: string;
+  npc2ActivityKey?: string;
+  npc3ActivityKey?: string;
+};
+
+function snapshotAmbientState(room: Room): {
+  gameClock: GameClockState;
+  npcActivityById: Record<string, string>;
+} {
+  const state = room.state as AmbientColyseusState;
+  const minute = state.gameMinute ?? 360;
+  return {
+    gameClock: { minute, label: formatGameClock(minute) },
+    npcActivityById: {
+      "npc-1": state.npc1ActivityKey ?? "idle",
+      "npc-2": state.npc2ActivityKey ?? "idle",
+      "npc-3": state.npc3ActivityKey ?? "idle",
+    },
+  };
+}
 import { useChunkLore } from "./useChunkLore.js";
-import { getOrCreatePlayerId, readLastGridPos } from "../lib/playerSession.js";
+import { clearLastGridPos, getOrCreatePlayerId, readLastGridPos } from "../lib/playerSession.js";
 
 export type PlayerSnapshot = {
   sessionId: string;
@@ -134,6 +163,8 @@ export function useColyseusRoom(roomId = "default", map: RoomState | null = null
     pending: 0,
   });
   const [loadedChunks, setLoadedChunks] = useState<ChunkView[]>([]);
+  const [gameClock, setGameClock] = useState<GameClockState | null>(null);
+  const [npcActivityById, setNpcActivityById] = useState<Record<string, string>>({});
   const {
     mergeLoreSync,
     loreForChunk,
@@ -213,6 +244,9 @@ export function useColyseusRoom(roomId = "default", map: RoomState | null = null
     const applySnapshots = (joined: Room) => {
       const snapshots = snapshotPlayers(joined);
       setPlayers(snapshots);
+      const ambient = snapshotAmbientState(joined);
+      setGameClock(ambient.gameClock);
+      setNpcActivityById(ambient.npcActivityById);
       const sid = joined.sessionId;
       const self = snapshots.find((p) => p.sessionId === sid);
       if (!self) return;
@@ -221,8 +255,10 @@ export function useColyseusRoom(roomId = "default", map: RoomState | null = null
         restoredGridPos = true;
         const saved = readLastGridPos(roomId);
         if (saved && (saved.x !== self.x || saved.y !== self.y)) {
-          sync.pushRestoreMove(self, snapshots, saved);
-          return;
+          if (sync.pushRestoreMove(self, snapshots, saved)) {
+            return;
+          }
+          clearLastGridPos(roomId);
         }
       }
 
@@ -336,6 +372,8 @@ export function useColyseusRoom(roomId = "default", map: RoomState | null = null
       sync.reset();
       loadedChunksFpRef.current = "";
       setLoadedChunks([]);
+      setGameClock(null);
+      setNpcActivityById({});
       setRoom(null);
       setConnected(false);
     };
@@ -376,5 +414,7 @@ export function useColyseusRoom(roomId = "default", map: RoomState | null = null
     loreForChunk,
     consumeDiscoverToast,
     loreToastQueue: toastQueue,
+    gameClock,
+    npcActivityById,
   };
 }

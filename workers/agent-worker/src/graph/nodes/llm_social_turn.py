@@ -48,22 +48,53 @@ SOCIAL_SYSTEM_PROMPT = """你是「以太人生」NPC 的社交感知模块。
 - 侮辱、人身攻击、辱骂（嘲笑外貌、诅咒、挑衅）必须 social.kind=rude，禁止用 ignore
 - ignore 仅用于无明显社交含义的日常闲聊或纯信息交换
 - reply 的情绪必须与 social.kind 一致（rude 时不应同时 kind=ignore）
+- Memory summary 仅供背景；若玩家追问具体事实（密码、数字、约定），reply 须用当下口吻直接给出正确答案，可简短；禁止 meta 套话（如「你上次说过/还记得吗/之前告诉我的」）
+- 追问具体事实时 social.kind 应为 ignore 或 help，不得判为 rude；低好感可冷淡，但不得编造与记忆矛盾的内容
 
 若玩家要求移动/开门/拿东西，reply 可承诺行动，但本步不调用工具。"""
+
+# One attempt per provider — APITimeout × 3 retries caused ~135s hangs before fallback.
+SOCIAL_LLM_MAX_ATTEMPTS = 1
 
 
 def _parse_social_turn_json(content: str) -> SocialTurnOut | None:
     text = content.strip()
-    try:
-        parsed = json.loads(text)
-        return SocialTurnOut.model_validate(parsed)
-    except (json.JSONDecodeError, ValueError):
-        match = re.search(r"\{.*\}", text, re.DOTALL)
-        if match:
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\s*```$", "", text)
+
+    candidates: list[str] = [text]
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if match:
+        candidates.append(match.group(0))
+
+    for candidate in candidates:
+        for cleaned in (candidate, re.sub(r",\s*([}\]])", r"\1", candidate)):
             try:
-                return SocialTurnOut.model_validate(json.loads(match.group(0)))
+                parsed = json.loads(cleaned)
+                return SocialTurnOut.model_validate(parsed)
             except (json.JSONDecodeError, ValueError):
-                return None
+                continue
+
+    reply_match = re.search(r'"reply"\s*:\s*"((?:\\.|[^"\\])*)"', text, re.DOTALL)
+    if reply_match:
+        kind_match = re.search(r'"kind"\s*:\s*"([^"]+)"', text)
+        summary_match = re.search(r'"summary"\s*:\s*"((?:\\.|[^"\\])*)"', text)
+        delta_match = re.search(r'"delta"\s*:\s*(-?\d+)', text)
+        try:
+            reply = json.loads(f'"{reply_match.group(1)}"')
+        except json.JSONDecodeError:
+            reply = reply_match.group(1)
+        kind = kind_match.group(1) if kind_match else SOCIAL_SKIP_KIND
+        summary = summary_match.group(1) if summary_match else ""
+        delta = int(delta_match.group(1)) if delta_match else 0
+        try:
+            return SocialTurnOut(
+                social=SocialPerception(kind=kind, summary=summary, delta=delta),
+                reply=str(reply),
+            )
+        except ValueError:
+            return None
     return None
 
 
@@ -94,6 +125,9 @@ def _build_social_messages(state: GraphState) -> list[SystemMessage | HumanMessa
         summaries=state.get("collective_summaries"),
     )
     system_text = f"{SOCIAL_SYSTEM_PROMPT}\n{build_room_constraints(room)}\n\n{attitude}"
+    memory = (state.get("memory_summary") or "").strip()
+    if memory:
+        system_text = f"{system_text}\n\nMemory summary:\n{memory}"
     player_message = state.get("player_message") or ""
     return [
         SystemMessage(content=system_text),
@@ -130,8 +164,9 @@ def run_social_turn_llm(state: GraphState, *, settings: Settings | None = None) 
                 provider=provider,
                 model=model,
                 api_key=or_key,
+                request_timeout=float(cfg.llm_social_request_timeout),
             )
-            for attempt in range(3):
+            for attempt in range(SOCIAL_LLM_MAX_ATTEMPTS):
                 try:
                     response = llm.invoke(messages)
                     record_llm_call("social", provider, model)

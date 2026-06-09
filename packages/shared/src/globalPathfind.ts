@@ -1,6 +1,7 @@
-import type { RoomState } from "./room.js";
-import { CHUNK_SIZE, chunkOf } from "./world.js";
+import { HOME_DEFAULT_PLAYER_SPAWN, homeDefaultPlayerSpawn } from "./homeMap.js";
 import type { GridCell } from "./pathfind.js";
+import type { RoomState } from "./room.js";
+import { chunkOf } from "./world.js";
 
 function cellKey(x: number, y: number): string {
   return `${x},${y}`;
@@ -13,7 +14,7 @@ export type GlobalMoveGrid = {
 
 export type BuildGlobalMoveGridOptions = {
   excludeNpcId?: string;
-  /** Home-chunk NPCs/objects only (global 0..7). */
+  /** Homestead map snapshot (0..HOME_MAP_TILE_W/H-1). */
   homeMap: RoomState;
   otherPlayerCells: readonly GridCell[];
   isTerrainWalkable: (gx: number, gy: number) => boolean;
@@ -154,6 +155,7 @@ export function isHomeChunkCell(gx: number, gy: number): boolean {
   return cx === 0 && cy === 0;
 }
 
+/** Colyseus join spawn on Beginning Fields (Tiled tile = game cell). */
 export function defaultSpawnGlobal(): GridCell {
-  return { x: Math.floor(CHUNK_SIZE / 2), y: Math.floor(CHUNK_SIZE / 2) };
+  return homeDefaultPlayerSpawn();
 }

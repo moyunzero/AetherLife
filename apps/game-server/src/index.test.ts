@@ -92,7 +92,7 @@ describe("game-server", () => {
     const res = await request(app).post("/rooms/default/reset");
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
-    expect(res.body.state.npcs[0]).toEqual(expect.objectContaining({ id: "npc-1", x: 2, y: 2 }));
+    expect(res.body.state.npcs[0]).toEqual(expect.objectContaining({ id: "npc-1", x: 23, y: 10 }));
     expect(res.body.memoryCounts).toEqual({
       "npc-1": 0,
       "npc-2": 0,
@@ -133,6 +133,15 @@ describe("game-server", () => {
     expect(res.status).toBe(400);
     const after = await request(app).get("/rooms/default/state");
     expect(after.body.state.npcs).toEqual(before.body.state.npcs);
+  });
+
+  it("GET /internal/rooms/default/worker-state returns state without memoryCounts", async () => {
+    const res = await request(app).get("/internal/rooms/default/worker-state");
+    expect(res.status).toBe(200);
+    expect(res.body.state).toBeDefined();
+    expect(Array.isArray(res.body.state.npcs)).toBe(true);
+    expect(Array.isArray(res.body.nearbyLore)).toBe(true);
+    expect(res.body.memoryCounts).toBeUndefined();
   });
 
   it("GET /internal/rooms/default/memory-context returns context shape", async () => {

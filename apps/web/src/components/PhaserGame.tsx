@@ -13,6 +13,7 @@ import type { PlayerSnapshot } from "../hooks/useColyseusRoom.js";
 import type { LocalPlayerMotionBridge } from "../game/localPlayerMotion.js";
 import type { MovementSyncController } from "../game/MovementSyncController.js";
 import { ExploreCoordsStrip } from "./ExploreCoordsStrip.js";
+import { JournalQuestStrip } from "./JournalQuestStrip.js";
 import { LoreDiscoverToast } from "./LoreDiscoverToast.js";
 import { biomeAt } from "../lib/chunkWalkability.js";
 import type { ChunkLoreEntry, LoreDiscoverToast as LoreDiscoverToastPayload } from "../hooks/useChunkLore.js";
@@ -55,6 +56,9 @@ type Props = {
   movementSyncRef?: MutableRefObject<MovementSyncController | null>;
   /** DEV: one-line collective attitude (collectiveDebug=1). */
   collectiveAttitudeLine?: string | null;
+  gameClock?: { minute: number; label: string } | null;
+  npcActivityById?: Record<string, string>;
+  speakBusyNpcId?: string | null;
   onBootFailed?: () => void;
 };
 
@@ -92,6 +96,9 @@ type RegistrySnapshot = {
   loadedChunks: ChunkView[];
   movementSync: MovementSyncController | null;
   collectiveAttitudeLine: string | null;
+  gameClock: { minute: number; label: string } | null;
+  npcActivityById: Record<string, string>;
+  speakBusyNpcId: string | null;
 };
 
 function pushRoomRegistry(game: Phaser.Game, snap: RegistrySnapshot): void {
@@ -115,6 +122,9 @@ function pushRoomRegistry(game: Phaser.Game, snap: RegistrySnapshot): void {
   game.registry.set("loadedChunks", snap.loadedChunks);
   game.registry.set("movementSync", snap.movementSync);
   game.registry.set("collectiveAttitudeLine", snap.collectiveAttitudeLine);
+  game.registry.set("gameClock", snap.gameClock);
+  game.registry.set("npcActivityById", snap.npcActivityById);
+  game.registry.set("speakBusyNpcId", snap.speakBusyNpcId);
   game.registry.set("roomSync", Date.now());
 }
 
@@ -164,10 +174,11 @@ export async function probePhaserBoot(timeoutMs = BOOT_TIMEOUT_MS): Promise<bool
         scene: [RoomScene],
       });
       setVisualFallbackRegistry(game, parseVisualFallbackQuery());
+      const initialRoom = createDefaultRoom();
       pushRoomRegistry(game, {
-        width: 8,
-        height: 8,
-        moveMap: createDefaultRoom(),
+        width: initialRoom.width,
+        height: initialRoom.height,
+        moveMap: initialRoom,
         players: [],
         sessionId: null,
         mapNpcs: [],
@@ -184,6 +195,10 @@ export async function probePhaserBoot(timeoutMs = BOOT_TIMEOUT_MS): Promise<bool
         remoteInterpMs: 130,
         loadedChunks: [],
         movementSync: null,
+        collectiveAttitudeLine: null,
+        gameClock: null,
+        npcActivityById: {},
+        speakBusyNpcId: null,
       });
       game.events.once("ready", () => finish(true));
     } catch {
@@ -217,6 +232,9 @@ export function PhaserGame({
   motionBridgeRef,
   movementSyncRef,
   collectiveAttitudeLine = null,
+  gameClock = null,
+  npcActivityById = {},
+  speakBusyNpcId = null,
   onBootFailed,
 }: Props) {
   const parentRef = useRef<HTMLDivElement>(null);
@@ -239,6 +257,15 @@ export function PhaserGame({
     };
   }, [exploreGrid, loadedChunks, loreForChunk]);
 
+  const journalStoryHook = useMemo(() => {
+    if (!exploreGrid || !loreForChunk) return undefined;
+    const { cx, cy } = chunkOf(exploreGrid.gx, exploreGrid.gy);
+    const entry = loreForChunk(cx, cy);
+    if (!entry?.lore?.storyHook?.trim()) return undefined;
+    if (entry.status !== "ready" && entry.status !== "home") return undefined;
+    return entry.lore.storyHook.trim();
+  }, [exploreGrid, loreForChunk]);
+
   const registryRef = useRef({
     width,
     height,
@@ -258,6 +285,9 @@ export function PhaserGame({
     remoteInterpMs,
     loadedChunks,
     collectiveAttitudeLine,
+    gameClock,
+    npcActivityById,
+    speakBusyNpcId,
   });
   registryRef.current = {
     width,
@@ -278,6 +308,9 @@ export function PhaserGame({
     remoteInterpMs,
     loadedChunks,
     collectiveAttitudeLine,
+    gameClock,
+    npcActivityById,
+    speakBusyNpcId,
   };
 
   useEffect(() => {
@@ -327,6 +360,9 @@ export function PhaserGame({
       loadedChunks: snap.loadedChunks,
       movementSync: movementSyncRef?.current ?? null,
       collectiveAttitudeLine,
+      gameClock,
+      npcActivityById,
+      speakBusyNpcId,
     });
 
     gameRef.current = game;
@@ -420,6 +456,9 @@ export function PhaserGame({
       loadedChunks,
       movementSync: movementSyncRef?.current ?? null,
       collectiveAttitudeLine,
+      gameClock,
+      npcActivityById,
+      speakBusyNpcId,
     });
     game.registry.events.emit("changedata", game.registry, "roomSync");
 
@@ -449,6 +488,9 @@ export function PhaserGame({
     loadedChunks,
     collectiveAttitudeLine,
     remoteInterpMs,
+    gameClock,
+    npcActivityById,
+    speakBusyNpcId,
   ]);
 
   return (
@@ -463,7 +505,7 @@ export function PhaserGame({
       }}
     >
       <h2 className="room-scene-panel__title">房间</h2>
-      <p className="room-scene-panel__subtitle">探索周边地形 — 走出家园格即可进入新生态</p>
+      <p className="room-scene-panel__subtitle">地球Online 像素世界 — 走出家园格即可探索新区块</p>
       {connected && exploreCoords ? (
         <ExploreCoordsStrip
           gx={exploreCoords.gx}
@@ -472,7 +514,11 @@ export function PhaserGame({
           placeName={exploreCoords.placeName}
           flavorLine={exploreCoords.flavor}
           lorePending={exploreCoords.pending}
+          gameClockLabel={gameClock?.label}
         />
+      ) : null}
+      {connected && exploreCoords && journalStoryHook ? (
+        <JournalQuestStrip storyHook={journalStoryHook} />
       ) : null}
       <div className="room-scene-panel__viewport">
         <div className="room-scene-panel__stage">
@@ -481,7 +527,7 @@ export function PhaserGame({
             data-testid="phaser-parent"
             className="room-scene-panel__canvas"
             role="img"
-            aria-label="等轴房间地图：WASD 或方向键移动，点击格子寻路，选中 NPC 后在下方对话框发言"
+            aria-label="地球Online 像素地图：WASD 或方向键移动，点击格子寻路，选中 NPC 后在下方对话框发言"
           />
           <div className="room-scene-panel__overlay" aria-live="polite">
           {!connected ? (

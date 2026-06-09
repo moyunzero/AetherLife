@@ -73,6 +73,7 @@ Phaser owns **input → predict → tween → ack** on the main path. React owns
 | MP-MOV-02 | Local player: no schema snap when `pending > 0` or `isLocalLocomoting()` — `shouldSuppressLocalSchemaSnap` in `@aetherlife/shared` |
 | MP-MOV-03 | Click path origin = `motionBridge.getLogicGrid()` when available |
 | MP-MOV-04 | `ClientMovementPredictor` stays framework-agnostic (vitest-friendly) |
+| MP-MOV-05 | Blocked WASD: local `onBlockedFace` + `{ dx, dy }` move (no `clientSeq`/pending); server updates `player.facing` + `bumpStateVersion` when facing changes |
 
 ---
 

@@ -24,13 +24,20 @@ export function schemaFacingToCardinal(facing: string): CardinalFacing {
   switch (facing) {
     case "up":
     case "north":
+    case "n":
       return "up";
     case "left":
     case "west":
+    case "w":
       return "left";
     case "right":
     case "east":
+    case "e":
       return "right";
+    case "down":
+    case "south":
+    case "s":
+      return "down";
     default:
       return "down";
   }

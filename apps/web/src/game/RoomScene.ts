@@ -1,6 +1,7 @@
 import * as Phaser from "phaser";
 import {
   CHUNK_SIZE,
+  HOME_MAP_TILE_W,
   buildMoveGrid,
   chunkViewsFingerprint,
   createDefaultRoom,
@@ -21,7 +22,7 @@ import {
   MARKER_RADIUS,
   MARKER_STROKE,
 } from "./entityLayout.js";
-import { entityDepth } from "./entityLayout.js";
+import { entityYSortDepth } from "./entityLayout.js";
 import { CELL_PX, VIEWPORT_CELLS, gridToWorld, worldSize, worldToGrid } from "./gridLayout.js";
 import { isGlobalFloorBlocked } from "./floorBlocked.js";
 import {
@@ -32,6 +33,12 @@ import {
   npcDisplayName,
   THINKING_PULSE_MS,
 } from "./entityLabels.js";
+import {
+  activityLabelY,
+  createActivityLabel,
+  updateActivityLabels,
+  type ActivityTarget,
+} from "./activityLabels.js";
 import {
   truncateNameplate,
   updateNameplates,
@@ -51,8 +58,10 @@ import {
   type RemoteInterpDeps,
 } from "./RemotePlayerInterpolator.js";
 import { biomesFromChunks, preloadAdjacentBiomes, loadCoreAreaPack } from "./areaLoader.js";
+import { cardinalFacingFromDelta } from "./facing.js";
 import { DecorRenderer } from "./DecorRenderer.js";
 import { FloorRenderer } from "./FloorRenderer.js";
+import { HomeMapBackground } from "./HomeMapBackground.js";
 import {
   applyFacingFromSchema,
   applyStepAnimation,
@@ -132,6 +141,10 @@ type EntitySprite = AnimatableEntity & {
   nameplateAlpha?: number;
   nameplateTween?: Phaser.Tweens.Tween;
   nameplateWantShow?: boolean;
+  activityLabel?: Phaser.GameObjects.Text;
+  activityLabelAlpha?: number;
+  activityLabelTween?: Phaser.Tweens.Tween;
+  activityLabelWantShow?: boolean;
   moveTween?: Phaser.Tweens.Tween;
   npcId?: string;
   playerSessionId?: string;
@@ -182,6 +195,7 @@ export class RoomScene extends Phaser.Scene {
   private preloadStartMs = 0;
   private floorRenderer = new FloorRenderer();
   private decorRenderer = new DecorRenderer();
+  private homeMapBackground = new HomeMapBackground();
 
   constructor() {
     super({ key: SCENE_KEY });
@@ -220,7 +234,6 @@ export class RoomScene extends Phaser.Scene {
       getEntity: () => this.getLocalPlayerEnt(),
       tweens: this.tweens,
       getReducedMotion: () => Boolean(this.registry.get("reducedMotion")),
-      entityDepth,
       snapEntityToGrid: (ent, gx, gy) => this.snapEntityToGrid(ent as EntitySprite, gx, gy),
       stopEntityMotion: (ent) => this.stopEntityMotion(ent as EntitySprite),
       onSnap: (wx, wy) => {
@@ -231,6 +244,11 @@ export class RoomScene extends Phaser.Scene {
         this.handleEntityStepStart(ent as EntitySprite, fx, fy, tx, ty),
       onStepEnd: (ent, gx, gy, cont) =>
         this.handleEntityStepEnd(ent as EntitySprite, gx, gy, cont),
+      onFaceInput: (dx, dy) => {
+        const ent = this.getLocalPlayerEnt();
+        if (!ent?.spriteMode) return;
+        playIdleAnim(ent, cardinalFacingFromDelta(dx, dy));
+      },
     });
     this.motionBridge = this.movementController.buildBridge();
     this.registry.set("localPlayerMotion", this.motionBridge);
@@ -247,6 +265,7 @@ export class RoomScene extends Phaser.Scene {
       this.motionBridge = null;
       this.floorRenderer.destroy();
       this.decorRenderer.destroy();
+      this.homeMapBackground.destroy();
     });
 
     this.syncEntities();
@@ -276,6 +295,7 @@ export class RoomScene extends Phaser.Scene {
     this.tickExploreGrid();
     this.tickCollectiveDebug();
     this.refreshNameplates();
+    this.refreshActivityLabels();
   }
 
   private useSpriteEntities(): boolean {
@@ -293,7 +313,7 @@ export class RoomScene extends Phaser.Scene {
   }
 
   private handleEntityStepEnd(ent: EntitySprite, gx: number, gy: number, continuing: boolean): void {
-    ent.container.setDepth(entityDepth(gx, gy, ent.depthLayer));
+    ent.container.setDepth(entityYSortDepth(gx, gy, ent.depthLayer));
     applyStepEndAnimation(ent, continuing);
   }
 
@@ -323,6 +343,42 @@ export class RoomScene extends Phaser.Scene {
       targets.push(ent);
     }
     updateNameplates(this, targets, localCell, activeNpcId, thinkingNpcId);
+  }
+
+  private refreshActivityLabels(): void {
+    if (this.registry.get("uatHomesteadFrame") === true) return;
+
+    const sessionId = this.getSessionId();
+    if (!sessionId) return;
+    const logic = this.motionBridge?.getLogicGrid();
+    const self = this.playerSprites.get(sessionId);
+    const localCell = logic
+      ? { x: logic.x, y: logic.y }
+      : self
+        ? { x: self.gridX, y: self.gridY }
+        : null;
+    const activeNpcId = (this.registry.get("activeNpcId") as string | null) ?? null;
+    const thinkingNpcId = (this.registry.get("thinkingNpcId") as string | null) ?? null;
+    const speakBusyNpcId = (this.registry.get("speakBusyNpcId") as string | null) ?? null;
+    const npcActivityById =
+      (this.registry.get("npcActivityById") as Record<string, string> | undefined) ?? {};
+
+    const targets: ActivityTarget[] = [];
+    for (const ent of this.npcSprites.values()) {
+      if (!ent.activityLabel || !ent.npcId) continue;
+      targets.push(ent as ActivityTarget);
+    }
+
+    const visibleNpcIds = updateActivityLabels(
+      this,
+      targets,
+      localCell,
+      npcActivityById,
+      thinkingNpcId,
+      activeNpcId,
+      speakBusyNpcId,
+    );
+    this.registry.set("npcActivityVisible", visibleNpcIds);
   }
 
   /** Explore HUD coords — game-loop tick (Wave 2); React reads registry `exploreGrid`. */
@@ -375,7 +431,6 @@ export class RoomScene extends Phaser.Scene {
     return {
       tweens: this.tweens,
       getReducedMotion: () => Boolean(this.registry.get("reducedMotion")),
-      entityDepth,
       snapEntityToGrid: (ent, gx, gy) =>
         this.snapEntityToGrid(ent as EntitySprite, gx, gy),
       stopEntityMotion: (ent) => this.stopEntityMotion(ent as EntitySprite),
@@ -503,13 +558,19 @@ export class RoomScene extends Phaser.Scene {
       return;
     }
     this.floorGfx.clear();
+    const homeMapActive = this.homeMapBackground.refresh(this);
+    if (homeMapActive) {
+      // Plan A: Tiled map only inside 40×40; no procedural floor/decor overlay.
+      return;
+    }
     this.floorRenderer.refresh(
       this,
       this.getLoadedChunks(),
       this.getMoveMap(),
       this.terrainDebug(),
+      false,
     );
-    this.decorRenderer.refresh(this, this.getLoadedChunks());
+    this.decorRenderer.refresh(this, this.getLoadedChunks(), false);
   }
 
   /** Graphics fallback — visualFallback query or loader failure (D-23). */
@@ -518,8 +579,8 @@ export class RoomScene extends Phaser.Scene {
     this.floorGfx.clear();
     if (chunks.length === 0) {
       const map = this.getMoveMap();
-      for (let y = 0; y < 8; y += 1) {
-        for (let x = 0; x < 8; x += 1) {
+      for (let y = 0; y < map.height; y += 1) {
+        for (let x = 0; x < map.width; x += 1) {
           const blocked = isGlobalFloorBlocked(map, chunks, x, y);
           this.floorGfx.fillStyle(blocked ? theme.floorBlocked : theme.floorWalkable, 1);
           this.floorGfx.fillRect(x * CELL_PX, y * CELL_PX, CELL_PX, CELL_PX);
@@ -578,14 +639,14 @@ export class RoomScene extends Phaser.Scene {
     const cam = this.cameras.main;
     this.stopCameraPan();
 
-    const homeSpan = CHUNK_SIZE * CELL_PX;
+    const homeSpan = HOME_MAP_TILE_W * CELL_PX;
     cam.setBounds(0, 0, homeSpan, homeSpan);
 
     cam.centerOn(homeSpan / 2, homeSpan / 2);
     this.cameraLerpX = homeSpan / 2;
     this.cameraLerpY = homeSpan / 2;
 
-    // Show full 8×8 homestead; UAT script crops Phaser FIT letterbox afterward.
+    // Show full Beginning Fields (40×40); UAT script crops Phaser FIT letterbox afterward.
     const zoomForHome = Math.min(cam.width / homeSpan, cam.height / homeSpan);
     cam.setZoom(zoomForHome);
 
@@ -604,7 +665,10 @@ export class RoomScene extends Phaser.Scene {
   private frameHomesteadScreenshot(): boolean {
     this.registry.set("uatHomesteadFrame", true);
     this.applyHomesteadScreenshotFrame();
-    this.decorRenderer.refresh(this, this.getLoadedChunks());
+    const homeMapActive = this.homeMapBackground.refresh(this);
+    if (!homeMapActive) {
+      this.decorRenderer.refresh(this, this.getLoadedChunks(), false);
+    }
     return true;
   }
 
@@ -874,7 +938,7 @@ export class RoomScene extends Phaser.Scene {
       } else {
         ent.container.setScale(facingFlipX(p.facing) ? -1 : 1, 1);
       }
-      ent.container.setDepth(entityDepth(localX, localY, ent.depthLayer));
+      ent.container.setDepth(entityYSortDepth(localX, localY, ent.depthLayer));
     }
     for (const [id, ent] of this.playerSprites) {
       if (!seenPlayers.has(id)) {
@@ -1023,6 +1087,12 @@ export class RoomScene extends Phaser.Scene {
           visualFallback: boolean;
         } | null;
         __aetherlife_uatFrameHomestead?: () => boolean;
+        __aetherlife_ambientDebug?: () => {
+          minute: number | null;
+          label: string | null;
+          npcActivityById: Record<string, string>;
+          visibleNpcIds: string[];
+        } | null;
       };
       w.__aetherlife_moveDebug = () => {
         const sid = this.getSessionId();
@@ -1122,6 +1192,20 @@ export class RoomScene extends Phaser.Scene {
           visualFallback: isVisualFallbackActive(this),
         };
       };
+      w.__aetherlife_ambientDebug = () => {
+        const clock = this.registry.get("gameClock") as
+          | { minute?: number; label?: string }
+          | undefined;
+        const minute = typeof clock?.minute === "number" ? clock.minute : null;
+        return {
+          minute,
+          label: clock?.label ?? null,
+          npcActivityById:
+            (this.registry.get("npcActivityById") as Record<string, string> | undefined) ?? {},
+          visibleNpcIds:
+            (this.registry.get("npcActivityVisible") as string[] | undefined) ?? [],
+        };
+      };
     }
   }
 
@@ -1135,7 +1219,7 @@ export class RoomScene extends Phaser.Scene {
   ): EntitySprite {
     const { wx, wy } = gridToWorld(gx, gy);
     const container = this.add.container(wx, wy);
-    container.setDepth(entityDepth(gx, gy, layer));
+    container.setDepth(entityYSortDepth(gx, gy, layer));
 
     const r = style.radius ?? MARKER_RADIUS;
     const body = this.add.circle(0, MARKER_CY, r, style.fill, style.fillAlpha);
@@ -1214,13 +1298,15 @@ export class RoomScene extends Phaser.Scene {
     }, layer);
     ent.label.setText(truncateNameplate(label));
     applyNameplateStyle(ent.label, "npc");
+    ent.npcId = npcId;
+    this.attachNpcActivityLabel(ent);
     if (!this.useSpriteEntities()) return ent;
 
     ent.spriteMode = true;
     ent.isNpc = true;
     ent.paletteRow = npcVariantForId(npcId);
-    ent.npcId = npcId;
     ent.facingDir = "down";
+    ent.activityLabel?.setY(activityLabelY(true));
     const avatar = createNpcSprite(this, npcId);
     const bubble = createSpeechBubble(this);
     ent.body.setVisible(false);
@@ -1235,6 +1321,14 @@ export class RoomScene extends Phaser.Scene {
     ent.bubble = bubble;
     playIdleAnim(ent, "down");
     return ent;
+  }
+
+  private attachNpcActivityLabel(ent: EntitySprite): void {
+    if (!ent.npcId) return;
+    const activityLabel = createActivityLabel(this, ent.npcId);
+    activityLabel.y = activityLabelY(ent.spriteMode === true);
+    ent.container.add(activityLabel);
+    ent.activityLabel = activityLabel;
   }
 
   private createDoorEntity(
@@ -1272,6 +1366,8 @@ export class RoomScene extends Phaser.Scene {
     ent.pulseTween = undefined;
     ent.nameplateTween?.stop();
     ent.nameplateTween = undefined;
+    ent.activityLabelTween?.stop();
+    ent.activityLabelTween = undefined;
     ent.moveTween?.stop();
     ent.moveTween = undefined;
     this.tweens.killTweensOf(ent.container);
@@ -1285,7 +1381,7 @@ export class RoomScene extends Phaser.Scene {
     const { wx, wy } = gridToWorld(gx, gy);
     ent.container.setPosition(wx, wy);
     ent.container.setScale(scaleX, scaleY);
-    ent.container.setDepth(entityDepth(gx, gy, ent.depthLayer));
+    ent.container.setDepth(entityYSortDepth(gx, gy, ent.depthLayer));
   }
 
   private tweenEntityTo(ent: EntitySprite, gx: number, gy: number, duration: number): void {
@@ -1378,7 +1474,7 @@ export class RoomScene extends Phaser.Scene {
       const fromX = ent.gridX;
       const fromY = ent.gridY;
       const { wx, wy } = gridToWorld(cell.x, cell.y);
-      ent.container.setDepth(entityDepth(cell.x, cell.y, ent.depthLayer));
+      ent.container.setDepth(entityYSortDepth(cell.x, cell.y, ent.depthLayer));
       applyStepAnimation(ent, fromX, fromY, cell.x, cell.y);
       ent.moveTween = this.tweens.add({
         targets: ent.container,
@@ -1463,7 +1559,7 @@ export class RoomScene extends Phaser.Scene {
       cx = nx;
       cy = ny;
       const { wx, wy } = gridToWorld(nx, ny);
-      ent.container.setDepth(entityDepth(nx, ny, ent.depthLayer));
+      ent.container.setDepth(entityYSortDepth(nx, ny, ent.depthLayer));
       applyStepAnimation(ent, fromX, fromY, nx, ny);
       ent.moveTween = this.tweens.add({
         targets: ent.container,
@@ -1495,7 +1591,7 @@ export class RoomScene extends Phaser.Scene {
     ent.targetGridY = gy;
     const fromX = ent.gridX;
     const fromY = ent.gridY;
-    ent.container.setDepth(entityDepth(gx, gy, ent.depthLayer));
+    ent.container.setDepth(entityYSortDepth(gx, gy, ent.depthLayer));
     const { wx, wy } = gridToWorld(gx, gy);
     if (reduced) {
       ent.gridX = gx;

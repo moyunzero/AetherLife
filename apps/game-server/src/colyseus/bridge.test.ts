@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { createDefaultRoom } from "@aetherlife/shared";
+import { runAmbientTick } from "../ambient/tick.js";
+import { clearChunkDeltaMemory } from "../world/chunk-repository.js";
+import { ChunkLoader } from "../world/chunk-loader.js";
 import {
   clearColyseusRoomRegistry,
   registerColyseusRoom,
@@ -16,7 +19,7 @@ describe("syncColyseusFromMap", () => {
     const map = createDefaultRoom("default");
     map.npcs[0]!.x = 7;
     map.npcs[0]!.y = 1;
-    map.objects[0]!.state = "open";
+    map.objects = [{ id: "door-1", kind: "door", x: 3, y: 3, state: "open" }];
 
     const colyseus = new GameRoomState();
     syncColyseusFromMap(colyseus, map);
@@ -58,6 +61,31 @@ describe("initiator player view", () => {
 
     const view = roomStateForInitiator(map, "default", "player-bravo001");
     expect(view.player).toEqual({ x: 1, y: 7 });
-    expect(map.player).toEqual({ x: 4, y: 4 });
+    expect(map.player).toEqual({ x: 34, y: 13 });
+  });
+});
+
+describe("ambient tick schema sync", () => {
+  it("npc1ActivityKey matches map after runAmbientTick", async () => {
+    clearChunkDeltaMemory();
+    const map = createDefaultRoom("ambient-bridge");
+    const colyseus = new GameRoomState();
+    colyseus.gameMinute = 360;
+    const loader = new ChunkLoader({ worldId: "bridge-ambient", worldSeed: 42 });
+    await loader.ensureChunksForPlayers(
+      map.npcs.map((n) => ({ gx: n.x, gy: n.y })),
+    );
+
+    runAmbientTick({
+      roomId: "ambient-bridge",
+      gameState: colyseus,
+      map,
+      loader,
+      npcSpeakJobs: new Map(),
+      waypointCursors: new Map(),
+    });
+
+    expect(map.npcs[0]!.activityKey).toBe("reading");
+    expect(colyseus.npc1ActivityKey).toBe("reading");
   });
 });

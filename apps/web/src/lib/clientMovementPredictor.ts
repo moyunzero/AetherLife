@@ -38,6 +38,8 @@ export type MovementPredictorContext = {
   onPendingCount: (count: number) => void;
   onRttMs: (ms: number) => void;
   onCorrection: () => void;
+  /** Local idle facing when clientCanStep fails (no pending / tween). */
+  onBlockedFace?: (dx: number, dy: number) => void;
   /** Resolve in-flight click path when ack forces a snap mid-animation. */
   onClickPathAborted?: () => void;
 };
@@ -142,6 +144,7 @@ export class ClientMovementPredictor {
     const mapState = ctx.map ?? createDefaultRoom(ctx.roomId);
 
     if (!clientCanStep(mapState, toX, toY, ctx.otherCells, ctx.loadedChunks)) {
+      this.notifyBlockedStep(ctx, dx, dy, { hint: false });
       return false;
     }
 
@@ -153,6 +156,20 @@ export class ClientMovementPredictor {
     ctx.motionBridge?.queueStep(toX, toY);
     this.visualOnlyAhead += 1;
     return true;
+  }
+
+  /** Blocked step: hint (optional), local facing, server facing sync (no clientSeq / pending). */
+  private notifyBlockedStep(
+    ctx: MovementPredictorContext,
+    dx: number,
+    dy: number,
+    opts?: { hint?: boolean },
+  ): void {
+    if (opts?.hint !== false) {
+      ctx.onHint(BLOCKED_MOVE_HINT);
+    }
+    ctx.onBlockedFace?.(dx, dy);
+    ctx.sendMove({ dx, dy });
   }
 
   private maybeQueueVisualStep(
@@ -214,8 +231,12 @@ export class ClientMovementPredictor {
     return this.pending.some((m) => m.dx === undefined && m.dy === undefined);
   }
 
-  /** Restore saved grid on join (single target move). */
-  pushRestoreMove(ctx: MovementPredictorContext, target: GridPos): void {
+  /** Restore saved grid on join (single target move). Returns false if target is not walkable. */
+  pushRestoreMove(ctx: MovementPredictorContext, target: GridPos): boolean {
+    const mapState = ctx.map ?? createDefaultRoom(ctx.roomId);
+    if (!clientCanStep(mapState, target.x, target.y, ctx.otherCells, ctx.loadedChunks)) {
+      return false;
+    }
     const seq = ++this.clientSeq;
     this.pending.push({
       clientSeq: seq,
@@ -229,6 +250,7 @@ export class ClientMovementPredictor {
     ctx.motionBridge?.snapTo(target.x, target.y);
     ctx.onPendingCount(this.pending.length);
     ctx.sendMove({ targetX: target.x, targetY: target.y, clientSeq: seq });
+    return true;
   }
 
   enqueueStep(
@@ -247,8 +269,8 @@ export class ClientMovementPredictor {
     const mapState = ctx.map ?? createDefaultRoom(ctx.roomId);
 
     if (!clientCanStep(mapState, serverToX, serverToY, ctx.otherCells, ctx.loadedChunks)) {
-      ctx.onHint(BLOCKED_MOVE_HINT);
       // Do not clear pending or snap — authoritativePos often lags schema during prediction.
+      this.notifyBlockedStep(ctx, dx, dy);
       return false;
     }
 

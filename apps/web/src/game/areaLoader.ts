@@ -4,9 +4,12 @@ import {
   type AreaPackId,
   type AssetSheetDef,
   BIOME_PACK_IDS,
+  ASSET_KEYS,
   CORE_AREA_ASSETS,
+  ONE_CITY_MAP_URL,
   LAZY_BIOME_PACK_ASSETS,
 } from "./assetManifest.js";
+import { ONE_CITY_TILESET_IMAGES } from "./oneCityTilesetManifest.js";
 import { isVisualFallbackActive } from "./visualFallback.js";
 
 const queuedKeys = new WeakMap<Phaser.Scene, Set<string>>();
@@ -36,11 +39,24 @@ function queueAsset(loader: Phaser.Loader.LoaderPlugin, def: AssetSheetDef): voi
   }
 }
 
+function queueHomeMapAssets(loader: Phaser.Loader.LoaderPlugin): void {
+  const scene = loader.scene;
+  const mapKey = ASSET_KEYS.oneCityHome;
+  for (const def of ONE_CITY_TILESET_IMAGES) {
+    queueAsset(loader, def);
+  }
+  if (!scene.cache.tilemap.exists(mapKey) && !pendingKeys(scene).has(mapKey)) {
+    pendingKeys(scene).add(mapKey);
+    loader.tilemapTiledJSON(mapKey, ONE_CITY_MAP_URL);
+  }
+}
+
 /** Load home + meadow + player atlases during Scene preload. */
 export function loadCoreAreaPack(loader: Phaser.Loader.LoaderPlugin): void {
   for (const def of CORE_AREA_ASSETS) {
     queueAsset(loader, def);
   }
+  queueHomeMapAssets(loader);
 }
 
 /** Plan alias — core area pack for preload. */

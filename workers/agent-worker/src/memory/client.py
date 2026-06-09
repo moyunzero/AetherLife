@@ -7,6 +7,7 @@ from src.config import Settings
 
 _RETRYABLE_HTTP = frozenset({502, 503, 504})
 _MEMORY_CONTEXT_TIMEOUT_S = 45.0
+_MEMORY_CONTEXT_INTERACTIVE_TIMEOUT_S = 18.0
 
 
 def _game_headers(settings: Settings) -> dict[str, str]:
@@ -50,13 +51,16 @@ def fetch_memory_context(
     *,
     npc_id: str = "npc-1",
     player_id: str = "__legacy__",
+    timeout: float | None = None,
+    attempts: int = 3,
 ) -> dict[str, Any]:
     res = _get_with_retry(
         client,
         f"{settings.game_server_url}/internal/rooms/{room_id}/memory-context",
         params={"playerMessage": player_message, "npcId": npc_id, "playerId": player_id},
         headers=_game_headers(settings),
-        timeout=_MEMORY_CONTEXT_TIMEOUT_S,
+        timeout=timeout if timeout is not None else _MEMORY_CONTEXT_TIMEOUT_S,
+        attempts=attempts,
     )
     return res.json()
 

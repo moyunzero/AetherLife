@@ -40,6 +40,7 @@ describe("snapshotsFromPayload", () => {
           summary: "a",
           deltaScore: -8,
           createdAt: "t1",
+          playerIds: ["p-a"],
         },
         {
           id: "e2",

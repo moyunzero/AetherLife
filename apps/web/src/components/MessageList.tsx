@@ -14,6 +14,11 @@ function formatNpcText(message: ChatMessage): string {
   return `${prefix}${sanitizeNpcReplyText(message.text)}`;
 }
 
+function formatMemoryDisplay(text: string, maxLen = 120): { display: string; title?: string } {
+  if (text.length <= maxLen) return { display: text };
+  return { display: `${text.slice(0, maxLen)}…`, title: text };
+}
+
 export function MessageList({ messages, thinkingNpcId, activeNpcId, thinkingNpcName }: Props) {
   const showThinking = thinkingNpcId !== null && thinkingNpcId === activeNpcId;
   return (
@@ -30,6 +35,21 @@ export function MessageList({ messages, thinkingNpcId, activeNpcId, thinkingNpcN
             className={`message message--${message.role}${isLatestNpc ? " message--latest" : ""}`}
           >
             <p className="message__text">{formatNpcText(message)}</p>
+            {message.role === "npc" && message.memoryQuote ? (
+              (() => {
+                const { display, title } = formatMemoryDisplay(message.memoryQuote);
+                return (
+                  <blockquote
+                    className="message__memory-ref"
+                    data-testid="npc-memory-callback"
+                    title={title}
+                  >
+                    <span className="message__memory-ref-label">记得你曾说过</span>
+                    <p>{display}</p>
+                  </blockquote>
+                );
+              })()
+            ) : null}
           </article>
         );
       })}

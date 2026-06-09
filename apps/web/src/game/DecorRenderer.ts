@@ -1,8 +1,9 @@
 import { CHUNK_SIZE, type BiomeId, type ChunkView } from "@aetherlife/shared";
 import type * as Phaser from "phaser";
 import { ASSET_KEYS, TILE_PX } from "./assetManifest.js";
-import { CELL_PX, entityDepth } from "./entityLayout.js";
+import { CELL_PX, ySortDepth, YSORT_LAYER } from "./entityLayout.js";
 import { gridToWorld } from "./gridLayout.js";
+import { isHomeMapCell } from "./HomeMapBackground.js";
 import { decorForBlockedCell, homeDecorPlacements, type DecorPlacement } from "./homeLayout.js";
 import { decorTintForPlacement } from "./pastoralTint.js";
 import { isVisualFallbackActive } from "./visualFallback.js";
@@ -16,8 +17,6 @@ type DecorSpawn = {
   biome: BiomeId;
 };
 
-/** Foot-aligned decor sits below entities (layer 1+) on the same grid cell. */
-const DECOR_DEPTH_LAYER = 0 as const;
 
 function parseWorldSeed(): number {
   if (typeof import.meta !== "undefined" && import.meta.env?.VITE_WORLD_SEED) {
@@ -31,7 +30,7 @@ export class DecorRenderer {
   private sprites: DecorSprite[] = [];
   private lastFingerprint = "";
 
-  refresh(scene: Phaser.Scene, chunks: ChunkView[]): void {
+  refresh(scene: Phaser.Scene, chunks: ChunkView[], homeMapActive = false): void {
     if (isVisualFallbackActive(scene)) {
       this.clear();
       return;
@@ -46,7 +45,7 @@ export class DecorRenderer {
     const spawns: DecorSpawn[] = [];
     const uatHomestead = scene.registry.get("uatHomesteadFrame") === true;
 
-    const fp = `${uatHomestead ? "uat-homestead" : "play"}|${chunks
+    const fp = `${uatHomestead ? "uat-homestead" : "play"}|${homeMapActive ? "map" : "proc"}|${chunks
       .map((c) => `${c.cx},${c.cy}`)
       .sort()
       .join("|")}`;
@@ -56,6 +55,7 @@ export class DecorRenderer {
 
     for (const chunk of chunks) {
       for (const p of homeDecorPlacements(worldSeed, chunk.cx, chunk.cy)) {
+        if (homeMapActive && isHomeMapCell(p.gx, p.gy)) continue;
         spawns.push({ placement: p, chunkCx: chunk.cx, chunkCy: chunk.cy, biome: "home" });
       }
       if (uatHomestead) continue;
@@ -63,6 +63,7 @@ export class DecorRenderer {
         if (tile.walkable) continue;
         const gx = chunk.cx * CHUNK_SIZE + tile.lx;
         const gy = chunk.cy * CHUNK_SIZE + tile.ly;
+        if (homeMapActive && isHomeMapCell(gx, gy)) continue;
         const key = `${gx},${gy}`;
         if (placed.has(key)) continue;
         const decor = decorForBlockedCell(gx, gy, tile.biome, worldSeed);
@@ -101,7 +102,9 @@ export class DecorRenderer {
           img.setOrigin(0.5, 1);
           img.setScale(scale);
           img.setTint(tint);
-          img.setDepth(entityDepth(p.gx + dx, p.gy + dy, DECOR_DEPTH_LAYER));
+          img.setDepth(
+            ySortDepth(wx + dx * CELL_PX, wy + dy * CELL_PX, YSORT_LAYER.DECOR),
+          );
           this.sprites.push(img);
         }
       }
@@ -112,7 +115,7 @@ export class DecorRenderer {
     img.setOrigin(0.5, 1);
     img.setScale(scale);
     img.setTint(tint);
-    img.setDepth(entityDepth(p.gx, p.gy, DECOR_DEPTH_LAYER));
+    img.setDepth(ySortDepth(wx, wy, YSORT_LAYER.DECOR));
     this.sprites.push(img);
   }
 

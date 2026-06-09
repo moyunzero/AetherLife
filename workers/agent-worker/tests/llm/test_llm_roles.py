@@ -9,10 +9,10 @@ from src.llm.roles import (
 )
 
 
-def test_social_defaults_to_siliconflow():
+def test_social_defaults_to_nvidia_397b():
     provider, model = social_provider_model(Settings())
-    assert provider == "siliconflow"
-    assert model == "Qwen/Qwen3.5-4B"
+    assert provider == "nvidia"
+    assert model == "qwen/qwen3.5-397b-a17b"
 
 
 def test_summarize_respects_env_override():
@@ -23,10 +23,16 @@ def test_summarize_respects_env_override():
     assert model == "llama-3.1-8b-instant"
 
 
-def test_collective_refine_defaults_to_siliconflow():
+def test_summarize_defaults_to_nvidia_llama():
+    provider, model = summarize_provider_model(Settings())
+    assert provider == "nvidia"
+    assert "llama" in model.lower()
+
+
+def test_collective_refine_defaults_to_nvidia():
     provider, model = collective_refine_provider_model(Settings())
-    assert provider == "siliconflow"
-    assert "Qwen" in model
+    assert provider == "nvidia"
+    assert "llama" in model.lower()
 
 
 def test_importance_defaults_to_nvidia_nano():
@@ -38,7 +44,8 @@ def test_importance_defaults_to_nvidia_nano():
 def test_auxiliary_attempts_never_includes_zhipu_by_default():
     primary = social_provider_model(Settings())
     attempts = auxiliary_provider_attempts(Settings(), primary=primary)
-    assert attempts[0][0] == "siliconflow"
+    assert attempts[0][0] == "nvidia"
+    assert attempts[1][0] == "agnes"
     assert all(p != "zhipu" for p, _ in attempts)
 
 

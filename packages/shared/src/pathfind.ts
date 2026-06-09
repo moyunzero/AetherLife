@@ -29,6 +29,7 @@ export function buildMoveGrid(
     blocked.add(cellKey(npc.x, npc.y));
   }
   for (const obj of map.objects) {
+    if (obj.kind === "door" && obj.state === "open") continue;
     blocked.add(cellKey(obj.x, obj.y));
   }
   for (const p of otherPlayerCells) {

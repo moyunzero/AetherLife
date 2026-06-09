@@ -94,7 +94,7 @@ function resolveImportanceProvider(): {
   return {
     baseUrl: "https://openrouter.ai/api/v1",
     apiKeys: openRouterKeys(),
-    model: process.env.LLM_MODEL_OPENROUTER_FALLBACK ?? "openrouter/free",
+    model: process.env.LLM_MODEL_OPENROUTER_FALLBACK ?? "openai/gpt-oss-120b:free",
   };
 }
 

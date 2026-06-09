@@ -32,6 +32,7 @@ import { getOrCreate, reset, setState } from "../room/store.js";
 import { getChunkLoader } from "../world/chunk-loader.js";
 import { getChunkLore } from "../world/lore-repository.js";
 import { clearDialogueForPlayer } from "../npc/dialogue-session.js";
+import { requireWorkerAuth } from "./internal.js";
 
 function formatZodError(error: { issues: Array<{ path: (string | number)[]; message: string }> }) {
   return error.issues.map((issue) => ({
@@ -226,6 +227,21 @@ async function buildMemoryCounts(
   return Object.fromEntries(entries);
 }
 
+/** Worker fetch_state: spatial snapshot + lore only (no memoryCounts — avoids DB contention with memory tail). */
+async function buildWorkerStatePayload(
+  roomId: string,
+  playerId: string,
+): Promise<{
+  state: ReturnType<typeof roomStateForInitiator>;
+  nearbyLore: Array<{ cx: number; cy: number; nameZh: string; flavorOneLine: string }>;
+}> {
+  const record = getOrCreate(roomId);
+  const viewState = roomStateForInitiator(record.state, roomId, playerId);
+  const anchor = findPlayerCellByPlayerId(roomId, playerId);
+  const nearbyLore = anchor ? await buildNearbyLore(roomId, anchor.x, anchor.y) : [];
+  return { state: viewState, nearbyLore };
+}
+
 async function buildNearbyLore(
   roomId: string,
   gx: number,
@@ -264,11 +280,7 @@ export function createRoomsRouter(): Router {
         playerId,
         record.state.npcs.map((npc) => npc.id),
       );
-      const viewState = roomStateForInitiator(record.state, roomId, playerId);
-      const anchor = findPlayerCellByPlayerId(roomId, playerId);
-      const nearbyLore = anchor
-        ? await buildNearbyLore(roomId, anchor.x, anchor.y)
-        : [];
+      const { state: viewState, nearbyLore } = await buildWorkerStatePayload(roomId, playerId);
       res.json({ state: viewState, memoryCounts, nearbyLore });
     } catch (err) {
       const message = err instanceof Error ? err.message : "state failed";
@@ -339,6 +351,18 @@ export function createInternalRoomsRouter(): Router {
     }
     next();
   }, applyActionsHandler);
+
+  router.get("/:roomId/worker-state", requireWorkerAuth, async (req, res) => {
+    const { roomId } = req.params;
+    const playerId = playerIdFromRequest(req);
+    try {
+      const payload = await buildWorkerStatePayload(roomId, playerId);
+      res.json(payload);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "worker-state failed";
+      res.status(500).json({ ok: false, error: message });
+    }
+  });
 
   return router;
 }

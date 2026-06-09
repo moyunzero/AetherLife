@@ -15,13 +15,20 @@ import { MovementPanel } from "./components/MovementPanel.js";
 import { PhaserGame, probePhaserBoot } from "./components/PhaserGame.js";
 import { MessageList } from "./components/MessageList.js";
 import { CollectiveAttitudeOverlay } from "./components/CollectiveAttitudeOverlay.js";
+import { CollectiveBrowsePanel } from "./components/CollectiveBrowsePanel.js";
 import { CollectiveDebugPanel } from "./components/CollectiveDebugPanel.js";
+import { CollectiveFeedbackBanner } from "./components/CollectiveFeedbackBanner.js";
 import { NpcTabBar } from "./components/NpcTabBar.js";
 import { useCollectiveAttitude } from "./hooks/useCollectiveAttitude.js";
 import { RoomStatePanel } from "./components/RoomStatePanel.js";
 import { NpcMemoryPanel } from "./components/NpcMemoryPanel.js";
 import { SyncMetricsOverlay } from "./components/SyncMetricsOverlay.js";
 import { getMapRoomId } from "./lib/mapRoomId.js";
+import {
+  resolveCollectiveInitiatorPlayerId,
+  shouldShowCollectiveFeedbackBanner,
+} from "./lib/collectiveInitiator.js";
+import { getOrCreatePlayerId } from "./lib/playerSession.js";
 import { playerRequestsMove } from "./lib/playerMoveIntent.js";
 import { subscribeTabPresence } from "./lib/playerSession.js";
 import { playerDisplayName } from "./lib/playerDisplayName.js";
@@ -49,6 +56,8 @@ export function ChatPage() {
     loreToastQueue,
     motionBridgeRef,
     movementSyncRef,
+    gameClock,
+    npcActivityById,
   } = useColyseusRoom(mapRoomId, moveMap);
   const discoverToast = loreToastQueue[0] ?? null;
   const dismissDiscoverToast = useCallback(() => {
@@ -96,6 +105,8 @@ export function ChatPage() {
   const [bootOk, setBootOk] = useState(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const collectiveBrowseDetailsRef = useRef<HTMLDetailsElement>(null);
+  const playerId = useMemo(() => getOrCreatePlayerId(), []);
   const showSyncDebug =
     import.meta.env.DEV ||
     (typeof window !== "undefined" &&
@@ -108,6 +119,25 @@ export function ChatPage() {
   const { snapshot: collectiveSnapshot, loading: collectiveLoading, invalidateCollective, refetchCollective } =
     useCollectiveAttitude(mapRoomId, activeNpcId);
   onCollectiveUpdatedRef.current = refetchCollective;
+
+  const latestCollectiveEvent = collectiveSnapshot?.recentEvents[0];
+  const collectiveFeedbackKind =
+    latestCollectiveEvent &&
+    shouldShowCollectiveFeedbackBanner(latestCollectiveEvent, playerId) &&
+    (latestCollectiveEvent.kind === "rude" || latestCollectiveEvent.kind === "help")
+      ? latestCollectiveEvent.kind
+      : null;
+
+  useEffect(() => {
+    const event = collectiveSnapshot?.recentEvents[0];
+    if (!event || (event.kind !== "rude" && event.kind !== "help")) return;
+    if (resolveCollectiveInitiatorPlayerId(event) !== playerId) return;
+    const key = `collective-auto-open:${mapRoomId}:${activeNpcId}`;
+    if (sessionStorage.getItem(key)) return;
+    sessionStorage.setItem(key, "1");
+    const details = collectiveBrowseDetailsRef.current;
+    if (details) details.open = true;
+  }, [collectiveSnapshot?.recentEvents, mapRoomId, activeNpcId, playerId]);
 
   useEffect(() => {
     if (forcePhaserFallback) {
@@ -372,7 +402,7 @@ export function ChatPage() {
         {bootPending ? (
           <section className="room-scene-panel" data-testid="room-scene">
             <h2 className="room-scene-panel__title">房间</h2>
-            <p className="room-scene-panel__subtitle">最多 4 人同房间 · 点选格子或 WASD 移动</p>
+            <p className="room-scene-panel__subtitle">地球Online 像素世界 · 最多 4 人同房间 · WASD 或点格移动</p>
             <p className="room-scene-panel__hint" data-testid="phaser-boot-loading">
               地图加载中…
             </p>
@@ -422,6 +452,9 @@ export function ChatPage() {
             motionBridgeRef={motionBridgeRef}
             movementSyncRef={movementSyncRef}
             collectiveAttitudeLine={collectiveAttitudeLine}
+            gameClock={gameClock}
+            npcActivityById={npcActivityById}
+            speakBusyNpcId={speakBusyNpcId}
             onBootFailed={() => {
               setPhaserOk(false);
               setBootOk(false);
@@ -433,6 +466,12 @@ export function ChatPage() {
           thinkingNpcId={thinkingNpcId}
           activeNpcId={activeNpcId}
           thinkingNpcName={activeNpcName}
+        />
+        <CollectiveBrowsePanel
+          activeNpcName={activeNpcName}
+          snapshot={collectiveSnapshot}
+          loading={collectiveLoading}
+          detailsRef={collectiveBrowseDetailsRef}
         />
         {roomState ? (
           <RoomStatePanel
@@ -451,6 +490,9 @@ export function ChatPage() {
       </main>
 
       <form className="composer" onSubmit={onSubmit}>
+        {collectiveFeedbackKind ? (
+          <CollectiveFeedbackBanner kind={collectiveFeedbackKind} />
+        ) : null}
         {attitudeGateHint ? (
           <p
             className="attitude-gate-hint"

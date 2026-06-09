@@ -14,6 +14,7 @@ import {
   voidTileIndexFor,
 } from "./tileBiome.js";
 import { tintForBiome } from "./pastoralTint.js";
+import { isHomeMapCell } from "./HomeMapBackground.js";
 import { theme } from "./theme.js";
 import type { BiomeId } from "@aetherlife/shared";
 
@@ -63,6 +64,7 @@ export class FloorRenderer {
     chunks: ChunkView[],
     moveMap: RoomState | undefined,
     terrainDebug: boolean,
+    homeMapActive = false,
   ): void {
     if (!this.ensure(scene)) return;
 
@@ -95,6 +97,10 @@ export class FloorRenderer {
     const bounds = this.paintBounds(chunks);
     for (let gy = bounds.minGy; gy <= bounds.maxGy; gy += 1) {
       for (let gx = bounds.minGx; gx <= bounds.maxGx; gx += 1) {
+        if (homeMapActive && isHomeMapCell(gx, gy)) {
+          layer.removeTileAt(gx, gy);
+          continue;
+        }
         layer.putTileAt(voidTileIndexFor(gx, gy), gx, gy);
       }
     }
@@ -103,11 +109,12 @@ export class FloorRenderer {
       const [gxStr, gyStr] = key.split(",");
       const gx = Number(gxStr);
       const gy = Number(gyStr);
+      if (homeMapActive && isHomeMapCell(gx, gy)) continue;
       const index = this.resolveTileIndex(gx, gy, meta, cellMap);
       layer.putTileAt(index, gx, gy);
     }
 
-    this.applyPastoralFloorTints(layer, cellMap);
+    this.applyPastoralFloorTints(layer, cellMap, homeMapActive);
 
     if (terrainDebug) {
       if (!this.debugGfx) {
@@ -160,11 +167,13 @@ export class FloorRenderer {
   private applyPastoralFloorTints(
     layer: Phaser.Tilemaps.TilemapLayer,
     cellMap: Map<string, CellMeta>,
+    homeMapActive = false,
   ): void {
     for (const [key, meta] of cellMap) {
       const [gxStr, gyStr] = key.split(",");
       const gx = Number(gxStr);
       const gy = Number(gyStr);
+      if (homeMapActive && isHomeMapCell(gx, gy)) continue;
       const tile = layer.getTileAt(gx, gy);
       if (!tile) continue;
       tile.tint = tintForBiome(meta.biome);

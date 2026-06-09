@@ -2,6 +2,7 @@ import {
   CHUNK_SIZE,
   biomeAtGlobal,
   chunkOf,
+  isHomeMapRegionCell,
   type ChunkView,
   type RoomState,
 } from "@aetherlife/shared";
@@ -36,6 +37,9 @@ export function isTerrainWalkable(
   gy: number,
   worldSeed: number = clientWorldSeed(),
 ): boolean {
+  // Beginning Fields art covers 40×40; terrain is open (NPC/door/players still block).
+  if (isHomeMapRegionCell(gx, gy)) return true;
+
   const { cx, cy } = chunkOf(gx, gy);
   const chunk = chunks.find((c) => c.cx === cx && c.cy === cy);
   if (chunk) {

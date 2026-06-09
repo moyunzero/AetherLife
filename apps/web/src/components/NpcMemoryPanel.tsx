@@ -56,6 +56,11 @@ export function NpcMemoryPanel({
     };
   }, [roomId, activeNpcId]);
 
+  const showMemoryDebug =
+    import.meta.env.DEV ||
+    (typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("memoryDebug") === "1");
+
   return (
     <details className="memory-panel">
       <summary>{activeNpcName} 记得关于你的事</summary>
@@ -73,11 +78,15 @@ export function NpcMemoryPanel({
           </pre>
         </div>
       ) : null}
-      <p className="memory-panel__label">NL parse (debug)</p>
-      {parseError ? <p className="memory-panel__error">{parseError}</p> : null}
-      <pre className="memory-panel__text">
-        {lastParsedIntent ? JSON.stringify(lastParsedIntent, null, 2) : "(none)"}
-      </pre>
+      {showMemoryDebug ? (
+        <>
+          <p className="memory-panel__label">NL parse (debug)</p>
+          {parseError ? <p className="memory-panel__error">{parseError}</p> : null}
+          <pre className="memory-panel__text">
+            {lastParsedIntent ? JSON.stringify(lastParsedIntent, null, 2) : "(none)"}
+          </pre>
+        </>
+      ) : null}
     </details>
   );
 }

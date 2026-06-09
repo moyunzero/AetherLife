@@ -1,9 +1,11 @@
 """Role-specific LLM provider/model resolution.
 
 Platform-aware defaults (see docs/LLM-ROUTING.md §3.1):
-- SiliconFlow Qwen3.5-4B: NPC bind_tools primary (L0 ~1000 RPM)
-- Zhipu glm-4.7-flash: optional fallback only (concurrency=1)
-- SiliconFlow Qwen3.5-4B: high-RPM social / summarize / collective refine
+- NVIDIA NIM openai/gpt-oss-120b: NPC bind_tools primary (~2s)
+- OpenRouter gpt-oss-120b:free: NPC fallback
+- NVIDIA llama-3.3-70b: summarize + collective_refine
+- SiliconFlow Qwen3.5-4B: optional legacy primary / fallback
+- NVIDIA Qwen3.5-397B: social JSON primary (~2s)
 - NVIDIA nano: importance JSON
 - Agnes: reflect + lore primary + auxiliary fallback
 - OpenRouter: NPC fallback + embeddings + gateway
@@ -55,15 +57,12 @@ def social_provider_model(settings: Settings) -> tuple[str, str]:
         settings.llm_provider_social,
         settings.llm_model_social,
         default_provider=settings.llm_provider_social,
-        default_model=settings.llm_model_social or settings.llm_model_siliconflow_fast,
+        default_model=settings.llm_model_social or settings.llm_model_nvidia_fast,
     )
 
 
 def summarize_provider_model(settings: Settings) -> tuple[str, str]:
-    default_model = (
-        settings.llm_model_summarize
-        or settings.llm_model_siliconflow_fast
-    )
+    default_model = settings.llm_model_summarize or "meta/llama-3.3-70b-instruct"
     return _resolve_pair(
         settings.llm_provider_summarize,
         settings.llm_model_summarize,
@@ -73,10 +72,7 @@ def summarize_provider_model(settings: Settings) -> tuple[str, str]:
 
 
 def collective_refine_provider_model(settings: Settings) -> tuple[str, str]:
-    default_model = (
-        settings.llm_model_collective_refine
-        or settings.llm_model_siliconflow_fast
-    )
+    default_model = settings.llm_model_collective_refine or "meta/llama-3.3-70b-instruct"
     return _resolve_pair(
         settings.llm_provider_collective_refine,
         settings.llm_model_collective_refine,
