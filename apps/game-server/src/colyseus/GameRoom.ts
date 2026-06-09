@@ -148,6 +148,9 @@ export class GameRoom extends Room {
         });
       }
     } else {
+      if (result.facingUpdated) {
+        bumpStateVersion(this.gameState);
+      }
       const clientSeq =
         raw && typeof raw === "object" && typeof raw.clientSeq === "number"
           ? raw.clientSeq

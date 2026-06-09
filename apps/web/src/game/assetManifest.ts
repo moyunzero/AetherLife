@@ -46,9 +46,12 @@ export const ASSET_KEYS = {
   tilesScrubPack: "tiles/biome-scrub",
   tilesWetlandPack: "tiles/biome-wetland",
   tilesHighlandPack: "tiles/biome-highland",
+  /** SpriteFusion Tiled export — initial homestead background */
+  mapTestHome: "map-test/home",
+  mapTestTiles: "map-test/spritefusion",
 } as const;
 
-const BASE = "/assets";
+export const BASE = "/assets";
 
 export const CORE_AREA_ASSETS: AssetSheetDef[] = [
   { kind: "image", key: ASSET_KEYS.tilesBiomes, url: `${BASE}/tiles/biomes.png` },

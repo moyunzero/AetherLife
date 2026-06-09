@@ -17,12 +17,4 @@ describe("mergeHomeChunkBase", () => {
     const merged = mergeHomeChunkBase(base, room);
     expect(merged).toEqual(base);
   });
-
-  it("default room has door cell for executor blocking", () => {
-    const room = createDefaultRoom();
-    const door = room.objects.find((o) => o.kind === "door");
-    expect(door).toBeDefined();
-    expect(door!.x).toBe(3);
-    expect(door!.y).toBe(3);
-  });
 });

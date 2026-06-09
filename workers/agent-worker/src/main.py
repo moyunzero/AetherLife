@@ -9,6 +9,7 @@ import redis
 
 from src.config import Settings, get_settings
 from src.graph.lore_loop import run_lore_job
+from src.graph.memory_quote import pick_memory_quote
 from src.graph.npc_loop import run_npc_memory_tail, run_npc_turn_interactive
 from src.llm.call_budget import (
     get_recorder,
@@ -154,6 +155,13 @@ def process_job(client: httpx.Client, settings: Settings, payload: dict) -> None
     if result.get("collective_updated"):
         done_payload["collectiveUpdated"] = True
 
+    memory_quote = pick_memory_quote(
+        result.get("retrieved_memories"),
+        int(result.get("memory_count") or 0),
+    )
+    if memory_quote:
+        done_payload["memoryQuote"] = memory_quote
+
     interactive_recorder = get_recorder()
     interactive_summary = llm_call_summary_payload(interactive_recorder)
     if interactive_summary is not None:
@@ -264,12 +272,13 @@ def run_worker() -> None:
                     process_job(client, settings, payload)
                 except Exception as exc:
                     print(f"job failed jobId={payload.get('jobId')}: {exc}", file=sys.stderr)
+                    err_msg = format_llm_error(exc, provider=settings.llm_provider)
                     emit_job_event(
                         client,
                         settings,
                         payload["jobId"],
                         "error",
-                        {"message": format_llm_error(exc, provider=settings.llm_provider)},
+                        {"message": err_msg},
                     )
                 # Fairness: one lore job per speak job when lore backlog exists (ISSUE-030)
                 drain_one_lore_job(r, client, settings)

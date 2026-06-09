@@ -36,6 +36,12 @@ export {
 } from "./world.js";
 
 export {
+  HOME_MAP_TILE_H,
+  HOME_MAP_TILE_W,
+  isHomeMapRegionCell,
+} from "./homeMap.js";
+
+export {
   BIOME_LABEL_ZH,
   chunkViewsFingerprint,
   type BiomeId,

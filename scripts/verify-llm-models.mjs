@@ -56,7 +56,7 @@ function resolveLoreFallbackModel(env, provider) {
     case "groq":
       return "llama-3.1-8b-instant";
     case "openrouter":
-      return env.LLM_MODEL_OPENROUTER_FALLBACK ?? "openrouter/free";
+      return env.LLM_MODEL_OPENROUTER_FALLBACK ?? "openai/gpt-oss-120b:free";
     default:
       return env.LLM_MODEL ?? "glm-4.7-flash";
   }
@@ -87,39 +87,70 @@ async function readApiError(res) {
  * @param {string} opts.model
  * @param {Record<string, string>} [opts.extraHeaders]
  * @param {Record<string, unknown>} [opts.extraBody]
+ * @param {number} [opts.timeoutMs]
+ * @param {boolean} [opts.requirePong]
  */
-async function probeChat({ baseUrl, apiKey, model, extraHeaders = {}, extraBody = {} }) {
+async function probeChat({
+  baseUrl,
+  apiKey,
+  model,
+  extraHeaders = {},
+  extraBody = {},
+  timeoutMs = 90_000,
+  requirePong = false,
+}) {
   const url = `${baseUrl.replace(/\/$/, "")}/chat/completions`;
   const started = Date.now();
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      ...extraHeaders,
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0,
-      messages: [{ role: "user", content: "Reply with exactly: pong" }],
-      ...extraBody,
-      ...(Object.prototype.hasOwnProperty.call(extraBody, "max_completion_tokens")
-        ? {}
-        : { max_tokens: 16 }),
-    }),
-  });
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), timeoutMs);
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      signal: ac.signal,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        ...extraHeaders,
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0,
+        messages: [{ role: "user", content: "Reply with exactly: pong" }],
+        ...extraBody,
+        ...(Object.prototype.hasOwnProperty.call(extraBody, "max_completion_tokens")
+          ? {}
+          : Object.prototype.hasOwnProperty.call(extraBody, "max_tokens")
+            ? {}
+            : { max_tokens: 16 }),
+      }),
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    const latencyMs = Date.now() - started;
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      ok: false,
+      latencyMs,
+      error: message.includes("abort") ? `timeout ${timeoutMs}ms` : message.slice(0, 240),
+    };
+  }
+  clearTimeout(timer);
   const latencyMs = Date.now() - started;
   if (!res.ok) {
     return { ok: false, latencyMs, error: await readApiError(res), status: res.status };
   }
   const body = await res.json();
   const content = body?.choices?.[0]?.message?.content ?? "";
+  const preview = String(content).trim().slice(0, 80);
+  const pongOk = !requirePong || /pong/i.test(preview);
   return {
-    ok: true,
+    ok: pongOk,
     latencyMs,
     status: res.status,
-    preview: String(content).trim().slice(0, 80),
+    preview,
     modelReturned: body?.model ?? model,
+    error: pongOk ? undefined : "empty or missing pong in content",
   };
 }
 
@@ -184,9 +215,9 @@ async function main() {
   const cerebrasKey = env.CEREBRAS_API_KEY ?? "";
   const cerebrasModel = env.LLM_MODEL_CEREBRAS ?? "gpt-oss-120b";
 
-  const llmProvider = (env.LLM_PROVIDER ?? "siliconflow").toLowerCase();
+  const llmProvider = (env.LLM_PROVIDER ?? "nvidia").toLowerCase();
   const npcModelPin = (env.LLM_MODEL_NPC ?? "").trim();
-  const npcModel = npcModelPin || env.LLM_MODEL || "Qwen/Qwen3.5-4B";
+  const npcModel = npcModelPin || env.LLM_MODEL || "openai/gpt-oss-120b";
 
   const orHeaders = {
     "HTTP-Referer": env.OPENROUTER_HTTP_REFERER ?? "http://localhost:5173",
@@ -544,8 +575,9 @@ async function main() {
   }
 
   // --- Social JSON (LLM_PROVIDER_SOCIAL, Phase 11.7) ---
-  const socialProvider = (env.LLM_PROVIDER_SOCIAL ?? "siliconflow").toLowerCase();
-  const socialModel = env.LLM_MODEL_SOCIAL ?? env.LLM_MODEL_SILICONFLOW_FAST ?? "Qwen/Qwen3.5-4B";
+  const socialProvider = (env.LLM_PROVIDER_SOCIAL ?? "nvidia").toLowerCase();
+  const socialModel =
+    env.LLM_MODEL_SOCIAL ?? env.LLM_MODEL_NVIDIA_FAST ?? "qwen/qwen3.5-397b-a17b";
   const socialCfg = loreProviderConfig[socialProvider];
   if (!socialCfg) {
     push({
@@ -609,6 +641,71 @@ async function main() {
         apiKey: cerebrasKey,
         model: cerebrasModel,
         extraBody: { max_completion_tokens: 16 },
+      })),
+    });
+  }
+
+  // --- Production catalog (always probe when keys present; 2026-06-09) ---
+  const nvidiaFastCatalog = env.LLM_MODEL_NVIDIA_FAST ?? "qwen/qwen3.5-397b-a17b";
+  const nvidiaAgentCatalog = env.LLM_MODEL_NVIDIA_AGENT ?? "z-ai/glm-5.1";
+  const orFallbackModel = env.LLM_MODEL_OPENROUTER_FALLBACK ?? "openai/gpt-oss-120b:free";
+
+  if (nvidiaKey) {
+    push({
+      role: "NVIDIA fast (catalog)",
+      provider: "nvidia",
+      model: nvidiaFastCatalog,
+      keyLabel: "NVIDIA_API_KEY",
+      consumer: "LLM_MODEL_NVIDIA_FAST; social primary default",
+      ...(await probeChat({
+        baseUrl: "https://integrate.api.nvidia.com/v1",
+        apiKey: nvidiaKey,
+        model: nvidiaFastCatalog,
+        requirePong: true,
+        timeoutMs: 120_000,
+      })),
+    });
+    push({
+      role: "NVIDIA agent (catalog)",
+      provider: "nvidia",
+      model: nvidiaAgentCatalog,
+      keyLabel: "NVIDIA_API_KEY",
+      consumer: "LLM_MODEL_NVIDIA_AGENT; async/agentic only",
+      ...(await probeChat({
+        baseUrl: "https://integrate.api.nvidia.com/v1",
+        apiKey: nvidiaKey,
+        model: nvidiaAgentCatalog,
+        requirePong: true,
+        timeoutMs: 180_000,
+      })),
+    });
+  } else {
+    push({
+      role: "NVIDIA catalog",
+      provider: "nvidia",
+      model: nvidiaFastCatalog,
+      keyLabel: "NVIDIA_API_KEY",
+      consumer: "LLM_MODEL_NVIDIA_FAST / AGENT",
+      ok: false,
+      latencyMs: 0,
+      error: "missing NVIDIA_API_KEY",
+    });
+  }
+
+  if (orKey1) {
+    push({
+      role: "OpenRouter NPC fallback",
+      provider: "openrouter",
+      model: orFallbackModel,
+      keyLabel: "OPENROUTER_API_KEY",
+      consumer: "LLM_MODEL_OPENROUTER_FALLBACK; npc_provider_attempts",
+      ...(await probeChat({
+        baseUrl: "https://openrouter.ai/api/v1",
+        apiKey: orKey1,
+        model: orFallbackModel,
+        extraHeaders: orHeaders,
+        requirePong: true,
+        timeoutMs: 120_000,
       })),
     });
   }

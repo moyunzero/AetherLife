@@ -74,3 +74,18 @@ def test_compose_reply_hostile_move_without_move_tool():
     out = compose_reply(state)
     assert out["gate_rejected"] is True
     assert "当前关系较紧张" in out["reply"]
+
+
+def test_compose_reply_recall_merges_fact_when_llm_refuses():
+    state = {
+        "reply": "请自重，我不信任你。",
+        "player_message": "门禁密码是多少？",
+        "retrieved_memories": [
+            {"content": "玩家说门禁密码是 7", "score": 0.92, "importance": 8},
+        ],
+        "tool_calls": [],
+    }
+    out = compose_reply(state)
+    assert "7" in out["reply"]
+    assert "请自重" not in out["reply"]
+    assert "你上次说过" not in out["reply"]

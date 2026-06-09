@@ -14,6 +14,7 @@ describe("applyGameAction", () => {
 
   it("interact toggles door for acting npc context", () => {
     const room = createDefaultRoom();
+    room.objects = [{ id: "door-1", kind: "door", x: 3, y: 3, state: "closed" }];
     const { room: next } = applyGameAction(room, { type: "interact", objectId: "door-1" }, "npc-1");
     expect(next.objects[0]?.state).toBe("open");
   });
@@ -95,6 +96,7 @@ describe("applyGameAction", () => {
 
   it("snaps move onto door cell to nearest walkable cell", () => {
     const room = createDefaultRoom();
+    room.objects = [{ id: "door-1", kind: "door", x: 3, y: 3, state: "closed" }];
     const { room: next } = applyGameAction(room, { type: "move", x: 3, y: 3 }, "npc-1");
     const npc = findNpc(next, "npc-1");
     expect(npc?.x === 3 && npc?.y === 3).toBe(false);

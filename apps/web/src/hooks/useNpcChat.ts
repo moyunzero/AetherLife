@@ -20,6 +20,8 @@ export type ChatMessage = {
   text: string;
   npcId?: string;
   npcName?: string;
+  /** PLAY-03: worker-sourced memory citation from speak done payload. */
+  memoryQuote?: string;
 };
 
 export type ChatStatus = "idle" | "thinking" | "error";
@@ -258,7 +260,8 @@ export function useNpcChat(
       setStatus("thinking");
     };
     const onDone = (data: ColyseusNpcJobDonePayload & { jobId?: string }) => {
-      if (!matchesJob(data?.jobId)) return;
+      const matched = matchesJob(data?.jobId);
+      if (!matched) return;
       const replyNpcId =
         typeof data.npcId === "string" ? data.npcId : activeNpcIdRef.current;
       const npcName = typeof data.npcName === "string" ? data.npcName : "";
@@ -276,6 +279,10 @@ export function useNpcChat(
           text: sanitizeNpcReplyText(data.reply ?? ""),
           npcId: replyNpcId,
           npcName: typeof data.npcName === "string" ? data.npcName : undefined,
+          memoryQuote:
+            typeof data.memoryQuote === "string" && data.memoryQuote.trim()
+              ? data.memoryQuote.trim()
+              : undefined,
         },
       ]);
       if (data.state) setRoomState(data.state);

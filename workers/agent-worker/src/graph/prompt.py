@@ -83,7 +83,7 @@ def build_room_constraints(room: dict[str, Any]) -> str:
         lines.append(
             f"   - {oid} ({obj.get('kind')}) 位于 ({obj.get('x')},{obj.get('y')})，state={obj.get('state')}"
         )
-    lines.append("9. 开门/交互：interact + objectId（如上表 id，默认门为 door-1）。")
+    lines.append("9. 开门/交互：interact + objectId（使用上表对象 id）。")
     lines.append("10. 移动：move + 合法 x,y（相对指令须先换算为坐标）。")
     lines.append("11. 物品转移：transfer + itemId + toNpcId（只能转出自己背包中的物品）。")
     nearby = format_nearby_lore(room)

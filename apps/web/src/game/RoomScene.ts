@@ -57,8 +57,10 @@ import {
   type RemoteInterpDeps,
 } from "./RemotePlayerInterpolator.js";
 import { biomesFromChunks, preloadAdjacentBiomes, loadCoreAreaPack } from "./areaLoader.js";
+import { cardinalFacingFromDelta } from "./facing.js";
 import { DecorRenderer } from "./DecorRenderer.js";
 import { FloorRenderer } from "./FloorRenderer.js";
+import { HomeMapBackground } from "./HomeMapBackground.js";
 import {
   applyFacingFromSchema,
   applyStepAnimation,
@@ -192,6 +194,7 @@ export class RoomScene extends Phaser.Scene {
   private preloadStartMs = 0;
   private floorRenderer = new FloorRenderer();
   private decorRenderer = new DecorRenderer();
+  private homeMapBackground = new HomeMapBackground();
 
   constructor() {
     super({ key: SCENE_KEY });
@@ -241,6 +244,11 @@ export class RoomScene extends Phaser.Scene {
         this.handleEntityStepStart(ent as EntitySprite, fx, fy, tx, ty),
       onStepEnd: (ent, gx, gy, cont) =>
         this.handleEntityStepEnd(ent as EntitySprite, gx, gy, cont),
+      onFaceInput: (dx, dy) => {
+        const ent = this.getLocalPlayerEnt();
+        if (!ent?.spriteMode) return;
+        playIdleAnim(ent, cardinalFacingFromDelta(dx, dy));
+      },
     });
     this.motionBridge = this.movementController.buildBridge();
     this.registry.set("localPlayerMotion", this.motionBridge);
@@ -257,6 +265,7 @@ export class RoomScene extends Phaser.Scene {
       this.motionBridge = null;
       this.floorRenderer.destroy();
       this.decorRenderer.destroy();
+      this.homeMapBackground.destroy();
     });
 
     this.syncEntities();
@@ -550,13 +559,15 @@ export class RoomScene extends Phaser.Scene {
       return;
     }
     this.floorGfx.clear();
+    const homeMapActive = this.homeMapBackground.refresh(this);
     this.floorRenderer.refresh(
       this,
       this.getLoadedChunks(),
       this.getMoveMap(),
       this.terrainDebug(),
+      homeMapActive,
     );
-    this.decorRenderer.refresh(this, this.getLoadedChunks());
+    this.decorRenderer.refresh(this, this.getLoadedChunks(), homeMapActive);
   }
 
   /** Graphics fallback — visualFallback query or loader failure (D-23). */
@@ -651,7 +662,8 @@ export class RoomScene extends Phaser.Scene {
   private frameHomesteadScreenshot(): boolean {
     this.registry.set("uatHomesteadFrame", true);
     this.applyHomesteadScreenshotFrame();
-    this.decorRenderer.refresh(this, this.getLoadedChunks());
+    const homeMapActive = this.homeMapBackground.refresh(this);
+    this.decorRenderer.refresh(this, this.getLoadedChunks(), homeMapActive);
     return true;
   }
 

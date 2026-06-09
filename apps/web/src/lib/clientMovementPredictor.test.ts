@@ -10,6 +10,23 @@ vi.mock("./chunkWalkability.js", () => ({
 
 import { clientCanStep } from "./chunkWalkability.js";
 
+function makeMotionBridge(
+  overrides?: Partial<NonNullable<MovementPredictorContext["motionBridge"]>>,
+): NonNullable<MovementPredictorContext["motionBridge"]> {
+  return {
+    queueStep: () => {},
+    beginPathWalk: () => {},
+    playVisualPath: () => {},
+    cancelPath: () => {},
+    cancelLocomotion: () => {},
+    snapTo: () => {},
+    getLogicGrid: () => null,
+    isLocomoting: () => false,
+    faceInputDirection: () => {},
+    ...overrides,
+  };
+}
+
 function makeCtx(overrides?: Partial<MovementPredictorContext>): MovementPredictorContext {
   return {
     roomId: "test-room",
@@ -66,16 +83,10 @@ describe("ClientMovementPredictor.enqueueStep blocked", () => {
     const p = new ClientMovementPredictor();
     const ctx = makeCtx({
       self: { sessionId: "sess-a", x: 8, y: 4 },
-      motionBridge: {
-        queueStep: () => {},
-        beginPathWalk: () => {},
-        playVisualPath: () => {},
-        cancelPath: () => {},
-        cancelLocomotion: () => {},
+      motionBridge: makeMotionBridge({
         snapTo,
         getLogicGrid: () => ({ x: 10, y: 4 }),
-        isLocomoting: () => false,
-      },
+      }),
     });
     p.enqueueStep(ctx, 1, 0);
     expect(p.getPendingCount()).toBe(1);
@@ -86,6 +97,36 @@ describe("ClientMovementPredictor.enqueueStep blocked", () => {
     expect(snapTo).not.toHaveBeenCalled();
     vi.mocked(clientCanStep).mockReturnValue(true);
   });
+
+  it("calls onBlockedFace and sendMove without pending when blocked", () => {
+    const onBlockedFace = vi.fn();
+    const sendMove = vi.fn();
+    const onHint = vi.fn();
+    const p = new ClientMovementPredictor();
+    const ctx = makeCtx({
+      self: { sessionId: "sess-a", x: 3, y: 3 },
+      onBlockedFace,
+      sendMove,
+      onHint,
+    });
+    vi.mocked(clientCanStep).mockReturnValueOnce(false);
+    const blocked = p.enqueueStep(ctx, -1, 0);
+    expect(blocked).toBe(false);
+    expect(p.getPendingCount()).toBe(0);
+    expect(onHint).toHaveBeenCalledTimes(1);
+    expect(onBlockedFace).toHaveBeenCalledWith(-1, 0);
+    expect(sendMove).toHaveBeenCalledWith({ dx: -1, dy: 0 });
+    expect(sendMove.mock.calls[0]![0]).not.toHaveProperty("clientSeq");
+    vi.mocked(clientCanStep).mockReturnValue(true);
+  });
+
+  it("successful enqueueStep does not call onBlockedFace", () => {
+    const onBlockedFace = vi.fn();
+    const p = new ClientMovementPredictor();
+    const ctx = makeCtx({ onBlockedFace });
+    p.enqueueStep(ctx, 1, 0);
+    expect(onBlockedFace).not.toHaveBeenCalled();
+  });
 });
 
 describe("ClientMovementPredictor.applyAck stale correction", () => {
@@ -94,16 +135,10 @@ describe("ClientMovementPredictor.applyAck stale correction", () => {
     const p = new ClientMovementPredictor();
     const ctx = makeCtx({
       self: { sessionId: "sess-a", x: 8, y: 4 },
-      motionBridge: {
-        queueStep: () => {},
-        beginPathWalk: () => {},
-        playVisualPath: () => {},
-        cancelPath: () => {},
-        cancelLocomotion: () => {},
+      motionBridge: makeMotionBridge({
         snapTo,
         getLogicGrid: () => ({ x: 15, y: 4 }),
-        isLocomoting: () => false,
-      },
+      }),
     });
     p.enqueueStep(ctx, 1, 0);
     p.enqueueStep(ctx, 1, 0);
@@ -117,16 +152,10 @@ describe("ClientMovementPredictor.applyAck stale correction", () => {
     const p = new ClientMovementPredictor();
     const ctx = makeCtx({
       self: { sessionId: "sess-a", x: 15, y: 4 },
-      motionBridge: {
-        queueStep: () => {},
-        beginPathWalk: () => {},
-        playVisualPath: () => {},
-        cancelPath: () => {},
-        cancelLocomotion: () => {},
+      motionBridge: makeMotionBridge({
         snapTo,
         getLogicGrid: () => ({ x: 15, y: 4 }),
-        isLocomoting: () => false,
-      },
+      }),
     });
     p.enqueueStep(ctx, 1, 0);
     p.enqueueStep(ctx, 1, 0);
@@ -157,11 +186,12 @@ describe("ClientMovementPredictor.retryBufferedInput", () => {
     const p = new ClientMovementPredictor();
     const ctx = makeCtx({ sendMove, self: { sessionId: "sess-a", x: 7, y: 4 } });
     p.sendWasd(ctx, 1, 0, false);
-    expect(sendMove).not.toHaveBeenCalled();
-
-    p.retryBufferedInput(ctx, false);
     expect(sendMove).toHaveBeenCalledTimes(1);
     expect(sendMove.mock.calls[0]![0]).toMatchObject({ dx: 1, dy: 0 });
+
+    p.retryBufferedInput(ctx, false);
+    expect(sendMove).toHaveBeenCalledTimes(2);
+    expect(sendMove.mock.calls[1]![0]).toMatchObject({ dx: 1, dy: 0, clientSeq: expect.any(Number) });
   });
 });
 
@@ -173,16 +203,10 @@ describe("ClientMovementPredictor.visual-only at pending cap", () => {
     const ctx = makeCtx({
       sendMove,
       self: { sessionId: "sess-a", x: 0, y: 4 },
-      motionBridge: {
+      motionBridge: makeMotionBridge({
         queueStep,
-        beginPathWalk: () => {},
-        playVisualPath: () => {},
-        cancelPath: () => {},
-        cancelLocomotion: () => {},
-        snapTo: () => {},
         getLogicGrid: () => ({ x: 8, y: 4 }),
-        isLocomoting: () => false,
-      },
+      }),
     });
 
     for (let i = 0; i < 8; i++) {
@@ -194,5 +218,32 @@ describe("ClientMovementPredictor.visual-only at pending cap", () => {
     expect(sendMove).toHaveBeenCalledTimes(8);
     expect(queueStep).toHaveBeenCalledWith(9, 4);
     expect(p.getVisualOnlyAhead()).toBe(1);
+  });
+
+  it("faces toward blocked direction at pending cap without extra hint", () => {
+    const onBlockedFace = vi.fn();
+    const onHint = vi.fn();
+    const sendMove = vi.fn();
+    const p = new ClientMovementPredictor();
+    const ctx = makeCtx({
+      sendMove,
+      onBlockedFace,
+      onHint,
+      self: { sessionId: "sess-a", x: 0, y: 4 },
+      motionBridge: makeMotionBridge({
+        getLogicGrid: () => ({ x: 8, y: 4 }),
+      }),
+    });
+
+    for (let i = 0; i < 8; i++) {
+      p.enqueueStep(ctx, 1, 0);
+    }
+    vi.mocked(clientCanStep).mockReturnValueOnce(false);
+
+    p.sendWasd(ctx, 0, -1, false);
+    expect(onBlockedFace).toHaveBeenCalledWith(0, -1);
+    expect(sendMove).toHaveBeenLastCalledWith({ dx: 0, dy: -1 });
+    expect(onHint).not.toHaveBeenCalled();
+    vi.mocked(clientCanStep).mockReturnValue(true);
   });
 });

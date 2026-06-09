@@ -9,7 +9,7 @@ AI 驱动的多人联机生活模拟 Web 游戏：与拥有记忆的 NPC 用自�
 - **多人联机** — Colyseus 权威同步，最多 4 人同房间
 - **自然语言指挥** — 通过 ai-gateway 解析意图，worker 异步执行 NPC 回合
 - **持久记忆** — Postgres + pgvector，NPC 会记住互动并影响后续行为
-- **Phaser 4 世界** — 网格移动、程序化 chunk 地形与世界 lore
+- **Phaser 4 世界** — 2D 像素「地球Online」风：网格移动、程序化 chunk 地形与世界 lore
 - **集体态度** — NPC 对玩家/群体的态度随行为演化（Phase 12+）
 
 ## 技术栈
@@ -31,7 +31,7 @@ Monorepo：`apps/web` · `apps/game-server` · `apps/ai-gateway` · `workers/age
 - [Supabase](https://supabase.com) 项目（Postgres + `CREATE EXTENSION vector`）
 - [Upstash](https://upstash.com) Redis
 - Python 3.12+、[uv](https://docs.astral.sh/uv/)（ai-gateway / worker）
-- LLM API Key（见 `.env.example`，如智谱 / OpenRouter / Groq）
+- LLM API Key（见 `.env.example`；生产默认 **NVIDIA NIM** + OpenRouter embed）
 
 ### 安装与启动
 

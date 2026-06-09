@@ -69,14 +69,6 @@ export function createDefaultRoom(roomId = "default"): RoomState {
         inventory: ["note-1"],
       },
     ],
-    objects: [
-      {
-        id: "door-1",
-        kind: "door",
-        x: 3,
-        y: 3,
-        state: "closed",
-      },
-    ],
+    objects: [],
   };
 }

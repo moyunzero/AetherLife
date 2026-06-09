@@ -18,4 +18,6 @@ export type LocalPlayerMotionBridge = {
   snapTo: (gx: number, gy: number) => void;
   getLogicGrid: () => GridCell | null;
   isLocomoting: () => boolean;
+  /** Idle facing toward input when step is blocked (no tween). */
+  faceInputDirection: (dx: number, dy: number) => void;
 };

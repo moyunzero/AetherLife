@@ -91,7 +91,7 @@ async def parse_intent_json(message: str, *, golden_expected: dict | None = None
         return _heuristic_parse(message)
 
     payload = {
-        "model": os.getenv("LLM_MODEL", "openrouter/free"),
+        "model": os.getenv("LLM_MODEL", "openai/gpt-oss-120b:free"),
         "messages": [
             {"role": "system", "content": PARSE_SYSTEM},
             {"role": "user", "content": message},

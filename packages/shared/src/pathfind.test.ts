@@ -1,11 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { createDefaultRoom } from "./room.js";
+import { createDefaultRoom, type GameObject, type RoomState } from "./room.js";
 import {
   buildMoveGrid,
   canStepTo,
   findGridPath,
   findNearestWalkableCell,
 } from "./pathfind.js";
+
+const DOOR_AT_33: GameObject = {
+  id: "door-1",
+  kind: "door",
+  x: 3,
+  y: 3,
+  state: "closed",
+};
+
+function roomWithDoor(state: RoomState["objects"][number]["state"] = "closed"): RoomState {
+  const map = createDefaultRoom();
+  map.objects = [{ ...DOOR_AT_33, state }];
+  return map;
+}
 
 describe("findGridPath", () => {
   it("finds straight path", () => {
@@ -15,8 +29,7 @@ describe("findGridPath", () => {
   });
 
   it("paths around closed door", () => {
-    const map = createDefaultRoom();
-    map.objects[0]!.state = "closed";
+    const map = roomWithDoor("closed");
     const grid = buildMoveGrid(map, []);
     const path = findGridPath(4, 4, 4, 0, grid);
     expect(path).not.toBeNull();
@@ -30,8 +43,7 @@ describe("findGridPath", () => {
   });
 
   it("blocks open door cells", () => {
-    const map = createDefaultRoom();
-    map.objects[0]!.state = "open";
+    const map = roomWithDoor("open");
     const grid = buildMoveGrid(map, []);
     expect(grid.isBlocked(3, 3)).toBe(true);
     expect(findGridPath(4, 4, 3, 3, grid)).toBeNull();
@@ -47,7 +59,9 @@ describe("findGridPath", () => {
   it("canStepTo rejects npc, door, and player cells", () => {
     const map = createDefaultRoom();
     expect(canStepTo(map, 2, 2, [])).toBe(false);
-    expect(canStepTo(map, 3, 3, [])).toBe(false);
+    expect(canStepTo(map, 3, 3, [])).toBe(true);
+    const withDoor = roomWithDoor("closed");
+    expect(canStepTo(withDoor, 3, 3, [])).toBe(false);
     expect(canStepTo(map, 5, 2, [])).toBe(false);
     expect(canStepTo(map, 6, 4, [])).toBe(true);
     expect(canStepTo(map, 4, 4, [{ x: 4, y: 4 }])).toBe(false);

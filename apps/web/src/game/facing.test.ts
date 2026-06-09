@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cardinalFacingFromDelta, snapDiagonalToCardinal } from "./facing.js";
+import { cardinalFacingFromDelta, schemaFacingToCardinal, snapDiagonalToCardinal } from "./facing.js";
 
 describe("facing", () => {
   it("maps diagonal (1,1) to a single cardinal via dominant axis tie-break", () => {
@@ -17,5 +17,12 @@ describe("facing", () => {
   it("prefers vertical when |dy| > |dx|", () => {
     expect(cardinalFacingFromDelta(1, 2)).toBe("down");
     expect(cardinalFacingFromDelta(-1, -3)).toBe("up");
+  });
+
+  it("maps Colyseus schema facings n/s/e/w (ISSUE-040)", () => {
+    expect(schemaFacingToCardinal("n")).toBe("up");
+    expect(schemaFacingToCardinal("s")).toBe("down");
+    expect(schemaFacingToCardinal("w")).toBe("left");
+    expect(schemaFacingToCardinal("e")).toBe("right");
   });
 });

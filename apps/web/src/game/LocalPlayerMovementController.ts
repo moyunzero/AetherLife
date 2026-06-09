@@ -38,6 +38,7 @@ export type LocalPlayerMovementDeps = {
     toY: number,
   ) => void;
   onStepEnd?: (ent: MovementEntity, gx: number, gy: number, continuing: boolean) => void;
+  onFaceInput?: (dx: number, dy: number) => void;
 };
 
 /**
@@ -70,6 +71,10 @@ export class LocalPlayerMovementController {
       snapTo: (gx, gy) => this.snapLocalPlayer(gx, gy),
       getLogicGrid: () => this.getLocalLogicGrid(),
       isLocomoting: () => this.isLocalLocomoting(),
+      faceInputDirection: (dx, dy) => {
+        if (dx === 0 && dy === 0) return;
+        this.deps.onFaceInput?.(dx, dy);
+      },
     };
   }
 

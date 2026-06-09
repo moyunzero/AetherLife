@@ -157,6 +157,30 @@ body {
   word-break: break-word;
 }
 
+.message__memory-ref {
+  margin: 8px 0 0;
+  padding: 8px 10px 8px 12px;
+  border-left: 3px solid var(--accent, #c4a574);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent, #c4a574) 8%, var(--bg-deep, #0f0e0c));
+}
+
+.message__memory-ref-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--accent, #c4a574);
+  margin-bottom: 4px;
+}
+
+.message__memory-ref p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+
 .thinking-bar {
   width: 3px;
   background: var(--accent);
@@ -791,6 +815,95 @@ body {
   font-size: 10px;
   color: var(--accent, #c4a574);
   font-style: italic;
+}
+
+.journal-quest-strip {
+  margin: 0 0 6px;
+  padding: 6px 10px 6px 12px;
+  border-left: 3px solid var(--accent, #c4a574);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent, #c4a574) 8%, var(--bg-deep, #0f0e0c));
+}
+
+.journal-quest-strip__label {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--accent, #c4a574);
+  margin-bottom: 2px;
+}
+
+.journal-quest-strip__hook {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--text-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.collective-browse-panel {
+  margin-top: 12px;
+  padding: 8px;
+  border-radius: calc(var(--radius-md) + 2px);
+  background: linear-gradient(180deg, #6b4f3a 0%, #4a3628 48%, #3d2e22 100%);
+  box-shadow:
+    0 2px 0 rgba(255, 235, 200, 0.08) inset,
+    0 6px 18px rgba(0, 0, 0, 0.22);
+}
+
+.collective-browse-panel summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  list-style: none;
+  padding: 8px 10px;
+  border-radius: 3px;
+  border: 2px solid #2a1f16;
+  background: linear-gradient(180deg, rgba(36, 30, 22, 0.98) 0%, rgba(26, 21, 16, 0.99) 100%);
+}
+
+.collective-browse-panel summary::-webkit-details-marker {
+  display: none;
+}
+
+.collective-browse-panel__body {
+  margin-top: 8px;
+  padding: 0 4px 4px;
+}
+
+.collective-browse-panel__band {
+  margin-bottom: 8px;
+}
+
+.collective-browse-panel__events {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.collective-browse-panel__hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.collective-feedback-banner {
+  margin: 0;
+  padding: 10px 12px;
+  border: 2px solid #2a1f16;
+  border-left: 3px solid var(--accent, #c4a574);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent, #c4a574) 12%, var(--letterbox-bg));
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.4;
 }
 
 .lore-discover-toast {

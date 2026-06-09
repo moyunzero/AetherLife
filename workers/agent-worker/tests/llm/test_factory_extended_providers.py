@@ -55,7 +55,7 @@ def test_create_nvidia_model_uses_integrate_base(monkeypatch):
         settings=Settings(nvidia_api_key="nv-test"),
     )
     assert captured["base_url"] == "https://integrate.api.nvidia.com/v1"
-    assert captured["model"] == "qwen/qwen3-next-80b-a3b-instruct"
+    assert captured["model"] == "qwen/qwen3.5-397b-a17b"
 
 
 def test_missing_siliconflow_key_raises():

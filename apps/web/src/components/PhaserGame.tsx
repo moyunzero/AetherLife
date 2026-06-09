@@ -13,6 +13,7 @@ import type { PlayerSnapshot } from "../hooks/useColyseusRoom.js";
 import type { LocalPlayerMotionBridge } from "../game/localPlayerMotion.js";
 import type { MovementSyncController } from "../game/MovementSyncController.js";
 import { ExploreCoordsStrip } from "./ExploreCoordsStrip.js";
+import { JournalQuestStrip } from "./JournalQuestStrip.js";
 import { LoreDiscoverToast } from "./LoreDiscoverToast.js";
 import { biomeAt } from "../lib/chunkWalkability.js";
 import type { ChunkLoreEntry, LoreDiscoverToast as LoreDiscoverToastPayload } from "../hooks/useChunkLore.js";
@@ -255,6 +256,15 @@ export function PhaserGame({
     };
   }, [exploreGrid, loadedChunks, loreForChunk]);
 
+  const journalStoryHook = useMemo(() => {
+    if (!exploreGrid || !loreForChunk) return undefined;
+    const { cx, cy } = chunkOf(exploreGrid.gx, exploreGrid.gy);
+    const entry = loreForChunk(cx, cy);
+    if (!entry?.lore?.storyHook?.trim()) return undefined;
+    if (entry.status !== "ready" && entry.status !== "home") return undefined;
+    return entry.lore.storyHook.trim();
+  }, [exploreGrid, loreForChunk]);
+
   const registryRef = useRef({
     width,
     height,
@@ -494,7 +504,7 @@ export function PhaserGame({
       }}
     >
       <h2 className="room-scene-panel__title">房间</h2>
-      <p className="room-scene-panel__subtitle">探索周边地形 — 走出家园格即可进入新生态</p>
+      <p className="room-scene-panel__subtitle">地球Online 像素世界 — 走出家园格即可探索新区块</p>
       {connected && exploreCoords ? (
         <ExploreCoordsStrip
           gx={exploreCoords.gx}
@@ -506,6 +516,9 @@ export function PhaserGame({
           gameClockLabel={gameClock?.label}
         />
       ) : null}
+      {connected && exploreCoords && journalStoryHook ? (
+        <JournalQuestStrip storyHook={journalStoryHook} />
+      ) : null}
       <div className="room-scene-panel__viewport">
         <div className="room-scene-panel__stage">
           <div
@@ -513,7 +526,7 @@ export function PhaserGame({
             data-testid="phaser-parent"
             className="room-scene-panel__canvas"
             role="img"
-            aria-label="等轴房间地图：WASD 或方向键移动，点击格子寻路，选中 NPC 后在下方对话框发言"
+            aria-label="地球Online 像素地图：WASD 或方向键移动，点击格子寻路，选中 NPC 后在下方对话框发言"
           />
           <div className="room-scene-panel__overlay" aria-live="polite">
           {!connected ? (

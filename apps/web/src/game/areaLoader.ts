@@ -4,6 +4,8 @@ import {
   type AreaPackId,
   type AssetSheetDef,
   BIOME_PACK_IDS,
+  ASSET_KEYS,
+  BASE,
   CORE_AREA_ASSETS,
   LAZY_BIOME_PACK_ASSETS,
 } from "./assetManifest.js";
@@ -36,11 +38,26 @@ function queueAsset(loader: Phaser.Loader.LoaderPlugin, def: AssetSheetDef): voi
   }
 }
 
+function queueHomeMapAssets(loader: Phaser.Loader.LoaderPlugin): void {
+  const scene = loader.scene;
+  const mapKey = ASSET_KEYS.mapTestHome;
+  if (!scene.cache.tilemap.exists(mapKey) && !pendingKeys(scene).has(mapKey)) {
+    pendingKeys(scene).add(mapKey);
+    loader.tilemapTiledJSON(mapKey, `${BASE}/map-test/map.json`);
+  }
+  queueAsset(loader, {
+    kind: "image",
+    key: ASSET_KEYS.mapTestTiles,
+    url: `${BASE}/map-test/spritesheet.png`,
+  });
+}
+
 /** Load home + meadow + player atlases during Scene preload. */
 export function loadCoreAreaPack(loader: Phaser.Loader.LoaderPlugin): void {
   for (const def of CORE_AREA_ASSETS) {
     queueAsset(loader, def);
   }
+  queueHomeMapAssets(loader);
 }
 
 /** Plan alias — core area pack for preload. */

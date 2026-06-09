@@ -293,6 +293,9 @@ export class MovementSyncController {
       onPendingCount: this.callbacks.onPendingCount,
       onRttMs: this.callbacks.onRttMs,
       onCorrection: this.callbacks.onCorrection,
+      onBlockedFace: (dx, dy) => {
+        sources?.getMotionBridge()?.faceInputDirection(dx, dy);
+      },
       onClickPathAborted: () => {
         this.clickPathEnd?.();
         this.clickPathEnd = null;

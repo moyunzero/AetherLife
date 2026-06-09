@@ -84,6 +84,8 @@ export type ColyseusNpcJobDonePayload = {
     calls: Array<{ role: string; provider: string; model: string }>;
     total: number;
   };
+  /** Highest-scoring retrieved memory snippet for PLAY-03 citation UI (optional). */
+  memoryQuote?: string;
 };
 
 /** Loaded chunk tile window for client render (Phase 10). */

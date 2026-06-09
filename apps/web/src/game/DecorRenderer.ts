@@ -3,6 +3,7 @@ import type * as Phaser from "phaser";
 import { ASSET_KEYS, TILE_PX } from "./assetManifest.js";
 import { CELL_PX, entityDepth } from "./entityLayout.js";
 import { gridToWorld } from "./gridLayout.js";
+import { isHomeMapCell } from "./HomeMapBackground.js";
 import { decorForBlockedCell, homeDecorPlacements, type DecorPlacement } from "./homeLayout.js";
 import { decorTintForPlacement } from "./pastoralTint.js";
 import { isVisualFallbackActive } from "./visualFallback.js";
@@ -31,7 +32,7 @@ export class DecorRenderer {
   private sprites: DecorSprite[] = [];
   private lastFingerprint = "";
 
-  refresh(scene: Phaser.Scene, chunks: ChunkView[]): void {
+  refresh(scene: Phaser.Scene, chunks: ChunkView[], homeMapActive = false): void {
     if (isVisualFallbackActive(scene)) {
       this.clear();
       return;
@@ -46,7 +47,7 @@ export class DecorRenderer {
     const spawns: DecorSpawn[] = [];
     const uatHomestead = scene.registry.get("uatHomesteadFrame") === true;
 
-    const fp = `${uatHomestead ? "uat-homestead" : "play"}|${chunks
+    const fp = `${uatHomestead ? "uat-homestead" : "play"}|${homeMapActive ? "map" : "proc"}|${chunks
       .map((c) => `${c.cx},${c.cy}`)
       .sort()
       .join("|")}`;
@@ -56,6 +57,7 @@ export class DecorRenderer {
 
     for (const chunk of chunks) {
       for (const p of homeDecorPlacements(worldSeed, chunk.cx, chunk.cy)) {
+        if (homeMapActive && isHomeMapCell(p.gx, p.gy)) continue;
         spawns.push({ placement: p, chunkCx: chunk.cx, chunkCy: chunk.cy, biome: "home" });
       }
       if (uatHomestead) continue;
@@ -63,6 +65,7 @@ export class DecorRenderer {
         if (tile.walkable) continue;
         const gx = chunk.cx * CHUNK_SIZE + tile.lx;
         const gy = chunk.cy * CHUNK_SIZE + tile.ly;
+        if (homeMapActive && isHomeMapCell(gx, gy)) continue;
         const key = `${gx},${gy}`;
         if (placed.has(key)) continue;
         const decor = decorForBlockedCell(gx, gy, tile.biome, worldSeed);

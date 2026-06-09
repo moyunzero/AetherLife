@@ -17,6 +17,8 @@ export type CollectiveEventSummary = {
   createdAt: string;
   npcId?: string;
   source?: string;
+  /** Server-sourced initiator resolution (C-05 / PLAY-02). */
+  playerIds?: string[];
 };
 
 export type CollectiveAttitudeSnapshot = {

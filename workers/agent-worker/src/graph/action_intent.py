@@ -122,11 +122,11 @@ def build_tool_retry_message(room: dict[str, Any]) -> str:
         for obj in objects
         if obj.get("id")
     ]
-    objects_text = "\n".join(object_lines) if object_lines else "- door-1 (door) @ (3,3) state=closed"
+    objects_text = "\n".join(object_lines) if object_lines else "（当前无已知交互物）"
     return (
         "[系统] 玩家要求执行房间内的物理动作，但你尚未调用 move / interact / wait 工具。\n"
         f"合法坐标：x、y 均为 0 到 {max_x}（当前房间 {width}×{height}）。\n"
         f"已知对象：\n{objects_text}\n"
-        "开门必须调用 interact，objectId 使用上表 id（如 door-1）。移动必须调用 move。\n"
+        "交互必须调用 interact，objectId 使用上表 id。移动必须调用 move。\n"
         "请在本轮立即调用所需工具，不要只用文字承诺「我会去…」。"
     )

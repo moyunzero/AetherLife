@@ -50,13 +50,22 @@ describe("applyPlayerMove", () => {
     expect(applyPlayerMove(state, "s1", 2, 0, grid).ok).toBe(false);
   });
 
-  it("rejects step into npc cell", async () => {
+  it("rejects step into npc cell but updates facing", async () => {
     const map = createDefaultRoom();
     const state = roomWithPlayer(3, 2);
+    state.players.get("s1")!.facing = "s";
     const loader = await loaderAround(3, 2);
     const grid = buildMoveGrid(map, state, "s1", loader);
 
-    expect(applyPlayerMove(state, "s1", -1, 0, grid).ok).toBe(false);
+    const result = applyPlayerMove(state, "s1", -1, 0, grid);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.facing).toBe("w");
+      expect(result.facingUpdated).toBe(true);
+    }
+    expect(state.players.get("s1")!.x).toBe(3);
+    expect(state.players.get("s1")!.y).toBe(2);
+    expect(state.players.get("s1")!.facing).toBe("w");
   });
 
   it("allows cross-chunk step (7,0) to (8,0)", async () => {
@@ -70,9 +79,9 @@ describe("applyPlayerMove", () => {
     expect(result).toEqual({ ok: true, x: 8, y: 0, facing: "e" });
   });
 
-  it("rejects step into void (unloaded chunk)", async () => {
+  it("rejects step into void outside homestead (unloaded chunk)", async () => {
     const map = createDefaultRoom();
-    const state = roomWithPlayer(4, 4);
+    const state = roomWithPlayer(23, 4);
     const loader = new ChunkLoader({ worldId: "void-test", worldSeed: 42 });
     const grid = buildMoveGrid(map, state, "s1", loader);
 
@@ -113,7 +122,7 @@ describe("applyPlayerMoveTo", () => {
 
   it("paths around closed door", async () => {
     const map = createDefaultRoom();
-    map.objects[0]!.state = "closed";
+    map.objects = [{ id: "door-1", kind: "door", x: 3, y: 3, state: "closed" }];
     const state = roomWithPlayer(4, 4);
     const loader = await loaderAround(4, 4);
     const grid = buildMoveGrid(map, state, "s1", loader);

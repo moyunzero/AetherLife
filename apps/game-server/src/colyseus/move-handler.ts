@@ -1,5 +1,4 @@
 import {
-  type Facing,
   buildGlobalMoveGrid,
   canStepGlobal,
   findGlobalGridPath,
@@ -12,7 +11,7 @@ import type { GameRoomState } from "./schema.js";
 
 export type MoveResult =
   | { ok: true; x: number; y: number; facing: Facing }
-  | { ok: false; reason: string };
+  | { ok: false; reason: string; facing: Facing; facingUpdated: boolean };
 
 export type { GlobalMoveGrid as MoveGrid } from "@aetherlife/shared";
 
@@ -21,6 +20,18 @@ function facingFromDelta(dx: number, dy: number): Facing {
   if (dy > 0) return "s";
   if (dx < 0) return "w";
   return "e";
+}
+
+function moveFail(
+  player: { facing: string } | undefined,
+  reason: string,
+): Extract<MoveResult, { ok: false }> {
+  return {
+    ok: false,
+    reason,
+    facing: (player?.facing ?? "s") as Facing,
+    facingUpdated: false,
+  };
 }
 
 export function buildMoveGrid(
@@ -54,21 +65,29 @@ export function applyPlayerMove(
   grid: GlobalMoveGrid,
 ): MoveResult {
   if (!Number.isInteger(dx) || !Number.isInteger(dy)) {
-    return { ok: false, reason: "dx and dy must be integers" };
+    return moveFail(state.players.get(sessionId), "dx and dy must be integers");
   }
   if (Math.abs(dx) + Math.abs(dy) !== 1) {
-    return { ok: false, reason: "move must be a single grid step" };
+    return moveFail(state.players.get(sessionId), "move must be a single grid step");
   }
 
   const player = state.players.get(sessionId);
   if (!player) {
-    return { ok: false, reason: "unknown player" };
+    return moveFail(undefined, "unknown player");
   }
 
   const nx = player.x + dx;
   const ny = player.y + dy;
   if (!canStepGlobal(nx, ny, grid)) {
-    return { ok: false, reason: "cell blocked" };
+    const nextFacing = facingFromDelta(dx, dy);
+    const facingUpdated = player.facing !== nextFacing;
+    player.facing = nextFacing;
+    return {
+      ok: false,
+      reason: "cell blocked",
+      facing: player.facing as Facing,
+      facingUpdated,
+    };
   }
 
   player.x = nx;
@@ -86,17 +105,17 @@ export function applyPlayerMoveTo(
   grid: GlobalMoveGrid,
 ): MoveResult {
   if (!Number.isInteger(targetX) || !Number.isInteger(targetY)) {
-    return { ok: false, reason: "target must be integers" };
+    return moveFail(state.players.get(sessionId), "target must be integers");
   }
 
   const player = state.players.get(sessionId);
   if (!player) {
-    return { ok: false, reason: "unknown player" };
+    return moveFail(undefined, "unknown player");
   }
 
   const path = findGlobalGridPath(player.x, player.y, targetX, targetY, grid);
   if (!path) {
-    return { ok: false, reason: "no path to target" };
+    return moveFail(player, "no path to target");
   }
 
   const last = path[path.length - 1]!;

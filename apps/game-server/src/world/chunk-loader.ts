@@ -3,6 +3,7 @@ import {
   chunkKey,
   chunkOf,
   createDefaultRoom,
+  isHomeMapRegionCell,
   type ChunkDelta,
   type ChunkTileView,
   type ChunkView,
@@ -173,6 +174,8 @@ export class ChunkLoader {
   }
 
   getWalkability(gx: number, gy: number): boolean | "void" {
+    if (isHomeMapRegionCell(gx, gy)) return true;
+
     const { cx, cy } = chunkOf(gx, gy);
     const entry = this.cache.get(chunkKey(cx, cy));
     if (!entry || !entry.ready) return "void";

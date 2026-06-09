@@ -13,7 +13,7 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 | 层 | 契约 |
 |----|------|
 | **身份来源** | Colyseus `speak` → `playerId` → job payload `playerId` |
-| **状态读取** | `GET /rooms/:id/state` + header `X-Player-Id` → `roomStateForInitiator` → `state.player` = 发起者实时格 |
+| **状态读取** | speak 热路径：`GET /internal/rooms/:id/worker-state` + header `X-Player-Id` → `roomStateForInitiator` → `state.player` = 发起者实时格（无 memoryCounts）；legacy/debug：`GET /rooms/:id/state` 仍可用 |
 | **Prompt** | 「我 / 下方 / 旁边」仅相对 **本次** `state.player`（见 `workers/.../prompt.py`） |
 | **执行** | `POST .../apply-actions` body: `actingNpcId`, `actions[]`, `initiatorPlayerId` |
 | **碰撞** | `collectPlayerCells`（所有 Colyseus 玩家 + map 快照） |
@@ -36,6 +36,7 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 | **队列** | 按 `npcId` 互斥（`npcSpeakJobs`），不同 NPC 可并行 |
 | **事件** | worker → `POST /internal/jobs/:id/events` → SSE / `speakAck` / `speakIdle` |
 | **可观测（可选）** | job `done` 可含 `llmCallSummary: { calls[], total }`（Phase 12.2；客户端可忽略） |
+| **记忆回调（可选）** | job `done` 可含 `memoryQuote?: string` — worker 从 `retrieved_memories` 最高分条目选取（PLAY-03）；无检索命中时不传 |
 | **客户端 speak UX** | 方案 A（life-sim）：同 NPC in-flight 时 UI 禁用 composer，`sendMessage` 不 enqueue；server `speakBusy` 时内部 FIFO drain 仍保留（Phase 12.2 STAB-04） |
 | **禁止** | Room handler 内同步 LLM；房间级 speak 全局锁 |
 
@@ -62,6 +63,7 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 |----|------|
 | **权威** | `GameRoomState.players[]` 每连接 `(x,y,playerId)` |
 | **移动** | 客户端预测 + 服务端 `move-handler` 裁决；`canStepTo` / `buildMoveGrid` |
+| **被挡转向** | `clientCanStep` 失败时客户端 `onBlockedFace` + 无 `clientSeq` 的 `{ dx, dy }` move；服务端 `applyPlayerMove` 仍更新 `player.facing`（坐标不变），`facingUpdated` 时 `bumpStateVersion` |
 | **地图写回** | `syncMapPlayerPosition` 仅最后移动者 — **不得**用于 worker 视图 |
 | **监听** | 禁止 `removeAllListeners()`；`onMessage` 用返回的 `off()` |
 

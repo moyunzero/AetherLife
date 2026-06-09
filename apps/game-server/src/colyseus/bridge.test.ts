@@ -19,7 +19,7 @@ describe("syncColyseusFromMap", () => {
     const map = createDefaultRoom("default");
     map.npcs[0]!.x = 7;
     map.npcs[0]!.y = 1;
-    map.objects[0]!.state = "open";
+    map.objects = [{ id: "door-1", kind: "door", x: 3, y: 3, state: "open" }];
 
     const colyseus = new GameRoomState();
     syncColyseusFromMap(colyseus, map);

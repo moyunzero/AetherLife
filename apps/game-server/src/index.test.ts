@@ -135,6 +135,15 @@ describe("game-server", () => {
     expect(after.body.state.npcs).toEqual(before.body.state.npcs);
   });
 
+  it("GET /internal/rooms/default/worker-state returns state without memoryCounts", async () => {
+    const res = await request(app).get("/internal/rooms/default/worker-state");
+    expect(res.status).toBe(200);
+    expect(res.body.state).toBeDefined();
+    expect(Array.isArray(res.body.state.npcs)).toBe(true);
+    expect(Array.isArray(res.body.nearbyLore)).toBe(true);
+    expect(res.body.memoryCounts).toBeUndefined();
+  });
+
   it("GET /internal/rooms/default/memory-context returns context shape", async () => {
     await request(app)
       .post("/rooms/default/chat")

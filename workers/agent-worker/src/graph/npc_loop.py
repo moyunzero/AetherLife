@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import httpx
@@ -21,6 +22,7 @@ from src.graph.prompt import build_turn_messages, format_memory_summary
 from src.graph.reflect import run_reflect_llm, should_reflect
 from src.graph.state import GraphState
 from src.graph.summarize import maybe_bulk_summarize
+from src.graph.recall_merge import merge_recall_into_reply
 from src.graph.reply_sanitize import sanitize_npc_reply
 from src.graph.tools import load_tools_for_binding, parse_tool_calls, reply_from_turn
 from src.llm.errors import (
@@ -44,6 +46,7 @@ from src.collective.social_turn import (
 from src.graph.nodes.llm_social_turn import llm_social_turn
 from src.llm.call_budget import record_llm_call
 from src.memory.client import (
+    _MEMORY_CONTEXT_INTERACTIVE_TIMEOUT_S,
     append_npc_memory,
     append_player_memory,
     fetch_memory_context,
@@ -74,9 +77,9 @@ def fetch_state(state: GraphState, *, settings: Settings, client: httpx.Client) 
     if player_id and player_id != "__legacy__":
         headers["X-Player-Id"] = player_id
     res = client.get(
-        f"{settings.game_server_url}/rooms/{room_id}/state",
+        f"{settings.game_server_url}/internal/rooms/{room_id}/worker-state",
         headers=headers,
-        timeout=10.0,
+        timeout=25.0,
     )
     res.raise_for_status()
     body = res.json()
@@ -97,6 +100,8 @@ def load_memory_context(
     *,
     settings: Settings,
     client: httpx.Client,
+    memory_timeout: float | None = None,
+    memory_attempts: int = 3,
 ) -> GraphState:
     npc_id = state.get("npc_id") or "npc-1"
     try:
@@ -107,6 +112,8 @@ def load_memory_context(
             state.get("player_message") or "",
             npc_id=npc_id,
             player_id=_player_id(state),
+            timeout=memory_timeout,
+            attempts=memory_attempts,
         )
     except httpx.TimeoutException as exc:
         print(
@@ -130,6 +137,57 @@ def load_memory_context(
         "gate_rejected": False,
         **collective,
     }
+
+
+_MEMORY_MERGE_KEYS = (
+    "memory_summary",
+    "memory_count",
+    "retrieved_memories",
+    "latest_bulk",
+    "latest_reflection",
+    "gate_rejected",
+    "attitude_band",
+    "effective_score",
+    "allowed_tools",
+    "collective_summaries",
+)
+
+
+def fetch_state_and_memory(
+    state: GraphState,
+    *,
+    settings: Settings,
+    client: httpx.Client,
+) -> GraphState:
+    """Parallel worker-state + memory-context to cut speak pre-LLM latency."""
+    del client  # each thread uses its own httpx.Client (not thread-safe)
+
+    def _fetch() -> GraphState:
+        with httpx.Client() as thread_client:
+            return fetch_state(state, settings=settings, client=thread_client)
+
+    def _memory() -> GraphState:
+        with httpx.Client() as thread_client:
+            return load_memory_context(
+                state,
+                settings=settings,
+                client=thread_client,
+                memory_timeout=_MEMORY_CONTEXT_INTERACTIVE_TIMEOUT_S,
+                memory_attempts=2,
+            )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        state_future = pool.submit(_fetch)
+        memory_future = pool.submit(_memory)
+        state_with_room = state_future.result()
+        state_with_memory = memory_future.result()
+
+    merged = {**state_with_room}
+    for key in _MEMORY_MERGE_KEYS:
+        if key in state_with_memory:
+            merged[key] = state_with_memory[key]
+
+    return merged
 
 
 def _invoke_llm_turn(
@@ -386,6 +444,11 @@ def refresh_collective_in_state(state: GraphState) -> GraphState:
 def compose_reply(state: GraphState) -> GraphState:
     state = _finalize_hostile_gate(state)
     reply = (state.get("reply_draft") or state.get("reply") or "").strip()
+    reply = merge_recall_into_reply(
+        state.get("player_message") or "",
+        reply,
+        state.get("retrieved_memories"),
+    )
     tool_calls = state.get("tool_calls") or []
 
     if not reply and tool_calls:
@@ -549,17 +612,15 @@ def build_npc_interactive_graph(settings: Settings | None = None):
     checkpointer = get_checkpointer(allow_memory_fallback=True)
 
     graph = StateGraph(GraphState)
-    graph.add_node("fetch_state", _with_client_node(cfg, fetch_state))
-    graph.add_node("load_memory_context", _with_client_node(cfg, load_memory_context))
+    graph.add_node("fetch_state_and_memory", _with_client_node(cfg, fetch_state_and_memory))
     graph.add_node("llm_social_turn", lambda state: llm_social_turn(state, settings=cfg))
     graph.add_node("apply_social_event", apply_social_event)
     graph.add_node("refresh_collective_in_state", refresh_collective_in_state)
     graph.add_node("apply_tools", _with_client_node(cfg, apply_tools))
     graph.add_node("compose_reply", compose_reply)
 
-    graph.set_entry_point("fetch_state")
-    graph.add_edge("fetch_state", "load_memory_context")
-    graph.add_edge("load_memory_context", "llm_social_turn")
+    graph.set_entry_point("fetch_state_and_memory")
+    graph.add_edge("fetch_state_and_memory", "llm_social_turn")
     graph.add_edge("llm_social_turn", "apply_social_event")
     graph.add_edge("apply_social_event", "refresh_collective_in_state")
     graph.add_edge("refresh_collective_in_state", "apply_tools")

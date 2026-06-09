@@ -73,7 +73,7 @@ def _npc_fallback_models(settings: Settings, fallback_provider: str) -> list[str
 
 def npc_provider_attempts(settings: Settings) -> list[tuple[str, str]]:
     """Provider+model pairs for NPC tool-calling (never mix provider with foreign model ids)."""
-    primary_provider = (settings.llm_provider or "siliconflow").lower()
+    primary_provider = (settings.llm_provider or "nvidia").lower()
     pin = (settings.llm_model_npc or os.getenv("LLM_MODEL_NPC") or "").strip()
     if primary_provider == "cerebras":
         primary_model = pin or settings.llm_model_cerebras
@@ -130,6 +130,7 @@ def create_chat_model(
     settings: Settings | None = None,
     api_key: str | None = None,
     temperature: float | None = None,
+    request_timeout: float | None = None,
 ) -> ChatOpenAI:
     cfg = settings or get_settings()
     chosen_provider = (provider or cfg.llm_provider).lower()
@@ -150,7 +151,7 @@ def create_chat_model(
         else:
             resolved_model = cfg.llm_model
 
-    timeout_s = float(cfg.llm_request_timeout)
+    timeout_s = float(request_timeout if request_timeout is not None else cfg.llm_request_timeout)
     if timeout_s <= 0:
         timeout_s = 120.0
 
