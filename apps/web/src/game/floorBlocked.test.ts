@@ -1,9 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { biomeAtGlobal } from "@aetherlife/shared";
+import {
+  CHUNK_SIZE,
+  biomeAtGlobal,
+  chunkOf,
+  defaultBeginningFieldsBundle,
+  loadWorldRegistry,
+  type ChunkView,
+} from "@aetherlife/shared";
 import { isTerrainWalkable } from "./floorBlocked.js";
+import { regionWalkabilityAt } from "./regionCollision.js";
 
 describe("isTerrainWalkable procedural fallback", () => {
   it("uses biomeAtGlobal when chunk view is not loaded outside homestead", () => {
+    loadWorldRegistry(defaultBeginningFieldsBundle());
     expect(isTerrainWalkable([], 40, 0, 42)).toBe(biomeAtGlobal(40, 0, 42).walkable);
     expect(isTerrainWalkable([], 41, 0, 42)).toBe(biomeAtGlobal(41, 0, 42).walkable);
   });
@@ -19,17 +28,11 @@ describe("isTerrainWalkable procedural fallback", () => {
     expect(isTerrainWalkable(chunks, 40, 0, 42)).toBe(false);
   });
 
-  it("Beginning Fields homestead region (40×40) is terrain-walkable regardless of chunk tile", () => {
-    const chunks = [
-      {
-        cx: 1,
-        cy: 0,
-        tiles: [{ lx: 0, ly: 0, biome: "wetland" as const, walkable: false }],
-      },
-    ];
-    expect(isTerrainWalkable(chunks, 8, 0, 42)).toBe(true);
-    expect(isTerrainWalkable([], 20, 20, 42)).toBe(true);
-    expect(isTerrainWalkable([], 39, 39, 42)).toBe(true);
+  it("Beginning Fields uses baked Collision layer grid (not all-walkable)", () => {
+    loadWorldRegistry(defaultBeginningFieldsBundle());
+    expect(isTerrainWalkable([], 34, 13, 42)).toBe(true);
+    expect(isTerrainWalkable([], 28, 8, 42)).toBe(false);
+    expect(regionWalkabilityAt(28, 8)).toBe(false);
     expect(isTerrainWalkable([], 40, 0, 42)).toBe(biomeAtGlobal(40, 0, 42).walkable);
   });
 });

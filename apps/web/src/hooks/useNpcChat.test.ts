@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   clearInFlightRefsForDrain,
   dequeueNpcSpeak,
+  discardQueuedSpeakMatching,
   enqueueNpcSpeak,
   isNpcSpeakInFlight,
   npcSpeakQueueDepth,
@@ -26,6 +27,15 @@ describe("npc speak queue helpers", () => {
     enqueueNpcSpeak(queues, "npc-2", "b");
     expect(dequeueNpcSpeak(queues, "npc-2")).toBe("b");
     expect(npcSpeakQueueDepth(queues, "npc-1")).toBe(1);
+  });
+
+  it("discardQueuedSpeakMatching removes duplicate retry text", () => {
+    const queues: NpcSpeakQueue = new Map();
+    enqueueNpcSpeak(queues, "npc-1", "你想我吗？");
+    enqueueNpcSpeak(queues, "npc-1", "别的");
+    expect(discardQueuedSpeakMatching(queues, "npc-1", "你想我吗？")).toBe(1);
+    expect(npcSpeakQueueDepth(queues, "npc-1")).toBe(1);
+    expect(dequeueNpcSpeak(queues, "npc-1")).toBe("别的");
   });
 });
 

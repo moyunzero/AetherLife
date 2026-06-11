@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   clearChunkLoreMemory,
   deleteChunkLore,
@@ -17,6 +17,11 @@ const sampleLore = {
 };
 
 describe("lore-repository", () => {
+  beforeEach(() => {
+    delete process.env.DATABASE_URL;
+    clearChunkLoreMemory();
+  });
+
   afterEach(() => {
     delete process.env.DATABASE_URL;
     clearChunkLoreMemory();

@@ -1,25 +1,20 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { isKnownActivityKey } from "@aetherlife/shared";
+import { isKnownActivityKey, type WorldRegistry } from "@aetherlife/shared";
 
 const MAX_SEGMENTS = 48;
-const MAX_WAYPOINTS = 32;
 
 const SCHEDULES_DIR = join(dirname(fileURLToPath(import.meta.url)), "../../data/schedules");
 
-export type ScheduleWaypoint = {
-  gx: number;
-  gy: number;
-};
+export type Mobility = "wander" | "stationary" | "poi";
 
 export type ScheduleSegment = {
   fromMinute: number;
   toMinute: number;
   activityKey: string;
-  stationary: boolean;
-  waypoints: ScheduleWaypoint[];
-  waypointMode?: "loop" | "once";
+  zoneId: string;
+  mobility: Mobility;
 };
 
 export type NpcSchedule = {
@@ -33,8 +28,13 @@ export function validateActivityKey(key: string): string {
   return isKnownActivityKey(key) ? key : "idle";
 }
 
-function normalizeMinute(minute: number): number {
+export function normalizeMinute(minute: number): number {
   return ((minute % 1440) + 1440) % 1440;
+}
+
+/** Stable key for segment-change detection (enqueue ambient intent). */
+export function segmentKey(segment: ScheduleSegment): string {
+  return `${segment.zoneId}|${segment.activityKey}|${segment.mobility}|${segment.fromMinute}-${segment.toMinute}`;
 }
 
 export function minuteInSegment(minute: number, fromMinute: number, toMinute: number): boolean {
@@ -48,8 +48,22 @@ export function minuteInSegment(minute: number, fromMinute: number, toMinute: nu
   return m >= from || m < to;
 }
 
+/** True sleep / no movement — resting & idle only. Stationary/poi use zone linger (see ambient/README.md). */
+export function shouldSkipMovement(segment: ScheduleSegment): boolean {
+  return segment.activityKey === "idle" || segment.activityKey === "resting";
+}
+
+/** stationary | poi → micro-wander within LINGER_RADIUS; wander → full zone pick. */
+export function isLingerMobility(mobility: Mobility): boolean {
+  return mobility === "stationary" || mobility === "poi";
+}
+
+const MOBILITY_SET = new Set<Mobility>(["wander", "stationary", "poi"]);
+
 function parseScheduleFile(filePath: string): NpcSchedule {
-  const raw = JSON.parse(readFileSync(filePath, "utf8")) as NpcSchedule;
+  const raw = JSON.parse(readFileSync(filePath, "utf8")) as NpcSchedule & {
+    segments: Array<Record<string, unknown>>;
+  };
   if (!raw.npcId || !Array.isArray(raw.segments)) {
     throw new Error(`Invalid schedule file: ${filePath}`);
   }
@@ -58,13 +72,21 @@ function parseScheduleFile(filePath: string): NpcSchedule {
   }
 
   const segments = raw.segments.map((segment) => {
-    if (segment.waypoints.length > MAX_WAYPOINTS) {
-      throw new Error(`Schedule ${raw.npcId} segment exceeds max waypoints (${MAX_WAYPOINTS})`);
+    if ("waypoints" in segment || "stationary" in segment) {
+      throw new Error(`Schedule ${raw.npcId}: legacy waypoints/stationary fields are not supported`);
+    }
+    if (!segment.zoneId || typeof segment.zoneId !== "string") {
+      throw new Error(`Schedule ${raw.npcId}: segment missing zoneId`);
+    }
+    if (!MOBILITY_SET.has(segment.mobility as Mobility)) {
+      throw new Error(`Schedule ${raw.npcId}: invalid mobility ${segment.mobility}`);
     }
     return {
-      ...segment,
-      activityKey: validateActivityKey(segment.activityKey),
-      waypoints: segment.waypoints.map((wp) => ({ gx: wp.gx, gy: wp.gy })),
+      fromMinute: segment.fromMinute as number,
+      toMinute: segment.toMinute as number,
+      activityKey: validateActivityKey(segment.activityKey as string),
+      zoneId: segment.zoneId as string,
+      mobility: segment.mobility as Mobility,
     };
   });
 
@@ -85,7 +107,7 @@ function loadSchedules(): Map<string, NpcSchedule> {
 
 const SCHEDULES = loadSchedules();
 
-/** Resolve the active schedule segment for an NPC at a game minute (stub — no movement). */
+/** Resolve the active schedule segment for an NPC at a game minute. */
 export function resolveScheduleSegment(npcId: string, gameMinute: number): ScheduleSegment | null {
   const schedule = SCHEDULES.get(npcId);
   if (!schedule) return null;
@@ -102,4 +124,28 @@ export function resolveScheduleSegment(npcId: string, gameMinute: number): Sched
 /** Test hook: loaded schedule count. */
 export function loadedScheduleCount(): number {
   return SCHEDULES.size;
+}
+
+/** Test hook: full schedule for assertions. */
+export function getNpcSchedule(npcId: string): NpcSchedule | undefined {
+  return SCHEDULES.get(npcId);
+}
+
+/** Fail fast at boot when schedule segment zoneId is absent from WorldRegistry (T-16-01). */
+export function validateNpcSchedulesAgainstRegistry(registry: WorldRegistry): void {
+  const knownZoneIds = new Set<string>();
+  for (const zones of registry.zonesByRegion.values()) {
+    for (const zone of zones) {
+      knownZoneIds.add(zone.zoneId);
+    }
+  }
+  for (const schedule of SCHEDULES.values()) {
+    for (const segment of schedule.segments) {
+      if (!knownZoneIds.has(segment.zoneId)) {
+        throw new Error(
+          `Schedule ${schedule.npcId}: segment references unknown zoneId ${segment.zoneId}`,
+        );
+      }
+    }
+  }
 }

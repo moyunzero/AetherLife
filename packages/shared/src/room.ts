@@ -1,3 +1,4 @@
+import { defaultBackgroundNpcStates } from "./backgroundNpc.js";
 import { HOME_DEFAULT_PLAYER_SPAWN, HOME_MAP_TILE_H, HOME_MAP_TILE_W, HOME_NPC_SPAWNS } from "./homeMap.js";
 
 export type ObjectState = "open" | "closed" | "idle";
@@ -16,6 +17,18 @@ export type NpcState = {
   inventory: string[];
   /** Ambient activity key (server-authoritative; optional until ambient tick writes). */
   activityKey?: string;
+  /** Async ambient intent reason (max 32 chars); client subline in 16-08. */
+  intentReasonZh?: string;
+  /** join_vicinity UX — wall-clock ms window. */
+  joinVicinityActive?: boolean;
+  joinVicinityUntil?: number;
+  joinVicinityStartedAt?: number;
+  /** Player id to approach during join_vicinity (C-06). */
+  joinVicinityPlayerId?: string;
+  /** Wave 5 background tier — ambient wander only; no speak/worker. */
+  isBackgroundNpc?: boolean;
+  /** Zone id for rule-only wander (e.g. beginning-fields@v1:plaza). */
+  backgroundWanderZoneId?: string;
 };
 
 export type GameObject = {
@@ -67,6 +80,7 @@ export function createDefaultRoom(roomId = "default"): RoomState {
         status: "idle",
         inventory: ["note-1"],
       },
+      ...defaultBackgroundNpcStates(),
     ],
     objects: [],
   };

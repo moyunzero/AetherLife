@@ -5,6 +5,9 @@
  * Atlas TSX → manifest kind "spritesheet" (ISSUE-042 / Guardrail #63).
  * Collection-of-images → kind "image".
  *
+ * Collision bake: Tiled layer **Collision** (non-zero gid = blocked, blank = walkable).
+ * Fallback when Collision missing: terrain **Water** layer — grass gid 5211 walkable, other gids blocked.
+ *
  * Usage:
  *   node scripts/bake-beginning-fields.mjs
  *   FANTASY_TILESET_ROOT="/path/to/The Fan-tasy Tileset (Free)" node scripts/bake-beginning-fields.mjs
@@ -28,6 +31,11 @@ const manifestTsPath = resolve(
   root,
   "apps/web/src/game/oneCityTilesetManifest.ts",
 );
+const collisionServerPath = resolve(
+  root,
+  "apps/game-server/data/world/beginning-fields@v1/collision.json",
+);
+const collisionPublicDir = resolve(root, "apps/web/public/world/beginning-fields");
 /** @type {object[]} */
 const tilesetManifest = [];
 
@@ -247,6 +255,49 @@ function flattenLayers(layers, parentOpacity = 1) {
   return out;
 }
 
+/** Grass / default walkable terrain gid on Beginning Fields Water tilelayer. */
+const BEGINNING_FIELDS_GRASS_GID = 5211;
+
+/**
+ * Bake walkability grid from Tiled tilelayer.
+ * Prefers layer "Collision" (non-zero gid = blocked).
+ * Fallback: terrain "Water" layer — grass gid walkable, other non-zero gids blocked.
+ * @param {object[]} flatLayers
+ * @param {number} mapWidth
+ * @param {number} mapHeight
+ */
+function bakeCollisionFromLayers(flatLayers, mapWidth, mapHeight) {
+  /** @type {{ name: string, type: string, width?: number, height?: number, data?: number[] } | undefined} */
+  const collisionLayer = flatLayers.find(
+    (l) => l.name === "Collision" && l.type === "tilelayer",
+  );
+  if (collisionLayer?.data) {
+    if (collisionLayer.width !== mapWidth || collisionLayer.height !== mapHeight) {
+      throw new Error(
+        `Collision layer size ${collisionLayer.width}x${collisionLayer.height} !== map ${mapWidth}x${mapHeight}`,
+      );
+    }
+    const cells = collisionLayer.data.map((gid) => (gid > 0 ? 1 : 0));
+    return { width: mapWidth, height: mapHeight, cells, source: "Collision" };
+  }
+
+  const terrainLayer = flatLayers.find(
+    (l) => l.name === "Water" && l.type === "tilelayer",
+  );
+  if (!terrainLayer?.data) {
+    throw new Error('No Collision or Water tilelayer with "data" found in map');
+  }
+  if (terrainLayer.width !== mapWidth || terrainLayer.height !== mapHeight) {
+    throw new Error(
+      `Water terrain layer size ${terrainLayer.width}x${terrainLayer.height} !== map ${mapWidth}x${mapHeight}`,
+    );
+  }
+  const cells = terrainLayer.data.map((gid) =>
+    gid === 0 || gid === BEGINNING_FIELDS_GRASS_GID ? 0 : 1,
+  );
+  return { width: mapWidth, height: mapHeight, cells, source: "Water-gids" };
+}
+
 function main() {
   if (!existsSync(mapSourcePath)) {
     throw new Error(`Map JSON not found: ${mapSourcePath}`);
@@ -285,6 +336,20 @@ function main() {
     type: map.type,
     version: map.version,
   };
+
+  const collision = bakeCollisionFromLayers(baked.layers, baked.width, baked.height);
+  mkdirSync(dirname(collisionServerPath), { recursive: true });
+  writeFileSync(collisionServerPath, JSON.stringify(collision, null, 2));
+  console.log(
+    `Wrote ${collisionServerPath} (${collision.cells.filter((c) => c === 1).length} blocked cells, source=${collision.source ?? "unknown"})`,
+  );
+
+  mkdirSync(collisionPublicDir, { recursive: true });
+  writeFileSync(
+    join(collisionPublicDir, "collision.json"),
+    JSON.stringify(collision, null, 2),
+  );
+  console.log(`Wrote ${join(collisionPublicDir, "collision.json")}`);
 
   const outJson = join(outDir, mapOutName);
   writeFileSync(outJson, JSON.stringify(baked, null, 2));

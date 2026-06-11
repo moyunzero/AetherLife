@@ -44,6 +44,13 @@ from src.collective.social_turn import (
     refresh_collective_snapshot,
 )
 from src.graph.nodes.llm_social_turn import llm_social_turn
+from src.graph.job_context import record_phase_ms
+from src.graph.speak_intent import (
+    SpeakIntent,
+    classify_speak_intent,
+    should_skip_memory_context,
+    should_skip_memory_embed,
+)
 from src.llm.call_budget import record_llm_call
 from src.memory.client import (
     _MEMORY_CONTEXT_INTERACTIVE_TIMEOUT_S,
@@ -70,24 +77,65 @@ def _game_headers(settings: Settings) -> dict[str, str]:
     return headers
 
 
-def fetch_state(state: GraphState, *, settings: Settings, client: httpx.Client) -> GraphState:
+_FETCH_STATE_TIMEOUT_S = 6.0
+_FETCH_STATE_ATTEMPTS = 2
+
+
+def _neutral_memory_fields() -> dict[str, Any]:
+    band = "neutral"
+    return {
+        "memory_summary": "",
+        "memory_count": 0,
+        "retrieved_memories": [],
+        "latest_bulk": None,
+        "latest_reflection": None,
+        "gate_rejected": False,
+        "attitude_band": band,
+        "effective_score": None,
+        "allowed_tools": list(allowed_tools_for_band(band)),
+        "collective_summaries": [],
+    }
+
+
+def fetch_state(
+    state: GraphState,
+    *,
+    settings: Settings,
+    client: httpx.Client,
+    skip_nearby_lore: bool = False,
+) -> GraphState:
     room_id = state["room_id"]
     headers = _game_headers(settings)
     player_id = _player_id(state)
     if player_id and player_id != "__legacy__":
         headers["X-Player-Id"] = player_id
-    res = client.get(
-        f"{settings.game_server_url}/internal/rooms/{room_id}/worker-state",
-        headers=headers,
-        timeout=25.0,
-    )
-    res.raise_for_status()
-    body = res.json()
-    snapshot = body.get("state", {}) or {}
-    nearby = body.get("nearbyLore")
-    if nearby is not None:
-        snapshot = {**snapshot, "nearbyLore": nearby}
-    return {**state, "room_snapshot": snapshot}
+    url = f"{settings.game_server_url}/internal/rooms/{room_id}/worker-state"
+    if skip_nearby_lore:
+        url = f"{url}?skipNearbyLore=1"
+    last_exc: BaseException | None = None
+    for attempt in range(_FETCH_STATE_ATTEMPTS):
+        try:
+            res = client.get(url, headers=headers, timeout=_FETCH_STATE_TIMEOUT_S)
+            res.raise_for_status()
+            body = res.json()
+            snapshot = body.get("state", {}) or {}
+            nearby = body.get("nearbyLore")
+            if nearby is not None:
+                snapshot = {**snapshot, "nearbyLore": nearby}
+            return {**state, "room_snapshot": snapshot}
+        except httpx.TimeoutException as exc:
+            last_exc = exc
+            print(
+                f"worker-state timeout room={room_id} attempt={attempt + 1}/{_FETCH_STATE_ATTEMPTS}",
+                file=sys.stderr,
+            )
+            if attempt + 1 < _FETCH_STATE_ATTEMPTS:
+                time.sleep(0.5 + attempt)
+                continue
+            raise
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError("fetch_state retry loop exited without response")
 
 
 
@@ -102,6 +150,7 @@ def load_memory_context(
     client: httpx.Client,
     memory_timeout: float | None = None,
     memory_attempts: int = 3,
+    skip_embed: bool = False,
 ) -> GraphState:
     npc_id = state.get("npc_id") or "npc-1"
     try:
@@ -114,6 +163,7 @@ def load_memory_context(
             player_id=_player_id(state),
             timeout=memory_timeout,
             attempts=memory_attempts,
+            skip_embed=skip_embed,
         )
     except httpx.TimeoutException as exc:
         print(
@@ -161,20 +211,47 @@ def fetch_state_and_memory(
 ) -> GraphState:
     """Parallel worker-state + memory-context to cut speak pre-LLM latency."""
     del client  # each thread uses its own httpx.Client (not thread-safe)
+    player_message = state.get("player_message") or ""
+    recent_turns = state.get("recent_turns")
+    intent = classify_speak_intent(player_message, recent_turns)
+    state = {**state, "speak_intent": intent.value}
+    skip_memory = should_skip_memory_context(intent)
+    skip_embed = should_skip_memory_embed(intent)
+
+    if skip_memory:
+        t0 = time.perf_counter()
+        with httpx.Client() as thread_client:
+            state_with_room = fetch_state(
+                state,
+                settings=settings,
+                client=thread_client,
+                skip_nearby_lore=True,
+            )
+        record_phase_ms("t_fetch_state_ms", int((time.perf_counter() - t0) * 1000))
+        record_phase_ms("t_memory_ms", 0)
+        merged = {**state_with_room, **_neutral_memory_fields()}
+        return merged
 
     def _fetch() -> GraphState:
+        t0 = time.perf_counter()
         with httpx.Client() as thread_client:
-            return fetch_state(state, settings=settings, client=thread_client)
+            out = fetch_state(state, settings=settings, client=thread_client)
+        record_phase_ms("t_fetch_state_ms", int((time.perf_counter() - t0) * 1000))
+        return out
 
     def _memory() -> GraphState:
+        t0 = time.perf_counter()
         with httpx.Client() as thread_client:
-            return load_memory_context(
+            out = load_memory_context(
                 state,
                 settings=settings,
                 client=thread_client,
                 memory_timeout=_MEMORY_CONTEXT_INTERACTIVE_TIMEOUT_S,
-                memory_attempts=2,
+                memory_attempts=1,
+                skip_embed=skip_embed,
             )
+        record_phase_ms("t_memory_ms", int((time.perf_counter() - t0) * 1000))
+        return out
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         state_future = pool.submit(_fetch)
@@ -186,6 +263,7 @@ def fetch_state_and_memory(
     for key in _MEMORY_MERGE_KEYS:
         if key in state_with_memory:
             merged[key] = state_with_memory[key]
+    merged["speak_intent"] = intent.value
 
     return merged
 
@@ -328,6 +406,7 @@ def llm_turn(state: GraphState, *, settings: Settings) -> GraphState:
 
 
 def apply_tools(state: GraphState, *, settings: Settings, client: httpx.Client) -> GraphState:
+    t0 = time.perf_counter()
     room = state.get("room_snapshot") or {}
     allowed = _allowed_tool_names(state)
     raw_calls = state.get("tool_calls") or []
@@ -337,6 +416,7 @@ def apply_tools(state: GraphState, *, settings: Settings, client: httpx.Client) 
     actions = tool_calls_to_actions(tool_calls, room=room)
 
     if not actions:
+        record_phase_ms("t_apply_ms", int((time.perf_counter() - t0) * 1000))
         return state
 
     room_id = state["room_id"]
@@ -345,11 +425,18 @@ def apply_tools(state: GraphState, *, settings: Settings, client: httpx.Client) 
     player_id = _player_id(state)
     if player_id and player_id != "__legacy__":
         body["initiatorPlayerId"] = player_id
+    from src.graph.action_intent import build_dialogue_context, resolve_npc_snap_anchor_cell
+
+    player_msg = state.get("player_message") or ""
+    dialogue_ctx = build_dialogue_context(player_msg, state.get("recent_turns"))
+    snap_anchor = resolve_npc_snap_anchor_cell(player_msg, room, dialogue_ctx)
+    if snap_anchor is not None:
+        body["moveSnapAnchor"] = {"x": snap_anchor[0], "y": snap_anchor[1]}
     res = client.post(
         f"{settings.game_server_url}/internal/rooms/{room_id}/apply-actions",
         json=body,
         headers=_game_headers(settings),
-        timeout=10.0,
+        timeout=20.0,
     )
     if res.status_code >= 400:
         detail = res.text.strip()
@@ -357,6 +444,7 @@ def apply_tools(state: GraphState, *, settings: Settings, client: httpx.Client) 
             f"apply-actions failed ({res.status_code}): {detail[:500]}",
         )
     body = res.json()
+    record_phase_ms("t_apply_ms", int((time.perf_counter() - t0) * 1000))
     return {
         **state,
         "room_snapshot": body.get("state", state.get("room_snapshot", {})),
@@ -594,6 +682,8 @@ def _npc_turn_initial(
         "social_applied": False,
         "collective_updated": False,
         "just_happened_summary": "",
+        "speak_intent": "",
+        "phase_timing_ms": {},
         "trace_run_id": None,
     }
 

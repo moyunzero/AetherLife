@@ -7,6 +7,17 @@ export const DEFAULT_PORTS = {
 } as const;
 
 export {
+  BG_VILLAGER_IDS,
+  DEFAULT_BACKGROUND_NPC_SPAWNS,
+  backgroundNpcStatesFromSpawns,
+  defaultBackgroundNpcStates,
+  isBackgroundNpc,
+  isBackgroundNpcId,
+  type BackgroundNpcSpawn,
+  type BgVillagerId,
+} from "./backgroundNpc.js";
+
+export {
   createDefaultRoom,
   findNpc,
   type GameObject,
@@ -46,6 +57,32 @@ export {
   isHomeMapRegionCell,
   type HomeNpcId,
 } from "./homeMap.js";
+
+export {
+  assertRegionsNonOverlapping,
+  BEGINNING_FIELDS_ID,
+  VILLAGE_PLAZA_ID,
+  defaultBeginningFieldsBundle,
+  defaultWorldRegistryBundle,
+  fromLocal,
+  getRegionById,
+  getWorldRegistry,
+  loadWorldRegistry,
+  parseZoneId,
+  regionAt,
+  setWorldRegistry,
+  toGlobal,
+  zoneAtLocal,
+  type Poi,
+  type RegionSpawns,
+  type WorldRegion,
+  type WorldRegionId,
+  type WorldRegistry,
+  type WorldRegistryBundle,
+  type Zone,
+  type ZoneId,
+  type ZoneRect,
+} from "./worldRegion.js";
 
 export {
   BIOME_LABEL_ZH,
@@ -108,6 +145,7 @@ export {
   type ColyseusMoveAckPayload,
   type ColyseusMovePayload,
   type ColyseusNpcJobDonePayload,
+  type ColyseusSpeakPartialPayload,
   type ColyseusSpeakBusyPayload,
   type ColyseusSpeakIdlePayload,
   type ColyseusSpeakPayload,
@@ -124,6 +162,19 @@ export {
   validateChunkLoreStrings,
   type ChunkLore,
 } from "./chunkLoreSchema.js";
+
+export {
+  AmbientIntentSchema,
+  AmbientIntentTargetSchema,
+  AmbientIntentZoneSchema,
+  isTargetIntent,
+  isZoneIntent,
+  parseAmbientIntent,
+  safeParseAmbientIntent,
+  type AmbientIntent,
+  type AmbientIntentTarget,
+  type AmbientIntentZone,
+} from "./ambientIntentSchema.js";
 
 export {
   dominantBiomeFromTiles,
@@ -173,6 +224,29 @@ export {
   isKnownActivityKey,
   type NpcActivityKey,
 } from "./npcActivity.js";
+
+export { isReasonZhRedundantWithActivity } from "./intentContent.js";
+
+export { stableStringHash } from "./stableStringHash.js";
+
+export {
+  SpeakIntent,
+  classifySpeakIntent,
+  inferSocialFromMessage,
+  isRecallQuestion,
+  playerRequestsPhysicalAction,
+  playerRequestsInteract,
+  playerRequestsMove,
+  shouldSkipMemoryContext,
+  type SpeakIntentValue,
+} from "./speakIntent.js";
+
+export {
+  canUseCasualFastLane,
+  pickCasualReply,
+  previewCasualSpeakStub,
+  type CasualFastLanePreview,
+} from "./casualSpeakStub.js";
 
 export {
   COLLECTIVE_EVENT_KINDS,

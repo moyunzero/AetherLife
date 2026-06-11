@@ -10,7 +10,7 @@ export { HOME_MAP_TILE_H, HOME_MAP_TILE_W, isHomeMapRegionCell as isHomeMapCell 
 const TILE_SCALE = CELL_PX / TILE_PX;
 
 /** Editor-only layer — hidden in Tiled, not shown in game. */
-const SKIP_LAYER_NAMES = new Set(["RockSlopes"]);
+const SKIP_LAYER_NAMES = new Set(["RockSlopes", "Collision"]);
 
 type TiledLayerMeta = {
   name: string;

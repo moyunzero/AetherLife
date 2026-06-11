@@ -1,3 +1,4 @@
+import { previewCasualSpeakStub } from "@aetherlife/shared";
 import { Router, type Request, type Response } from "express";
 import { registerJob } from "../colyseus/job-registry.js";
 import {
@@ -7,6 +8,7 @@ import {
   validateChatNpcId,
 } from "../colyseus/npc-chat.js";
 import { getColyseusRoom } from "../colyseus/room-registry.js";
+import type { GameRoom } from "../colyseus/GameRoom.js";
 import { playerIdFromRequest } from "../http/player-id.js";
 import { getOrCreate } from "../room/store.js";
 import { emitJobEvent, subscribeJobEvents } from "../sse/hub.js";
@@ -37,17 +39,28 @@ export function createChatRouter(): Router {
     getOrCreate(roomId);
     const playerId = playerIdFromRequest(req, req.body);
 
+    const colyseusRoom = getColyseusRoom(roomId) as GameRoom | undefined;
+    if (colyseusRoom?.isNpcSpeakBusy(npcId)) {
+      res.status(409).json({ ok: false, error: "npc_busy" });
+      return;
+    }
+
     try {
-      const jobId = await startNpcChatTurn(roomId, message, npcId, playerId);
-      const colyseusRoom = getColyseusRoom(roomId);
+      const casualStub = previewCasualSpeakStub(message);
+      const jobId = await startNpcChatTurn(roomId, message, npcId, playerId, undefined, {
+        casualPreviewEmitted: Boolean(casualStub),
+      });
       if (colyseusRoom) {
+        colyseusRoom.acquireNpcSpeakJob(npcId, jobId);
         registerJob(jobId, colyseusRoom, roomId, undefined, {
           npcId,
           playerId,
           playerMessage: message,
         });
       }
-      emitJobEvent(jobId, "thinking", { status: "queued", npcId });
+      if (casualStub) {
+        emitJobEvent(jobId, "speakPartial", { text: casualStub, npcId });
+      }
       res.json({ jobId });
     } catch (err) {
       const error = err instanceof Error ? err.message : "chat failed";

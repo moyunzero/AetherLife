@@ -8,6 +8,8 @@ type Props = {
   flavorLine?: string;
   lorePending?: boolean;
   gameClockLabel?: string;
+  /** WorldRegion registry labelZh for player cell (LIFE-EXT-UI-04). */
+  regionLabelZh?: string;
 };
 
 export function ExploreCoordsStrip({
@@ -18,6 +20,7 @@ export function ExploreCoordsStrip({
   flavorLine,
   lorePending,
   gameClockLabel,
+  regionLabelZh,
 }: Props) {
   const { cx, cy } = chunkOf(gx, gy);
   const biomeLabel = biome === "void" ? "生成中" : BIOME_LABEL_ZH[biome];
@@ -31,6 +34,12 @@ export function ExploreCoordsStrip({
       </p>
       <p className="explore-coords-strip__meta">
         格 ({gx}, {gy}) · chunk ({cx}, {cy}) · {biomeLabel}
+        {regionLabelZh ? (
+          <>
+            {" · "}
+            <span data-testid="explore-region-label">{regionLabelZh}</span>
+          </>
+        ) : null}
       </p>
       {gameClockLabel ? (
         <p className="explore-coords-strip__clock" aria-label={`游戏时间 ${gameClockLabel}`}>

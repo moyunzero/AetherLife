@@ -74,12 +74,16 @@ describe("game-server", () => {
   it("GET /rooms/default/state returns npcs and memoryCounts", async () => {
     const res = await request(app).get("/rooms/default/state");
     expect(res.status).toBe(200);
-    expect(res.body.state.npcs).toHaveLength(3);
+    expect(res.body.state.npcs).toHaveLength(7);
     expect(res.body.state.objects).toBeDefined();
     expect(res.body.memoryCounts).toEqual({
       "npc-1": 0,
       "npc-2": 0,
       "npc-3": 0,
+      "bg-villager-1": 0,
+      "bg-villager-2": 0,
+      "bg-villager-3": 0,
+      "bg-villager-4": 0,
     });
     expect(res.body.memoryCount).toBeUndefined();
   });
@@ -97,6 +101,10 @@ describe("game-server", () => {
       "npc-1": 0,
       "npc-2": 0,
       "npc-3": 0,
+      "bg-villager-1": 0,
+      "bg-villager-2": 0,
+      "bg-villager-3": 0,
+      "bg-villager-4": 0,
     });
   });
 
@@ -133,6 +141,29 @@ describe("game-server", () => {
     expect(res.status).toBe(400);
     const after = await request(app).get("/rooms/default/state");
     expect(after.body.state.npcs).toEqual(before.body.state.npcs);
+  });
+
+  it("POST /internal/rooms/default/npc-intent stores ambient intent (204)", async () => {
+    const res = await request(app)
+      .post("/internal/rooms/default/npc-intent")
+      .send({
+        npcId: "npc-1",
+        trigger: "segment_change",
+        gameMinute: 400,
+        intent: {
+          zoneId: "beginning-fields",
+          reasonZh: "去田野走走",
+          untilGameMinute: 420,
+        },
+      });
+    expect(res.status).toBe(204);
+  });
+
+  it("POST /internal/rooms/default/npc-intent rejects invalid body", async () => {
+    const res = await request(app)
+      .post("/internal/rooms/default/npc-intent")
+      .send({ npcId: "npc-1", trigger: "bad", gameMinute: 400, intent: {} });
+    expect(res.status).toBe(400);
   });
 
   it("GET /internal/rooms/default/worker-state returns state without memoryCounts", async () => {
@@ -311,7 +342,7 @@ describe("game-server", () => {
     expect(stateB.body.memoryCounts["npc-1"]).toBe(0);
   });
 
-  it("POST /rooms/default/chat buffers thinking for SSE replay (NLUI-04)", async () => {
+  it("POST /rooms/default/chat does not buffer server-side thinking (worker emits planning)", async () => {
     const chat = await request(app)
       .post("/rooms/default/chat")
       .send({ message: "hi", npcId: "npc-1" });
@@ -319,13 +350,10 @@ describe("game-server", () => {
     const jobId = chat.body.jobId as string;
 
     const events = peekBufferedJobEvents(jobId);
-    expect(events.some((e) => e.type === "thinking")).toBe(true);
-    expect(events.find((e) => e.type === "thinking")?.data).toEqual(
-      expect.objectContaining({ status: "queued", npcId: "npc-1" }),
-    );
+    expect(events.some((e) => e.type === "thinking")).toBe(false);
   });
 
-  it("POST internal emit done runs check-reply before SSE done (SAFE-02)", async () => {
+  it("POST internal emit done forwards reply without gateway check-reply (SAFE-02)", async () => {
     const fetchMock = vi.fn(async () =>
       Response.json({ text: "sanitized reply" }),
     );
@@ -337,11 +365,11 @@ describe("game-server", () => {
         .post(`/internal/jobs/${jobId}/emit`)
         .send({ type: "done", data: { reply: "raw reply" } });
       expect(emit.status).toBe(200);
-      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(fetchMock).not.toHaveBeenCalled();
 
       const done = peekBufferedJobEvents(jobId).find((e) => e.type === "done");
       expect(done?.data).toEqual(
-        expect.objectContaining({ reply: "sanitized reply", text: "sanitized reply" }),
+        expect.objectContaining({ reply: "raw reply" }),
       );
     } finally {
       vi.unstubAllGlobals();

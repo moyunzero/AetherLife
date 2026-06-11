@@ -1,4 +1,5 @@
 import { Room, type Client } from "colyseus";
+import { randomUUID } from "node:crypto";
 import {
   COLYSEUS_CLIENT_MESSAGES,
   COLYSEUS_MAX_CLIENTS,
@@ -11,13 +12,14 @@ import {
   homeDefaultPlayerSpawn,
   normalizePlayerId,
   type ColyseusMovePayload,
+  previewCasualSpeakStub,
   type ColyseusSpeakPayload,
   type Facing,
 } from "@aetherlife/shared";
 import { getOrCreate } from "../room/store.js";
 import { emitJobEvent } from "../sse/hub.js";
 import { syncColyseusFromMap, syncMapPlayerPosition } from "./bridge.js";
-import { registerJob } from "./job-registry.js";
+import { registerJob, unregisterJob } from "./job-registry.js";
 import { applyPlayerMove, applyPlayerMoveTo, buildMoveGrid, findNearestWalkableCell } from "./move-handler.js";
 import { getChunkLoader } from "../world/chunk-loader.js";
 import { chunkCrossed, onPlayerEnterChunk } from "../world/lore-orchestrator.js";
@@ -34,7 +36,10 @@ import {
 } from "./room-registry.js";
 import { GameRoomState, PlayerSchema } from "./schema.js";
 import { bumpStateVersion } from "./version.js";
-import { runAmbientTick } from "../ambient/tick.js";
+import { resolveScheduleSegment, segmentKey } from "../ambient/schedule.js";
+import { applySegmentStartIntentFallback } from "../ambient/segment-intent.js";
+import { MAIN_AMBIENT_NPC_IDS, runAmbientTick } from "../ambient/tick.js";
+import { addNpcAmbientIntentJob } from "../queue/npc-ambient-intent.js";
 
 export const AMBIENT_MS = 6000;
 
@@ -43,10 +48,12 @@ type JoinOptions = { mapRoomId?: string; playerId?: string };
 export class GameRoom extends Room {
   /** Logical map room id (join option `roomId`; not Colyseus `this.roomId`). */
   mapRoomId = "default";
-  /** npcId → jobId (or pending token before job is created) */
+  /** Per-NPC speak job mutex (npcId → jobId or pending token). */
   private npcSpeakJobs = new Map<string, string>();
-  /** Per-NPC patrol waypoint cursor (room-local ambient state). */
-  private ambientWaypointCursors = new Map<string, number>();
+  /** Last Colyseus speak initiator per NPC (C-06 join_vicinity on speak_end). */
+  private lastSpeakInitiatorByNpc = new Map<string, string>();
+  /** Per-NPC recent wander targets (room-local ambient state). */
+  private ambientRecentNpcCells = new Map<string, { x: number; y: number }[]>();
   private lastAckedSeq = new Map<string, number>();
   private lastChunksFingerprint = "";
   /** Set when matchmaker spawned a duplicate shard for the same mapRoomId. */
@@ -182,7 +189,8 @@ export class GameRoom extends Room {
     this.mapRoomId = options.mapRoomId ?? "default";
     this.maxClients = COLYSEUS_MAX_CLIENTS;
     this.setState(new GameRoomState());
-    this.gameState.gameMinute = 360;
+    // verify:phase16 rooms start near segment boundary (479→480) to trigger intent enqueue within E2E window.
+    this.gameState.gameMinute = this.mapRoomId.startsWith("verify-p16-") ? 479 : 360;
 
     const { state: mapState } = getOrCreate(this.mapRoomId);
     syncColyseusFromMap(this.gameState, mapState);
@@ -223,22 +231,33 @@ export class GameRoom extends Room {
       }
       const pendingToken = `pending:${client.sessionId}`;
       this.npcSpeakJobs.set(npcId, pendingToken);
+      this.lastSpeakInitiatorByNpc.set(npcId, playerId);
+      const jobId = randomUUID();
       try {
-        const jobId = await startNpcChatTurn(this.mapRoomId, text, npcId, playerId);
         this.npcSpeakJobs.set(npcId, jobId);
         registerJob(jobId, this, this.mapRoomId, client.sessionId, {
           npcId,
           playerId,
           playerMessage: text,
         });
-        emitJobEvent(jobId, "thinking", { status: "queued", npcId });
+        // speakAck before Redis enqueue — fast-lane worker can finish before LPUSH returns otherwise.
         client.send("speakAck", { jobId });
+        const casualStub = previewCasualSpeakStub(text);
+        if (casualStub) {
+          emitJobEvent(jobId, "speakPartial", { text: casualStub, npcId });
+        }
+        await startNpcChatTurn(this.mapRoomId, text, npcId, playerId, jobId, {
+          casualPreviewEmitted: Boolean(casualStub),
+        });
       } catch (err) {
-        if (this.npcSpeakJobs.get(npcId) === pendingToken) {
+        const held = this.npcSpeakJobs.get(npcId);
+        if (held === pendingToken || held === jobId) {
           this.npcSpeakJobs.delete(npcId);
           this.broadcast(COLYSEUS_SERVER_MESSAGES.speakIdle, { npcId });
         }
+        unregisterJob(jobId);
         const message = err instanceof Error ? err.message : "speak failed";
+        emitJobEvent(jobId, "error", { message, npcId });
         client.send(COLYSEUS_SERVER_MESSAGES.error, { message });
       }
     });
@@ -323,8 +342,35 @@ export class GameRoom extends Room {
     }
   }
 
+  private enqueueAmbientIntentIfIdle(
+    npcId: string,
+    trigger: "segment_change" | "speak_end",
+  ): void {
+    if (this.npcSpeakJobs.has(npcId)) return;
+    const segment = resolveScheduleSegment(npcId, this.gameState.gameMinute);
+    if (!segment) return;
+    void addNpcAmbientIntentJob({
+      roomId: this.mapRoomId,
+      npcId,
+      gameMinute: this.gameState.gameMinute,
+      segment: {
+        zoneId: segment.zoneId,
+        activityKey: segment.activityKey,
+        mobility: segment.mobility,
+        fromMinute: segment.fromMinute,
+        toMinute: segment.toMinute,
+      },
+      trigger,
+      initiatorPlayerId:
+        trigger === "speak_end" ? this.lastSpeakInitiatorByNpc.get(npcId) : undefined,
+    }).catch((err) => {
+      console.error("[GameRoom] ambient intent enqueue failed", err);
+    });
+  }
+
   private onAmbientTick(_dt: number): void {
     if (this.orphanShard) return;
+    const prevMinute = this.gameState.gameMinute;
     const { state: mapState } = getOrCreate(this.mapRoomId);
     const loader = getChunkLoader(this.mapRoomId);
     runAmbientTick({
@@ -333,8 +379,19 @@ export class GameRoom extends Room {
       map: mapState,
       loader,
       npcSpeakJobs: this.npcSpeakJobs,
-      waypointCursors: this.ambientWaypointCursors,
+      recentNpcCells: this.ambientRecentNpcCells,
     });
+
+    const newMinute = this.gameState.gameMinute;
+    for (const npcId of MAIN_AMBIENT_NPC_IDS) {
+      const before = resolveScheduleSegment(npcId, prevMinute);
+      const after = resolveScheduleSegment(npcId, newMinute);
+      if (!before || !after) continue;
+      if (segmentKey(before) !== segmentKey(after)) {
+        applySegmentStartIntentFallback(this.mapRoomId, npcId, after, newMinute);
+        this.enqueueAmbientIntentIfIdle(npcId, "segment_change");
+      }
+    }
   }
 
   /** Release per-NPC speak slot when job completes (called from hub after terminal emit). */
@@ -343,9 +400,20 @@ export class GameRoom extends Room {
       if (id === jobId) {
         this.npcSpeakJobs.delete(npcId);
         this.broadcast(COLYSEUS_SERVER_MESSAGES.speakIdle, { npcId });
+        this.enqueueAmbientIntentIfIdle(npcId, "speak_end");
         break;
       }
     }
+  }
+
+  /** Whether this NPC already has an in-flight speak job (Colyseus mutex). */
+  isNpcSpeakBusy(npcId: string): boolean {
+    return this.npcSpeakJobs.has(npcId);
+  }
+
+  /** Claim speak mutex for HTTP /chat when a live Colyseus room exists. */
+  acquireNpcSpeakJob(npcId: string, jobId: string): void {
+    this.npcSpeakJobs.set(npcId, jobId);
   }
 
   /** Called after Map executor mutates NPC/objects */

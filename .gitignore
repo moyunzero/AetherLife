@@ -14,6 +14,7 @@ status
 # OS / tooling artifacts
 .DS_Store
 .cursorignore
+tmp/
 
 # Internal dev workflow (local only — not published)
 .planning/

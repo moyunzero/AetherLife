@@ -14,11 +14,17 @@ from src.collective.schemas import SOCIAL_SKIP_KIND, SocialPerception, SocialTur
 from src.collective.social_turn import infer_social_from_message, reconcile_social_perception
 from src.config import Settings, get_settings
 from src.graph.action_intent import (
+    build_dialogue_context,
     build_tool_retry_message,
     has_state_changing_tool,
     inject_relative_move_tool,
+    player_requests_interact,
+    player_requests_move,
     player_requests_physical_action,
 )
+from src.graph.job_context import get_partial_emit, record_phase_ms
+from src.graph.speak_intent import SpeakIntent, is_casual_greeting_only
+from src.graph.stable_string_hash import stable_string_hash
 from src.graph.prompt import build_room_constraints, format_attitude_context
 from src.graph.state import GraphState
 from src.graph.tools import load_tools_for_binding, parse_tool_calls, reply_from_turn
@@ -55,6 +61,118 @@ SOCIAL_SYSTEM_PROMPT = """你是「以太人生」NPC 的社交感知模块。
 
 # One attempt per provider — APITimeout × 3 retries caused ~135s hangs before fallback.
 SOCIAL_LLM_MAX_ATTEMPTS = 1
+
+_META_BRIEF_RE = re.compile(r"简短|一句话|别太长|简单说说|简单说")
+
+_GREETING_REPLIES = (
+    "你好呀，需要我做什么？",
+    "嗨，我在呢。",
+    "你好，有什么我能帮你的吗？",
+    "你好，想聊点什么？",
+)
+_META_BRIEF_REPLIES = (
+    "嗯，我在听。",
+    "好的，说吧。",
+    "明白，请讲。",
+    "好，我听着呢。",
+)
+_DEFAULT_CASUAL_REPLIES = (
+    "好的，我明白了。",
+    "嗯，知道了。",
+    "好，我记下了。",
+)
+
+
+def _pick_casual_reply(msg: str) -> str:
+    key = msg.strip()
+    if is_casual_greeting_only(key):
+        pool = _GREETING_REPLIES
+    elif _META_BRIEF_RE.search(key):
+        pool = _META_BRIEF_REPLIES
+    else:
+        pool = _DEFAULT_CASUAL_REPLIES
+    return pool[stable_string_hash(key) % len(pool)]
+
+
+def preview_casual_stub(player_message: str, *, speak_intent: str = "casual") -> str | None:
+    """Early speakPartial text for CASUAL deterministic turns (before fetch/graph)."""
+    turn = _deterministic_social_turn(player_message, speak_intent=speak_intent)
+    return turn.reply if turn is not None else None
+
+
+def _emit_partial_reply(text: str) -> None:
+    emit = get_partial_emit()
+    cleaned = text.strip()
+    if emit is not None and cleaned:
+        emit(cleaned)
+
+
+def _extract_reply_from_json_stream(buffer: str) -> str:
+    """Best-effort incremental reply field extraction from streaming JSON."""
+    match = re.search(r'"reply"\s*:\s*"', buffer)
+    if not match:
+        return ""
+    i = match.end()
+    chars: list[str] = []
+    while i < len(buffer):
+        ch = buffer[i]
+        if ch == "\\":
+            if i + 1 >= len(buffer):
+                break
+            nxt = buffer[i + 1]
+            if nxt == "n":
+                chars.append("\n")
+            elif nxt == "t":
+                chars.append("\t")
+            elif nxt in {'"', "\\", "/"}:
+                chars.append(nxt)
+            elif nxt == "u" and i + 5 < len(buffer):
+                try:
+                    chars.append(chr(int(buffer[i + 2 : i + 6], 16)))
+                    i += 5
+                except ValueError:
+                    break
+            else:
+                chars.append(nxt)
+            i += 2
+            continue
+        if ch == '"':
+            break
+        chars.append(ch)
+        i += 1
+    return "".join(chars)
+
+
+def _deterministic_social_turn(
+    player_message: str,
+    *,
+    speak_intent: str = "",
+) -> SocialTurnOut | None:
+    """Rule-based social + reply — skip social LLM when heuristics are sufficient."""
+    msg = player_message.strip()
+    if not msg:
+        return None
+    inferred = infer_social_from_message(msg)
+    if inferred is not None:
+        if inferred.kind == "rude":
+            reply = "请不要这样说话。"
+        elif inferred.kind == "help":
+            reply = "好的，我会尽力帮忙。"
+        else:
+            reply = f"我听到了：{msg[:120]}"
+        return SocialTurnOut(social=inferred, reply=reply)
+    if speak_intent == SpeakIntent.CASUAL.value or _META_BRIEF_RE.search(msg):
+        if not player_requests_physical_action(msg):
+            return SocialTurnOut(
+                social=SocialPerception(kind=SOCIAL_SKIP_KIND, summary="", delta=0),
+                reply=_pick_casual_reply(msg),
+            )
+    if not player_requests_physical_action(msg) and is_casual_greeting_only(msg):
+        return SocialTurnOut(
+            social=SocialPerception(kind=SOCIAL_SKIP_KIND, summary="", delta=0),
+            reply=_pick_casual_reply(msg),
+        )
+    return None
 
 
 def _parse_social_turn_json(content: str) -> SocialTurnOut | None:
@@ -105,6 +223,21 @@ def _mock_social_perception(message: str) -> SocialPerception:
     return SocialPerception(kind=SOCIAL_SKIP_KIND, summary="", delta=0)
 
 
+def _stub_physical_action_turn(player_message: str) -> SocialTurnOut:
+    """Deterministic social + reply when move/interact target is parsed without LLM."""
+    inferred = infer_social_from_message(player_message)
+    social = inferred if inferred is not None else SocialPerception(
+        kind=SOCIAL_SKIP_KIND, summary="", delta=0
+    )
+    if player_requests_move(player_message):
+        reply = "好的，我这就去。"
+    elif player_requests_interact(player_message):
+        reply = "好的，我来试试。"
+    else:
+        reply = "好的。"
+    return SocialTurnOut(social=social, reply=reply)
+
+
 def _mock_social_turn(state: GraphState) -> SocialTurnOut:
     msg = (state.get("player_message") or "").strip()
     social = _mock_social_perception(msg)
@@ -141,10 +274,12 @@ def run_social_turn_llm(state: GraphState, *, settings: Settings | None = None) 
         return _mock_social_turn(state)
 
     messages = _build_social_messages(state)
+    partial_emit = get_partial_emit()
     last_error: BaseException | None = None
     primary = social_provider_model(cfg)
     last_provider = primary[0]
     last_model = primary[1]
+    t0 = time.perf_counter()
 
     for provider, model in auxiliary_provider_attempts(
         cfg,
@@ -168,10 +303,27 @@ def run_social_turn_llm(state: GraphState, *, settings: Settings | None = None) 
             )
             for attempt in range(SOCIAL_LLM_MAX_ATTEMPTS):
                 try:
-                    response = llm.invoke(messages)
-                    record_llm_call("social", provider, model)
-                    content = getattr(response, "content", "") or str(response)
-                    parsed = _parse_social_turn_json(str(content))
+                    if partial_emit is not None:
+                        buffer = ""
+                        last_pushed = ""
+                        for chunk in llm.stream(messages):
+                            piece = getattr(chunk, "content", "") or ""
+                            if not piece:
+                                continue
+                            buffer += str(piece)
+                            visible = _extract_reply_from_json_stream(buffer)
+                            if len(visible) > len(last_pushed):
+                                last_pushed = visible
+                                partial_emit(visible)
+                        record_llm_call("social", provider, model)
+                        record_phase_ms("t_social_llm_ms", int((time.perf_counter() - t0) * 1000))
+                        parsed = _parse_social_turn_json(buffer)
+                    else:
+                        response = llm.invoke(messages)
+                        record_llm_call("social", provider, model)
+                        record_phase_ms("t_social_llm_ms", int((time.perf_counter() - t0) * 1000))
+                        content = getattr(response, "content", "") or str(response)
+                        parsed = _parse_social_turn_json(str(content))
                     if parsed is not None:
                         player_msg = (state.get("player_message") or "").strip()
                         reconciled = reconcile_social_perception(
@@ -214,6 +366,8 @@ def run_social_turn_llm(state: GraphState, *, settings: Settings | None = None) 
             if last_error and is_retryable_llm_error(last_error):
                 break
 
+    record_phase_ms("t_social_llm_ms", int((time.perf_counter() - t0) * 1000))
+
     if last_error is not None and not isinstance(last_error, ValueError):
         if is_auth_error(last_error):
             raise LlmCallError(last_error, provider=last_provider, model=last_model) from last_error
@@ -242,13 +396,20 @@ def _invoke_tool_turn(
     settings: Settings,
     reply_draft: str,
 ) -> list[dict[str, Any]]:
+    t0 = time.perf_counter()
     if settings.llm_mock or os.getenv("LLM_MOCK") == "1":
         room_snapshot = state.get("room_snapshot") or {}
         mock_calls = [{"name": "move", "args": {"type": "move", "x": 4, "y": 5}}]
+        dialogue_context = build_dialogue_context(
+            state.get("player_message") or "",
+            state.get("recent_turns"),
+        )
+        record_phase_ms("t_tool_llm_ms", int((time.perf_counter() - t0) * 1000))
         return inject_relative_move_tool(
             mock_calls,
             player_message=state.get("player_message") or "",
             room=room_snapshot,
+            dialogue_context=dialogue_context,
         )
 
     allowed = set(state.get("allowed_tools") or [])
@@ -259,6 +420,7 @@ def _invoke_tool_turn(
     ]
     player_message = state.get("player_message") or ""
     room_snapshot = state.get("room_snapshot") or {}
+    dialogue_context = build_dialogue_context(player_message, state.get("recent_turns"))
     messages = _build_social_messages(state)
     messages.append(
         HumanMessage(
@@ -283,42 +445,83 @@ def _invoke_tool_turn(
                 response = llm.invoke(retry_messages)
                 record_llm_call("main", provider, model)
                 tool_calls = parse_tool_calls(response)
+            record_phase_ms("t_tool_llm_ms", int((time.perf_counter() - t0) * 1000))
             return inject_relative_move_tool(
                 tool_calls,
                 player_message=player_message,
                 room=room_snapshot,
+                dialogue_context=dialogue_context,
             )
         except Exception:
             continue
+    record_phase_ms("t_tool_llm_ms", int((time.perf_counter() - t0) * 1000))
     return inject_relative_move_tool(
         [],
         player_message=player_message,
         room=room_snapshot,
+        dialogue_context=dialogue_context,
     )
 
 
 def llm_social_turn(state: GraphState, *, settings: Settings | None = None) -> GraphState:
     cfg = settings or get_settings()
-    turn = run_social_turn_llm(state, settings=cfg)
     player_message = state.get("player_message") or ""
+    speak_intent = state.get("speak_intent") or ""
     room_snapshot = state.get("room_snapshot") or {}
-    tool_calls: list[dict[str, Any]] = []
-    if player_requests_physical_action(player_message):
+    dialogue_context = build_dialogue_context(player_message, state.get("recent_turns"))
+    is_physical = (
+        speak_intent == SpeakIntent.PHYSICAL.value
+        or player_requests_physical_action(player_message)
+    )
+
+    if is_physical:
         fast_path = inject_relative_move_tool(
             [],
             player_message=player_message,
             room=room_snapshot,
+            dialogue_context=dialogue_context,
         )
         if has_state_changing_tool(fast_path):
-            tool_calls = fast_path
-        else:
-            tool_calls = _invoke_tool_turn(state, settings=cfg, reply_draft=turn.reply)
+            turn = _stub_physical_action_turn(player_message)
+            _emit_partial_reply(turn.reply)
+            record_phase_ms("t_social_llm_ms", 0)
+            return {
+                **state,
+                "social_perception": turn.social.model_dump(),
+                "reply_draft": turn.reply,
+                "tool_calls": fast_path,
+                "social_applied": False,
+                "collective_updated": False,
+            }
+        turn = _stub_physical_action_turn(player_message)
+        _emit_partial_reply(turn.reply)
+        record_phase_ms("t_social_llm_ms", 0)
+        tool_calls = _invoke_tool_turn(state, settings=cfg, reply_draft=turn.reply)
+        return {
+            **state,
+            "social_perception": turn.social.model_dump(),
+            "reply_draft": turn.reply,
+            "tool_calls": tool_calls,
+            "social_applied": False,
+            "collective_updated": False,
+        }
+
+    deterministic = _deterministic_social_turn(
+        player_message,
+        speak_intent=speak_intent,
+    )
+    if deterministic is not None:
+        record_phase_ms("t_social_llm_ms", 0)
+        turn = deterministic
+        _emit_partial_reply(turn.reply)
+    else:
+        turn = run_social_turn_llm(state, settings=cfg)
 
     return {
         **state,
         "social_perception": turn.social.model_dump(),
         "reply_draft": turn.reply,
-        "tool_calls": tool_calls,
+        "tool_calls": [],
         "social_applied": False,
         "collective_updated": False,
     }

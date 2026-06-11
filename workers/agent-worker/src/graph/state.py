@@ -31,6 +31,8 @@ class GraphState(TypedDict, total=False):
     social_applied: bool
     collective_updated: bool
     just_happened_summary: str
+    speak_intent: str
+    phase_timing_ms: dict[str, int]
     tool_calls: list[dict[str, Any]]
     pending_actions: list[dict[str, Any]]
     reply: str

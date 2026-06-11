@@ -1,0 +1,18 @@
+{
+  "pois": [
+    {
+      "id": "fountain",
+      "labelZh": "村长雕像",
+      "lx": 10,
+      "ly": 10,
+      "kind": "social"
+    },
+    {
+      "id": "notice-board",
+      "labelZh": "公告板",
+      "lx": 14,
+      "ly": 18,
+      "kind": "landmark"
+    }
+  ]
+}

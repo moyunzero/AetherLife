@@ -1,47 +1,42 @@
 {
   "npcId": "npc-2",
   "persona": "farmer",
-  "_comment": "Farm persona — waypoints near npc-2 home (Tiled gx9 gy21).",
+  "_comment": "Hybrid persona — AM stationary pond (farm), PM wander orchard, evening pond.",
   "segments": [
     {
       "fromMinute": 360,
       "toMinute": 540,
       "activityKey": "tending_crops",
-      "stationary": true,
-      "waypoints": [{ "gx": 9, "gy": 21 }]
+      "zoneId": "beginning-fields@v1:pond",
+      "mobility": "stationary"
     },
     {
       "fromMinute": 540,
       "toMinute": 720,
       "activityKey": "watering",
-      "stationary": false,
-      "waypoints": [
-        { "gx": 9, "gy": 21 },
-        { "gx": 10, "gy": 21 },
-        { "gx": 9, "gy": 22 }
-      ],
-      "waypointMode": "loop"
+      "zoneId": "beginning-fields@v1:orchard",
+      "mobility": "wander"
     },
     {
       "fromMinute": 720,
       "toMinute": 1080,
       "activityKey": "fishing",
-      "stationary": true,
-      "waypoints": [{ "gx": 11, "gy": 23 }]
+      "zoneId": "beginning-fields@v1:pond",
+      "mobility": "stationary"
     },
     {
       "fromMinute": 1080,
       "toMinute": 1200,
       "activityKey": "tending_crops",
-      "stationary": true,
-      "waypoints": [{ "gx": 9, "gy": 21 }]
+      "zoneId": "beginning-fields@v1:pond",
+      "mobility": "stationary"
     },
     {
       "fromMinute": 1200,
       "toMinute": 360,
       "activityKey": "resting",
-      "stationary": true,
-      "waypoints": [{ "gx": 9, "gy": 21 }]
+      "zoneId": "beginning-fields@v1:pond",
+      "mobility": "stationary"
     }
   ]
 }

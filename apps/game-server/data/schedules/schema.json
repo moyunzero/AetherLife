@@ -1,37 +1,48 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "NpcPersonaSchedule",
+  "description": "Per-NPC daily schedule for ambient simulation. Loaded at game-server boot. See README.md in this directory.",
   "type": "object",
   "required": ["npcId", "persona", "segments"],
   "additionalProperties": false,
   "properties": {
-    "npcId": { "type": "string", "pattern": "^npc-[1-3]$" },
-    "persona": { "type": "string" },
+    "npcId": {
+      "type": "string",
+      "pattern": "^npc-[1-3]$",
+      "description": "Must match Colyseus map.npcs[].id for main ambient NPCs."
+    },
+    "persona": {
+      "type": "string",
+      "description": "Persona label for worker prompts and tooling (e.g. scholar, farmer, chef)."
+    },
     "segments": {
       "type": "array",
       "maxItems": 48,
+      "description": "Half-open time segments [fromMinute, toMinute) covering the game day.",
       "items": { "$ref": "#/$defs/segment" }
     }
   },
   "$defs": {
-    "waypoint": {
-      "type": "object",
-      "required": ["gx", "gy"],
-      "additionalProperties": false,
-      "properties": {
-        "gx": { "type": "integer" },
-        "gy": { "type": "integer" }
-      }
-    },
     "segment": {
       "type": "object",
-      "required": ["fromMinute", "toMinute", "activityKey", "stationary", "waypoints"],
+      "required": ["fromMinute", "toMinute", "activityKey", "zoneId", "mobility"],
       "additionalProperties": false,
       "properties": {
-        "fromMinute": { "type": "integer", "minimum": 0, "maximum": 1439 },
-        "toMinute": { "type": "integer", "minimum": 0, "maximum": 1439 },
+        "fromMinute": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1439,
+          "description": "Segment start (inclusive), minutes since midnight. 360 = 06:00."
+        },
+        "toMinute": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1439,
+          "description": "Segment end (exclusive). If toMinute < fromMinute, segment wraps past midnight."
+        },
         "activityKey": {
           "type": "string",
+          "description": "Activity shown on HUD/nameplate. resting/idle skip movement; others may move per mobility.",
           "enum": [
             "idle",
             "patrol",
@@ -43,16 +54,20 @@
             "cooking",
             "socializing",
             "resting",
+            "wandering",
             "unknown"
           ]
         },
-        "stationary": { "type": "boolean" },
-        "waypoints": {
-          "type": "array",
-          "maxItems": 32,
-          "items": { "$ref": "#/$defs/waypoint" }
+        "zoneId": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]+@v[0-9]+:[a-z0-9-]+$",
+          "description": "Namespaced zone where the NPC spends this segment, e.g. beginning-fields@v1:orchard."
         },
-        "waypointMode": { "type": "string", "enum": ["loop", "once"] }
+        "mobility": {
+          "type": "string",
+          "enum": ["wander", "stationary", "poi"],
+          "description": "wander = patrol zone; stationary = linger micro-wander near current cell (Stardew/AC); poi = walk to social POI then linger."
+        }
       }
     }
   }

@@ -1,0 +1,14 @@
+{
+  "zones": [
+    {
+      "id": "plaza",
+      "labelZh": "村内广场",
+      "rect": { "lx": 2, "ly": 8, "w": 16, "h": 24 }
+    },
+    {
+      "id": "market",
+      "labelZh": "集市侧廊",
+      "rect": { "lx": 10, "ly": 14, "w": 8, "h": 10 }
+    }
+  ]
+}

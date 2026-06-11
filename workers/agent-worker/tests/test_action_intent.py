@@ -1,10 +1,17 @@
 from src.graph.action_intent import (
+    align_move_tool_to_explicit_coords,
+    align_move_tool_to_intended_target,
+    build_dialogue_context,
     build_tool_retry_message,
     has_state_changing_tool,
     inject_relative_move_tool,
     player_requests_interact,
     player_requests_move,
     player_requests_physical_action,
+    resolve_explicit_move_cell,
+    resolve_injected_move_cell,
+    resolve_npc_relative_move_cell,
+    resolve_npc_snap_anchor_cell,
     resolve_relative_move_cell,
 )
 
@@ -39,6 +46,125 @@ def test_resolve_relative_move_cell_below_and_right():
     assert resolve_relative_move_cell("移动到我的下方", room) == (4, 6)
     assert resolve_relative_move_cell("移动到我的右侧", room) == (5, 5)
     assert resolve_relative_move_cell("移动到 (6,6)", room) is None
+
+
+def test_resolve_npc_relative_move_cell_feixue_nearby():
+    room = {
+        "width": 40,
+        "height": 40,
+        "player": {"x": 34, "y": 13},
+        "npcs": [
+            {"id": "npc-1", "name": "路昂", "x": 23, "y": 10},
+            {"id": "npc-2", "name": "费雪", "x": 9, "y": 21},
+        ],
+    }
+    assert resolve_npc_relative_move_cell("去费雪附近", room) == (9, 21)
+    assert resolve_npc_snap_anchor_cell("去费雪附近", room) == (9, 21)
+
+
+def test_pronoun_resolves_npc_from_dialogue_context():
+    room = {
+        "width": 40,
+        "height": 40,
+        "player": {"x": 20, "y": 13},
+        "npcs": [
+            {"id": "npc-1", "name": "路昂", "x": 23, "y": 10},
+            {"id": "npc-2", "name": "费雪", "x": 9, "y": 21},
+        ],
+    }
+    ctx = build_dialogue_context(
+        "她找你，你需要去她旁边",
+        [{"role": "player", "text": "费雪找你"}],
+    )
+    assert resolve_npc_relative_move_cell("她找你，你需要去她旁边", room, ctx) == (9, 21)
+    assert resolve_npc_snap_anchor_cell("她找你，你需要去她旁边", room, ctx) == (9, 21)
+
+
+def test_player_requests_move_typo_pangbai():
+    assert player_requests_move("费雪找你，去费雪旁白吧")
+    assert player_requests_physical_action("费雪找你，去费雪旁白吧")
+
+
+def test_resolve_npc_relative_move_cell_feixue_below():
+    room = {
+        "width": 40,
+        "height": 40,
+        "player": {"x": 34, "y": 13},
+        "npcs": [
+            {"id": "npc-1", "name": "路昂", "x": 23, "y": 10},
+            {"id": "npc-2", "name": "费雪", "x": 9, "y": 21},
+        ],
+    }
+    assert resolve_npc_relative_move_cell("费雪找你，去她下方好吗？", room) == (9, 22)
+    assert resolve_npc_relative_move_cell("去费雪下面", room) == (9, 22)
+    assert resolve_npc_relative_move_cell("移动到我的下方", room) is None
+
+
+def test_align_move_tool_overrides_llm_one_step_to_npc_relative():
+    room = {
+        "width": 40,
+        "height": 40,
+        "player": {"x": 34, "y": 13},
+        "npcs": [
+            {"id": "npc-1", "name": "路昂", "x": 23, "y": 10},
+            {"id": "npc-2", "name": "费雪", "x": 9, "y": 21},
+        ],
+    }
+    calls = align_move_tool_to_intended_target(
+        [{"name": "move", "args": {"type": "move", "x": 24, "y": 11}}],
+        player_message="费雪找你，去她下方好吗？",
+        room=room,
+    )
+    assert calls[0]["args"]["x"] == 9
+    assert calls[0]["args"]["y"] == 22
+
+
+def test_inject_npc_relative_fast_path_without_llm():
+    room = {
+        "width": 40,
+        "height": 40,
+        "player": {"x": 34, "y": 13},
+        "npcs": [
+            {"id": "npc-1", "name": "路昂", "x": 23, "y": 10},
+            {"id": "npc-2", "name": "费雪", "x": 9, "y": 21},
+        ],
+    }
+    calls = inject_relative_move_tool(
+        [],
+        player_message="费雪找你，去她下方好吗？",
+        room=room,
+    )
+    assert calls[0]["name"] == "move"
+    assert calls[0]["args"]["x"] == 9
+    assert calls[0]["args"]["y"] == 22
+
+
+def test_resolve_explicit_move_cell():
+    room = {"width": 40, "height": 40, "player": {"x": 4, "y": 5}}
+    assert resolve_explicit_move_cell("去费雪下面 (9,20)", room) == (9, 20)
+    assert resolve_explicit_move_cell("移动到 (6,6)", room) == (6, 6)
+
+
+def test_align_move_tool_overrides_llm_one_step():
+    room = {"width": 40, "height": 40, "player": {"x": 4, "y": 5}}
+    calls = align_move_tool_to_explicit_coords(
+        [{"name": "move", "args": {"type": "move", "x": 24, "y": 11}}],
+        player_message="请到 (9,20)",
+        room=room,
+    )
+    assert calls[0]["args"]["x"] == 9
+    assert calls[0]["args"]["y"] == 20
+
+
+def test_inject_explicit_move_when_llm_omits_tool():
+    room = {"width": 40, "height": 40, "player": {"x": 4, "y": 5}}
+    calls = inject_relative_move_tool(
+        [{"name": "speak", "args": {"content": "好的"}}],
+        player_message="去 (9,20)",
+        room=room,
+    )
+    assert calls[0]["name"] == "move"
+    assert calls[0]["args"] == {"type": "move", "x": 9, "y": 20}
 
 
 def test_inject_relative_move_when_llm_omits_tool():

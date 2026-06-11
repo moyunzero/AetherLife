@@ -1,15 +1,22 @@
-import { activityDisplayZh } from "@aetherlife/shared";
 import type * as Phaser from "phaser";
 import { ENTITY_LABEL_FONT } from "./entityLabels.js";
 import { MARKER_LABEL_Y } from "./entityLayout.js";
 import { SPRITE_NAMEPLATE_Y } from "./entitySprites.js";
 import {
+  resolveActivityLabel,
   shouldShowActivity,
   truncateActivityLabel,
+  type NpcAmbientUiState,
   type ShouldShowActivityParams,
 } from "./activityLabelLogic.js";
 
-export { shouldShowActivity, truncateActivityLabel, type ShouldShowActivityParams };
+export {
+  resolveActivityLabel,
+  shouldShowActivity,
+  truncateActivityLabel,
+  type NpcAmbientUiState,
+  type ShouldShowActivityParams,
+};
 
 /** Match ProximityNameplate fade timing (frozen — do not change). */
 const FADE_IN_MS = 150;
@@ -59,6 +66,7 @@ export function createActivityLabel(scene: Phaser.Scene, npcId: string): Phaser.
   label.setScrollFactor(1);
   label.setAlpha(0);
   label.name = `npc-activity-${npcId}`;
+  label.setData("testid", `npc-activity-${npcId}`);
   return label;
 }
 
@@ -94,7 +102,7 @@ export function updateActivityLabels(
   scene: Phaser.Scene,
   targets: ActivityTarget[],
   localCell: { x: number; y: number } | null,
-  npcActivityById: Record<string, string>,
+  npcAmbientById: Record<string, import("./activityLabelLogic.js").NpcAmbientUiState>,
   thinkingNpcId: string | null,
   activeNpcId: string | null,
   speakBusyNpcId: string | null,
@@ -103,7 +111,7 @@ export function updateActivityLabels(
 
   for (const t of targets) {
     const { x: gx, y: gy } = targetCell(t);
-    const activityKey = npcActivityById[t.npcId] ?? "idle";
+    const ambient = npcAmbientById[t.npcId] ?? { activityKey: "idle" };
     const show =
       localCell != null
       && shouldShowActivity({
@@ -112,14 +120,22 @@ export function updateActivityLabels(
         localGx: localCell.x,
         localGy: localCell.y,
         npcId: t.npcId,
-        activityKey,
+        ambient,
         thinkingNpcId,
         activeNpcId,
         speakBusyNpcId,
       });
 
     if (show) {
-      const copy = truncateActivityLabel(activityDisplayZh(activityKey));
+      const resolved = resolveActivityLabel({
+        ambient,
+        playerDistanceCells: Math.max(Math.abs(gx - localCell!.x), Math.abs(gy - localCell!.y)),
+        npcId: t.npcId,
+        thinkingNpcId,
+        activeNpcId,
+        speakBusyNpcId,
+      });
+      const copy = truncateActivityLabel(resolved ?? "");
       if (t.activityLabel.text !== copy) t.activityLabel.setText(copy);
       visibleNpcIds.push(t.npcId);
     }

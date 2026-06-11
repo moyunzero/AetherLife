@@ -15,6 +15,37 @@ describe("hub colyseus routing", () => {
     clearDialogueSessions();
   });
 
+  it("sends speakPartial only to initiator", () => {
+    const sends = new Map<string, unknown[]>();
+    const mockRoom = {
+      broadcast: vi.fn(),
+      clients: [
+        {
+          sessionId: "a",
+          send: vi.fn((t: string, p: unknown) => {
+            const list = sends.get("a") ?? [];
+            list.push({ type: t, payload: p });
+            sends.set("a", list);
+          }),
+        },
+        { sessionId: "b", send: vi.fn() },
+      ],
+      state: new GameRoomState(),
+    };
+
+    registerJob("job-partial", mockRoom as never, "default", "a");
+    emitJobEvent("job-partial", "speakPartial", { text: "你好呀", npcId: "npc-1" });
+
+    const aSends = sends.get("a") ?? [];
+    expect(
+      aSends.some(
+        (s) =>
+          (s as { type: string }).type === COLYSEUS_SERVER_MESSAGES.speakPartial &&
+          (s as { payload: { text?: string } }).payload?.text === "你好呀",
+      ),
+    ).toBe(true);
+  });
+
   it("sends thinking only to initiator", () => {
     const broadcasts: { type: string; payload: unknown }[] = [];
     const sends = new Map<string, unknown[]>();

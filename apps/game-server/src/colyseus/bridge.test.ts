@@ -82,10 +82,26 @@ describe("ambient tick schema sync", () => {
       map,
       loader,
       npcSpeakJobs: new Map(),
-      waypointCursors: new Map(),
+      recentNpcCells: new Map(),
     });
 
     expect(map.npcs[0]!.activityKey).toBe("reading");
     expect(colyseus.npc1ActivityKey).toBe("reading");
+  });
+
+  it("syncs background npc slots from map", () => {
+    const map = createDefaultRoom("bg-bridge");
+    const bg = map.npcs.find((n) => n.id === "bg-villager-2")!;
+    bg.x = 31;
+    bg.y = 16;
+    bg.activityKey = "wandering";
+
+    const colyseus = new GameRoomState();
+    syncColyseusFromMap(colyseus, map);
+
+    expect(colyseus.bgNpc2Active).toBe(true);
+    expect(colyseus.bgNpc2X).toBe(31);
+    expect(colyseus.bgNpc2Y).toBe(16);
+    expect(colyseus.bgNpc2ActivityKey).toBe("wandering");
   });
 });

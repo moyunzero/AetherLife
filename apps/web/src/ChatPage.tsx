@@ -1,4 +1,4 @@
-import { bandLabelZh, createDefaultRoom, type RoomState } from "@aetherlife/shared";
+import { bandLabelZh, createDefaultRoom, isBackgroundNpc, type RoomState } from "@aetherlife/shared";
 import {
   FormEvent,
   KeyboardEvent,
@@ -33,6 +33,22 @@ import { playerRequestsMove } from "./lib/playerMoveIntent.js";
 import { subscribeTabPresence } from "./lib/playerSession.js";
 import { playerDisplayName } from "./lib/playerDisplayName.js";
 
+/** Merge HTTP room snapshot into moveMap; Colyseus grid wins over stale HTTP npc coords. */
+function mergeRoomStateIntoMoveMap(
+  roomState: RoomState,
+  _prev: RoomState,
+  grids: Record<string, { x: number; y: number }>,
+): RoomState {
+  const npcs = roomState.npcs.map((npc) => {
+    const coly = grids[npc.id];
+    if (coly) {
+      return { ...npc, x: coly.x, y: coly.y };
+    }
+    return npc;
+  });
+  return { ...roomState, npcs };
+}
+
 export function ChatPage() {
   const mapRoomId = getMapRoomId();
   const [duplicateTab, setDuplicateTab] = useState(false);
@@ -58,6 +74,9 @@ export function ChatPage() {
     movementSyncRef,
     gameClock,
     npcActivityById,
+    npcAmbientById,
+    mainNpcGridById,
+    bgNpcGridById,
   } = useColyseusRoom(mapRoomId, moveMap);
   const discoverToast = loreToastQueue[0] ?? null;
   const dismissDiscoverToast = useCallback(() => {
@@ -82,6 +101,7 @@ export function ChatPage() {
     attitudeGateCue,
     clearAttitudeGateCue,
     attitudeGateHintCopy,
+    streamingReply,
   } = useNpcChat(room, mapRoomId, {
     onCollectiveUpdated: () => onCollectiveUpdatedRef.current?.(),
   });
@@ -164,14 +184,28 @@ export function ChatPage() {
     [setActiveNpcId],
   );
 
-  const displayNpcs = roomState?.npcs ?? moveMap.npcs;
+  const displayNpcs = useMemo(() => {
+    const meta = roomState?.npcs ?? moveMap.npcs;
+    return meta.map((npc) => {
+      const live = moveMap.npcs.find((n) => n.id === npc.id);
+      if (!live) return npc;
+      return {
+        ...npc,
+        x: live.x,
+        y: live.y,
+        facing: live.facing ?? npc.facing,
+      };
+    });
+  }, [roomState, moveMap]);
 
   const npcs = useMemo(
     () =>
-      displayNpcs.map((npc) => ({
-        id: npc.id,
-        name: npc.name,
-      })),
+      displayNpcs
+        .filter((npc) => !isBackgroundNpc(npc))
+        .map((npc) => ({
+          id: npc.id,
+          name: npc.name,
+        })),
     [displayNpcs],
   );
 
@@ -181,6 +215,22 @@ export function ChatPage() {
   useEffect(() => {
     void refetchState({ retryUntilMs: 15_000 });
   }, [refetchState]);
+
+  /** Ambient tick updates npc*X/Y on Colyseus schema — merge into moveMap for Phaser tweens. */
+  useEffect(() => {
+    const grids = { ...mainNpcGridById, ...bgNpcGridById };
+    if (Object.keys(grids).length === 0) return;
+    setMoveMap((prev) => {
+      let changed = false;
+      const npcs = prev.npcs.map((npc) => {
+        const g = grids[npc.id];
+        if (!g || (npc.x === g.x && npc.y === g.y)) return npc;
+        changed = true;
+        return { ...npc, x: g.x, y: g.y };
+      });
+      return changed ? { ...prev, npcs } : prev;
+    });
+  }, [mainNpcGridById, bgNpcGridById]);
 
   useEffect(() => subscribeTabPresence(() => setDuplicateTab(true)), []);
 
@@ -199,7 +249,11 @@ export function ChatPage() {
       prevNpcPosRef.current.set(npc.id, { x: npc.x, y: npc.y });
     }
     if (moves.length > 0) setNpcMoveHint(moves.join("；"));
-    setMoveMap(roomState);
+    setMoveMap((prev) => {
+      if (!npcWorldLive) return roomState;
+      const grids = { ...mainNpcGridById, ...bgNpcGridById };
+      return mergeRoomStateIntoMoveMap(roomState, prev, grids);
+    });
 
     if (npcWorldLive) return;
     if (awaitingResetRef.current) return;
@@ -212,7 +266,7 @@ export function ChatPage() {
       }),
     );
     return () => cancelAnimationFrame(id);
-  }, [roomState, npcWorldLive]);
+  }, [roomState, npcWorldLive, mainNpcGridById, bgNpcGridById]);
 
   const performResetGame = useCallback(async () => {
     prevNpcPosRef.current.clear();
@@ -454,6 +508,7 @@ export function ChatPage() {
             collectiveAttitudeLine={collectiveAttitudeLine}
             gameClock={gameClock}
             npcActivityById={npcActivityById}
+            npcAmbientById={npcAmbientById}
             speakBusyNpcId={speakBusyNpcId}
             onBootFailed={() => {
               setPhaserOk(false);
@@ -466,6 +521,7 @@ export function ChatPage() {
           thinkingNpcId={thinkingNpcId}
           activeNpcId={activeNpcId}
           thinkingNpcName={activeNpcName}
+          streamingReply={streamingReply}
         />
         <CollectiveBrowsePanel
           activeNpcName={activeNpcName}

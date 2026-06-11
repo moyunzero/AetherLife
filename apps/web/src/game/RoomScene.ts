@@ -2,10 +2,9 @@ import * as Phaser from "phaser";
 import {
   CHUNK_SIZE,
   HOME_MAP_TILE_W,
-  buildMoveGrid,
   chunkViewsFingerprint,
   createDefaultRoom,
-  findGridPath,
+  isBackgroundNpcId,
   shouldSuppressLocalSchemaSnap,
   type BiomeId,
   type ChunkView,
@@ -26,6 +25,11 @@ import { entityYSortDepth } from "./entityLayout.js";
 import { CELL_PX, VIEWPORT_CELLS, gridToWorld, worldSize, worldToGrid } from "./gridLayout.js";
 import { isGlobalFloorBlocked } from "./floorBlocked.js";
 import {
+  applyBgActivityStyle,
+  applyBgNameplateStyle,
+  BG_NPC_TINT,
+} from "./bgNpcLabels.js";
+import {
   applyNameplateStyle,
   ENTITY_LABEL_COLOR,
   ENTITY_LABEL_FONT,
@@ -38,7 +42,14 @@ import {
   createActivityLabel,
   updateActivityLabels,
   type ActivityTarget,
+  type NpcAmbientUiState,
 } from "./activityLabels.js";
+import {
+  createIntentLabel,
+  intentLabelY,
+  updateIntentLabels,
+  type IntentLabelTarget,
+} from "./intentLabels.js";
 import {
   truncateNameplate,
   updateNameplates,
@@ -145,6 +156,10 @@ type EntitySprite = AnimatableEntity & {
   activityLabelAlpha?: number;
   activityLabelTween?: Phaser.Tweens.Tween;
   activityLabelWantShow?: boolean;
+  intentLabel?: Phaser.GameObjects.Text;
+  intentLabelAlpha?: number;
+  intentLabelTween?: Phaser.Tweens.Tween;
+  intentLabelWantShow?: boolean;
   moveTween?: Phaser.Tweens.Tween;
   npcId?: string;
   playerSessionId?: string;
@@ -295,7 +310,7 @@ export class RoomScene extends Phaser.Scene {
     this.tickExploreGrid();
     this.tickCollectiveDebug();
     this.refreshNameplates();
-    this.refreshActivityLabels();
+    this.refreshNpcAmbientLabels();
   }
 
   private useSpriteEntities(): boolean {
@@ -345,7 +360,21 @@ export class RoomScene extends Phaser.Scene {
     updateNameplates(this, targets, localCell, activeNpcId, thinkingNpcId);
   }
 
-  private refreshActivityLabels(): void {
+  private getNpcAmbientById(): Record<string, NpcAmbientUiState> {
+    const fromRegistry = this.registry.get("npcAmbientById") as
+      | Record<string, NpcAmbientUiState>
+      | undefined;
+    if (fromRegistry && Object.keys(fromRegistry).length > 0) {
+      return fromRegistry;
+    }
+    const activityById =
+      (this.registry.get("npcActivityById") as Record<string, string> | undefined) ?? {};
+    return Object.fromEntries(
+      Object.entries(activityById).map(([id, activityKey]) => [id, { activityKey }]),
+    );
+  }
+
+  private refreshNpcAmbientLabels(): void {
     if (this.registry.get("uatHomesteadFrame") === true) return;
 
     const sessionId = this.getSessionId();
@@ -360,25 +389,38 @@ export class RoomScene extends Phaser.Scene {
     const activeNpcId = (this.registry.get("activeNpcId") as string | null) ?? null;
     const thinkingNpcId = (this.registry.get("thinkingNpcId") as string | null) ?? null;
     const speakBusyNpcId = (this.registry.get("speakBusyNpcId") as string | null) ?? null;
-    const npcActivityById =
-      (this.registry.get("npcActivityById") as Record<string, string> | undefined) ?? {};
+    const npcAmbientById = this.getNpcAmbientById();
 
-    const targets: ActivityTarget[] = [];
+    const activityTargets: ActivityTarget[] = [];
+    const intentTargets: IntentLabelTarget[] = [];
     for (const ent of this.npcSprites.values()) {
-      if (!ent.activityLabel || !ent.npcId) continue;
-      targets.push(ent as ActivityTarget);
+      if (!ent.npcId) continue;
+      if (ent.activityLabel) activityTargets.push(ent as ActivityTarget);
+      if (ent.intentLabel) intentTargets.push(ent as IntentLabelTarget);
     }
 
     const visibleNpcIds = updateActivityLabels(
       this,
-      targets,
+      activityTargets,
       localCell,
-      npcActivityById,
+      npcAmbientById,
       thinkingNpcId,
       activeNpcId,
       speakBusyNpcId,
     );
     this.registry.set("npcActivityVisible", visibleNpcIds);
+
+    const visibleIntentNpcIds = updateIntentLabels(
+      this,
+      intentTargets,
+      localCell,
+      npcAmbientById,
+      thinkingNpcId,
+      activeNpcId,
+      speakBusyNpcId,
+      {},
+    );
+    this.registry.set("npcIntentVisible", visibleIntentNpcIds);
   }
 
   /** Explore HUD coords — game-loop tick (Wave 2); React reads registry `exploreGrid`. */
@@ -973,7 +1015,11 @@ export class RoomScene extends Phaser.Scene {
         this.snapNpcTo(ent, npc.x, npc.y);
       }
       ent.label.setText(truncateNameplate(npcDisplayName(npc.name)));
-      applyNameplateStyle(ent.label, "npc");
+      if (isBackgroundNpcId(npc.id)) {
+        applyBgNameplateStyle(ent.label);
+      } else {
+        applyNameplateStyle(ent.label, "npc");
+      }
       if (!ent.spriteMode) {
         ent.body.setFillStyle(theme.npcTint, connected ? 0.85 : 0.35);
         ent.ring.setStrokeStyle(MARKER_STROKE, theme.npcTint, connected ? 0.5 : 0.2);
@@ -1092,6 +1138,16 @@ export class RoomScene extends Phaser.Scene {
           label: string | null;
           npcActivityById: Record<string, string>;
           visibleNpcIds: string[];
+          reasonZhById: Record<string, string>;
+          visibleIntentNpcIds: string[];
+        } | null;
+        __aetherlife_bgNpcDebug?: () => {
+          visibleBgNameplates: Array<{
+            id: string;
+            testid: string | null;
+            fontSize: string;
+            alpha: number;
+          }>;
         } | null;
       };
       w.__aetherlife_moveDebug = () => {
@@ -1197,6 +1253,12 @@ export class RoomScene extends Phaser.Scene {
           | { minute?: number; label?: string }
           | undefined;
         const minute = typeof clock?.minute === "number" ? clock.minute : null;
+        const npcAmbientById = this.getNpcAmbientById();
+        const reasonZhById: Record<string, string> = {};
+        for (const [id, ambient] of Object.entries(npcAmbientById)) {
+          const reason = ambient.intentReasonZh?.trim() ?? "";
+          if (reason) reasonZhById[id] = reason;
+        }
         return {
           minute,
           label: clock?.label ?? null,
@@ -1204,8 +1266,22 @@ export class RoomScene extends Phaser.Scene {
             (this.registry.get("npcActivityById") as Record<string, string> | undefined) ?? {},
           visibleNpcIds:
             (this.registry.get("npcActivityVisible") as string[] | undefined) ?? [],
+          reasonZhById,
+          visibleIntentNpcIds:
+            (this.registry.get("npcIntentVisible") as string[] | undefined) ?? [],
         };
       };
+      w.__aetherlife_bgNpcDebug = () => ({
+        visibleBgNameplates: [...this.npcSprites.entries()]
+          .filter(([id]) => isBackgroundNpcId(id))
+          .filter(([, ent]) => (ent.nameplateAlpha ?? ent.label.alpha) > 0.05)
+          .map(([id, ent]) => ({
+            id,
+            testid: ent.label.getData("testid") as string | null,
+            fontSize: String(ent.label.style.fontSize ?? ""),
+            alpha: ent.label.alpha,
+          })),
+      });
     }
   }
 
@@ -1289,17 +1365,25 @@ export class RoomScene extends Phaser.Scene {
     npcId: string,
     layer: 0 | 1 | 2,
   ): EntitySprite {
+    const isBg = isBackgroundNpcId(npcId);
     const ent = this.createDiscMarker(label, gx, gy, {
       fill: theme.npcTint,
       fillAlpha: 0.85,
       stroke: theme.npcTint,
       strokeAlpha: 1,
-      labelColor: "#c9a227",
+      labelColor: isBg ? "#c8c0a8" : "#c9a227",
     }, layer);
     ent.label.setText(truncateNameplate(label));
-    applyNameplateStyle(ent.label, "npc");
+    if (isBg) {
+      applyBgNameplateStyle(ent.label);
+    } else {
+      applyNameplateStyle(ent.label, "npc");
+    }
     ent.npcId = npcId;
-    this.attachNpcActivityLabel(ent);
+    this.attachNpcActivityLabel(ent, isBg);
+    if (!isBg) {
+      this.attachNpcIntentLabel(ent);
+    }
     if (!this.useSpriteEntities()) return ent;
 
     ent.spriteMode = true;
@@ -1307,28 +1391,47 @@ export class RoomScene extends Phaser.Scene {
     ent.paletteRow = npcVariantForId(npcId);
     ent.facingDir = "down";
     ent.activityLabel?.setY(activityLabelY(true));
-    const avatar = createNpcSprite(this, npcId);
+    ent.intentLabel?.setY(intentLabelY(true));
+    const avatar = createNpcSprite(this, npcId, isBg ? BG_NPC_TINT : undefined);
     const bubble = createSpeechBubble(this);
     ent.body.setVisible(false);
     ent.ring.setVisible(false);
     ent.label.setText(truncateNameplate(label));
     ent.label.setAlpha(0);
     ent.label.y = SPRITE_NAMEPLATE_Y;
-    applyNameplateStyle(ent.label, "npc");
+    if (isBg) {
+      applyBgNameplateStyle(ent.label);
+    } else {
+      applyNameplateStyle(ent.label, "npc");
+    }
     ent.container.addAt(avatar, 0);
-    ent.container.add(bubble);
+    if (!isBg) {
+      ent.container.add(bubble);
+      ent.bubble = bubble;
+    }
     ent.avatar = avatar;
-    ent.bubble = bubble;
     playIdleAnim(ent, "down");
     return ent;
   }
 
-  private attachNpcActivityLabel(ent: EntitySprite): void {
+  private attachNpcActivityLabel(ent: EntitySprite, isBackground = false): void {
     if (!ent.npcId) return;
     const activityLabel = createActivityLabel(this, ent.npcId);
+    if (isBackground) {
+      applyBgActivityStyle(activityLabel);
+      activityLabel.setData("testid", `bg-npc-activity-${ent.npcId}`);
+    }
     activityLabel.y = activityLabelY(ent.spriteMode === true);
     ent.container.add(activityLabel);
     ent.activityLabel = activityLabel;
+  }
+
+  private attachNpcIntentLabel(ent: EntitySprite): void {
+    if (!ent.npcId) return;
+    const intentLabel = createIntentLabel(this, ent.npcId);
+    intentLabel.y = intentLabelY(ent.spriteMode === true);
+    ent.container.add(intentLabel);
+    ent.intentLabel = intentLabel;
   }
 
   private createDoorEntity(
@@ -1368,6 +1471,8 @@ export class RoomScene extends Phaser.Scene {
     ent.nameplateTween = undefined;
     ent.activityLabelTween?.stop();
     ent.activityLabelTween = undefined;
+    ent.intentLabelTween?.stop();
+    ent.intentLabelTween = undefined;
     ent.moveTween?.stop();
     ent.moveTween = undefined;
     this.tweens.killTweensOf(ent.container);
@@ -1404,7 +1509,7 @@ export class RoomScene extends Phaser.Scene {
     this.tweenEntityOneStep(ent, gx, gy, duration);
   }
 
-  /** BFS path for NPC visual walk — exclude self so goal cell is reachable. */
+  /** BFS path for NPC visual walk — terrain + entities, same grid as player movement. */
   private pathForNpcMove(
     fromX: number,
     fromY: number,
@@ -1415,8 +1520,17 @@ export class RoomScene extends Phaser.Scene {
     const map = this.getMoveMap();
     const players = (this.registry.get("players") as PlayerSnap[]) ?? [];
     const others = players.map((p) => ({ x: p.x, y: p.y }));
-    const grid = buildMoveGrid(map, others, { excludeNpcId: npcId });
-    return findGridPath(fromX, fromY, toX, toY, grid);
+    const path = clientFindPath(
+      map,
+      fromX,
+      fromY,
+      toX,
+      toY,
+      others,
+      this.getLoadedChunks(),
+      { excludeNpcId: npcId },
+    );
+    return path;
   }
 
   /** Load / reset: snap NPC to persisted grid (Stardew-style, no walk-in on refresh). */
@@ -1459,7 +1573,13 @@ export class RoomScene extends Phaser.Scene {
     }
 
     if (!path || path.length <= 1) {
-      this.tweenEntityOneStep(ent, gx, gy, STEP_MS);
+      const dist = Math.abs(ent.gridX - gx) + Math.abs(ent.gridY - gy);
+      if (dist === 1) {
+        this.tweenEntityOneStep(ent, gx, gy, STEP_MS);
+      } else {
+        // Match authoritative server cell when terrain path is missing (e.g. blocked dest).
+        this.snapEntityToGrid(ent, gx, gy);
+      }
       return;
     }
 

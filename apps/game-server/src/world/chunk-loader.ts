@@ -3,7 +3,6 @@ import {
   chunkKey,
   chunkOf,
   createDefaultRoom,
-  isHomeMapRegionCell,
   type ChunkDelta,
   type ChunkTileView,
   type ChunkView,
@@ -12,6 +11,7 @@ import {
 import { loadChunkDelta, saveChunkDelta } from "./chunk-repository.js";
 import { mergeHomeChunkBase } from "./home-merge.js";
 import { generateChunkBase } from "./noise.js";
+import { regionWalkabilityAt } from "./region-walkability.js";
 import { worldSeedFromEnv } from "./seed.js";
 
 export type ChunkCacheEntry = {
@@ -174,7 +174,8 @@ export class ChunkLoader {
   }
 
   getWalkability(gx: number, gy: number): boolean | "void" {
-    if (isHomeMapRegionCell(gx, gy)) return true;
+    const regionWalk = regionWalkabilityAt(gx, gy);
+    if (regionWalk !== undefined) return regionWalk;
 
     const { cx, cy } = chunkOf(gx, gy);
     const entry = this.cache.get(chunkKey(cx, cy));

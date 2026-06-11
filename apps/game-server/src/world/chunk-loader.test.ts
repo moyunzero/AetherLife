@@ -1,19 +1,36 @@
-import { describe, expect, it, beforeEach } from "vitest";
+import { describe, expect, it, beforeEach, afterEach } from "vitest";
+import { defaultBeginningFieldsBundle, loadWorldRegistry } from "@aetherlife/shared";
+import collisionFixture from "../../data/world/beginning-fields@v1/collision.json";
 import { resetChunkRepositoryForTests } from "./chunk-repository.js";
+import {
+  bootBeginningFieldsCollision,
+  resetRegionWalkabilityForTests,
+} from "./region-walkability.js";
 import { ChunkLoader } from "./chunk-loader.js";
 
 describe("ChunkLoader", () => {
   beforeEach(() => {
     delete process.env.DATABASE_URL;
     resetChunkRepositoryForTests();
+    resetRegionWalkabilityForTests();
+    loadWorldRegistry(defaultBeginningFieldsBundle());
+    bootBeginningFieldsCollision(collisionFixture as {
+      width: number;
+      height: number;
+      cells: number[];
+    });
+  });
+
+  afterEach(() => {
+    resetRegionWalkabilityForTests();
   });
 
   it("loads 3x3 window around player", async () => {
     const loader = new ChunkLoader({ worldId: "test", worldSeed: 42, now: () => 1000 });
-    await loader.ensureChunksForPlayers([{ gx: 4, gy: 4 }]);
+    await loader.ensureChunksForPlayers([{ gx: 34, gy: 13 }]);
     const views = loader.getLoadedChunkViews();
     expect(views.length).toBe(9);
-    expect(loader.getWalkability(4, 4)).toBe(true);
+    expect(loader.getWalkability(34, 13)).toBe(true);
   });
 
   it("returns void for unloaded cells", () => {
@@ -21,10 +38,11 @@ describe("ChunkLoader", () => {
     expect(loader.getWalkability(40, 40)).toBe("void");
   });
 
-  it("Beginning Fields homestead region (40×40) is walkable without loading chunks", () => {
+  it("Beginning Fields homestead uses baked collision without loading chunks", () => {
     const loader = new ChunkLoader({ worldId: "test-homemap", worldSeed: 42 });
     expect(loader.getWalkability(10, 10)).toBe(true);
-    expect(loader.getWalkability(39, 39)).toBe(true);
+    expect(loader.getWalkability(34, 13)).toBe(true);
+    expect(loader.getWalkability(28, 8)).toBe(false);
     expect(loader.getWalkability(40, 0)).toBe("void");
   });
 
@@ -36,7 +54,7 @@ describe("ChunkLoader", () => {
       now: () => t,
       ttlMs: 30_000,
     });
-    await loader.ensureChunksForPlayers([{ gx: 4, gy: 4 }]);
+    await loader.ensureChunksForPlayers([{ gx: 34, gy: 13 }]);
     expect(loader.getLoadedChunkViews().length).toBe(9);
     await loader.ensureChunksForPlayers([{ gx: 40, gy: 40 }]);
     t += 31_000;

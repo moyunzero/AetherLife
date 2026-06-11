@@ -801,12 +801,18 @@ body {
   opacity: 0.85;
 }
 
+.explore-coords-strip [data-testid="explore-region-label"] {
+  font-family: var(--font-mono, "IBM Plex Mono", monospace);
+  font-size: 11px;
+  color: #9a9284;
+}
+
 .explore-coords-strip__clock {
   margin: 4px 0 0;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
-  color: var(--accent, #c4a574);
+  color: var(--text-muted);
   letter-spacing: 0.03em;
 }
 

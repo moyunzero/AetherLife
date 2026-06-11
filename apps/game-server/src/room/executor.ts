@@ -1,16 +1,20 @@
 import type { GameAction } from "@aetherlife/game-actions";
 import {
-  buildMoveGrid,
-  findNearestWalkableCell,
+  buildGlobalMoveGrid,
+  findNearestGlobalWalkable,
   findNpc,
+  type GlobalMoveGrid,
   type GridCell,
   type RoomState,
 } from "@aetherlife/shared";
+import { isTerrainWalkableInRegion } from "../world/region-walkability.js";
 
 export type ApplyGameActionOptions = {
   /** All live player cells (Colyseus + map snapshot); defaults to map.player only. */
   otherPlayerCells?: readonly GridCell[];
-  /** Initiating human's cell — prefer snapping to their 4-neighbors when target is blocked. */
+  /** NPC / intent anchor — when requested cell is blocked, snap to walkable neighbors of this cell first. */
+  moveSnapAnchor?: GridCell;
+  /** Initiating human's cell — fallback snap anchor when intent neighbors are unavailable. */
   moveAnchorCell?: GridCell;
 };
 
@@ -21,17 +25,79 @@ export class ExecutorError extends Error {
   }
 }
 
+function executorTerrainWalkable(gx: number, gy: number): boolean {
+  const terrain = isTerrainWalkableInRegion(gx, gy);
+  if (terrain === undefined) return true;
+  return terrain;
+}
+
+function buildExecutorGrid(
+  map: RoomState,
+  otherPlayers: readonly GridCell[],
+  options?: { excludeNpcId?: string },
+): GlobalMoveGrid {
+  return buildGlobalMoveGrid({
+    homeMap: map,
+    otherPlayerCells: otherPlayers,
+    isTerrainWalkable: executorTerrainWalkable,
+    excludeNpcId: options?.excludeNpcId,
+  });
+}
+
+function walkableNeighbors(
+  map: RoomState,
+  cx: number,
+  cy: number,
+  grid: GlobalMoveGrid,
+): GridCell[] {
+  return [
+    { x: cx, y: cy - 1 },
+    { x: cx, y: cy + 1 },
+    { x: cx - 1, y: cy },
+    { x: cx + 1, y: cy },
+  ].filter(
+    (c) =>
+      c.x >= 0 &&
+      c.y >= 0 &&
+      c.x < map.width &&
+      c.y < map.height &&
+      !grid.isBlocked(c.x, c.y),
+  );
+}
+
+function pickClosestCell(cells: GridCell[], targetX: number, targetY: number): GridCell {
+  cells.sort((a, b) => {
+    const da = Math.abs(a.x - targetX) + Math.abs(a.y - targetY);
+    const db = Math.abs(b.x - targetX) + Math.abs(b.y - targetY);
+    return da - db;
+  });
+  return cells[0]!;
+}
+
 function snapNpcMoveDest(
   map: RoomState,
   requestedX: number,
   requestedY: number,
   otherPlayers: readonly GridCell[],
   gridOpts: { excludeNpcId: string },
+  moveSnapAnchor?: GridCell,
   moveAnchor?: GridCell,
 ): GridCell {
-  const grid = buildMoveGrid(map, otherPlayers, gridOpts);
+  const grid = buildExecutorGrid(map, otherPlayers, gridOpts);
   if (!grid.isBlocked(requestedX, requestedY)) {
     return { x: requestedX, y: requestedY };
+  }
+
+  if (moveSnapAnchor) {
+    const intentNeighbors = walkableNeighbors(
+      map,
+      moveSnapAnchor.x,
+      moveSnapAnchor.y,
+      grid,
+    );
+    if (intentNeighbors.length > 0) {
+      return pickClosestCell(intentNeighbors, requestedX, requestedY);
+    }
   }
 
   if (moveAnchor) {
@@ -58,13 +124,7 @@ function snapNpcMoveDest(
     }
   }
 
-  const snapped = findNearestWalkableCell(
-    map,
-    requestedX,
-    requestedY,
-    otherPlayers,
-    gridOpts,
-  );
+  const snapped = findNearestGlobalWalkable(requestedX, requestedY, grid);
   if (grid.isBlocked(snapped.x, snapped.y)) {
     throw new ExecutorError("cell blocked");
   }
@@ -108,6 +168,7 @@ export function applyGameAction(
         action.y,
         otherPlayers,
         gridOpts,
+        options?.moveSnapAnchor,
         options?.moveAnchorCell,
       );
       acting.x = dest.x;

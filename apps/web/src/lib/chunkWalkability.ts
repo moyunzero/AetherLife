@@ -40,6 +40,11 @@ export function clientCanStep(
   return canStepGlobal(gx, gy, grid);
 }
 
+export type ClientFindPathOptions = {
+  /** Omit this NPC from blocked cells (pathfinding for that NPC's move). */
+  excludeNpcId?: string;
+};
+
 export function clientFindPath(
   map: RoomState,
   fromX: number,
@@ -48,11 +53,13 @@ export function clientFindPath(
   toY: number,
   otherPlayers: readonly { x: number; y: number }[],
   chunks: readonly ChunkView[],
+  options?: ClientFindPathOptions,
 ) {
   const grid = buildGlobalMoveGrid({
     homeMap: map,
     otherPlayerCells: otherPlayers,
     isTerrainWalkable: (x, y) => isTerrainWalkable(chunks, x, y),
+    excludeNpcId: options?.excludeNpcId,
   });
   return findGlobalGridPath(fromX, fromY, toX, toY, grid);
 }

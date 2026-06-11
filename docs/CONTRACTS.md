@@ -34,8 +34,9 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 | **入口** | Colyseus `onMessage("speak")` 不阻塞；`startNpcChatTurn` → Redis job |
 | **内容安全** | speak 与 `POST /chat` 在入队前经 `@aetherlife/shared` `checkContentBlocked`（与 gateway blocklist 同规则）；拒绝 `{ code: "content_blocked" }`。**不**替代 gateway Moderation API |
 | **队列** | 按 `npcId` 互斥（`npcSpeakJobs`），不同 NPC 可并行 |
-| **事件** | worker → `POST /internal/jobs/:id/events` → SSE / `speakAck` / `speakIdle` |
-| **可观测（可选）** | job `done` 可含 `llmCallSummary: { calls[], total }`（Phase 12.2；客户端可忽略） |
+| **事件** | worker → `POST /internal/jobs/:id/events` → SSE / `speakAck` / `speakIdle` / `speakPartial`（流式 reply 增量，非 terminal） |
+| **done 安全** | worker `audit_reply` 为 speak 回复唯一 guard；**禁止** game-server `done` emit 同步调用 gateway `check-reply`（ISSUE-045 提速） |
+| **可观测（可选）** | job `done` 可含 `llmCallSummary: { calls[], total }`（Phase 12.2；客户端可忽略）；`speakIntent`、`phaseTimingMs`（Speak 提速 Slice 0/3） |
 | **记忆回调（可选）** | job `done` 可含 `memoryQuote?: string` — worker 从 `retrieved_memories` 最高分条目选取（PLAY-03）；无检索命中时不传 |
 | **客户端 speak UX** | 方案 A（life-sim）：同 NPC in-flight 时 UI 禁用 composer，`sendMessage` 不 enqueue；server `speakBusy` 时内部 FIFO drain 仍保留（Phase 12.2 STAB-04） |
 | **禁止** | Room handler 内同步 LLM；房间级 speak 全局锁 |
@@ -84,6 +85,27 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 | **Reset** | `POST /rooms/:id/reset` 删除该 `roomId` 下所有 `collective_events` + `npc_attitudes` + 既有 per-player memories |
 | **与空间** | Witness 距离用 **当前** `RoomState` NPC 格；Chebyshev ≤2 |
 | **禁止** | `playerId=__room__` 伪玩家桶；禁止 collective 表存 speak 全文 |
+
+---
+
+## C-06 — Ambient intent cache（Phase 16）
+
+| 层 | 契约 |
+|----|------|
+| **触发** | game-server 每分钟 ambient tick：`segment_change`（日程段变化）或 `speak_end`（`clearSpeakInFlight` 后）→ Redis queue `npc-ambient-intent` |
+| **Worker** | `ambient_intent.py`：`LLM_PROVIDER_REFLECT` / `LORE` 结构化 JSON；**禁止** `tool_calls_to_actions` |
+| **写回** | `POST /internal/rooms/:roomId/npc-intent`（`requireWorkerAuth`）→ in-memory `setIntent` + `clearPendingNpcIntentJob` |
+| **Schema** | `@aetherlife/shared` `AmbientIntentSchema`：`target {gx,gy}` **或** `zoneId`；`reasonZh` ≤32；`untilGameMinute`；可选 `joinVicinity` |
+| **Tick 消费** | `ambient/tick.ts` 读 cache：target 格或 zone-bias wander；过期/缺失 → zone-wander **且不得清空**已有 `intentReasonZh`（segment fallback 保留） |
+| **reasonZh 语义** | **动机层**（情绪/社交/短期打算，12–18 字）；禁止与 `activityDisplayZh` 同义复述；segment 开始时 **同步** rule fallback（`intent-fallback.ts`），LLM 异步 **静默替换** |
+| **Dedupe** | `@aetherlife/shared` `isReasonZhRedundantWithActivity`；server `applyIntentToLiveRoom` + client `effectiveIntentReasonZh` |
+| **Join** | `joinVicinity` → 8s 窗口内 NPC 朝发起者邻近格移动；worker 每 NPC 每 game-day bucket（480 分钟）最多 2 次 |
+| **Colyseus** | `npc{N}IntentReasonZh`、`JoinVicinityActive/Until/StartedAt` 同步至客户端 |
+| **UI** | 玩家可见 **永久两行**（名 + activity）；**禁止**渲染 `intentReasonZh` 第三行；`updateIntentLabels` 恒隐藏；L2 `reasonZh` 仅 registry/debug/speak 引用；**禁止** spinner / thought bubble；frozen：`entityLabels.ts`、`useNpcChat.ts` |
+
+**验证：** `pnpm --filter @aetherlife/game-server test -- intent-cache npc-ambient-intent ambient/tick`；`cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_ambient_intent.py -q`；`pnpm --filter @aetherlife/web test -- RoomScene.activity`；`pnpm dev:stack` → `pnpm verify:phase16`（真实 LLM，≤45s intent 断言）。
+
+**锚点文件：** `ambient/intent-cache.ts`, `queue/npc-ambient-intent.ts`, `routes/internal-ambient-intent.ts`, `ambient/tick.ts`, `workers/.../ambient_intent.py`, `apps/web/src/game/intentLabels.ts`.
 
 ---
 

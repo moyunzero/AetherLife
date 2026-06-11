@@ -339,9 +339,10 @@ export class MemoryService {
     playerMessage: string,
     npcId: string,
     playerId: string,
+    options?: { skipEmbed?: boolean },
   ): Promise<MemoryContext> {
     const start = Date.now();
-    const queryEmbedding = await embedText(playerMessage);
+    const skipEmbed = options?.skipEmbed === true;
     const collectivePromise = CollectiveService.getInstance().getCollectiveContext(
       roomId,
       npcId,
@@ -349,6 +350,18 @@ export class MemoryService {
     );
 
     if (this.test) {
+      const collective = await collectivePromise;
+      if (skipEmbed) {
+        return {
+          memoryCount: await this.test.countRaw(roomId, playerId, npcId),
+          retrieved: [],
+          latestBulkSummary: this.test.latestSummary(roomId, playerId, npcId, "bulk"),
+          latestReflection: this.test.latestSummary(roomId, playerId, npcId, "reflection"),
+          timingMs: Date.now() - start,
+          collective,
+        };
+      }
+      const queryEmbedding = await embedText(playerMessage);
       const retrieved = await this.test.searchSimilar({
         roomId,
         playerId,
@@ -356,7 +369,6 @@ export class MemoryService {
         queryEmbedding,
         k: 5,
       });
-      const collective = await collectivePromise;
       return {
         memoryCount: await this.test.countRaw(roomId, playerId, npcId),
         retrieved,
@@ -368,6 +380,25 @@ export class MemoryService {
     }
 
     const repo = this.repo!;
+    if (skipEmbed) {
+      const [memoryCount, latestBulkSummary, latestReflection, collective] =
+        await Promise.all([
+          repo.countRaw({ roomId, playerId, npcId, unsummarizedOnly: true }),
+          repo.getLatestSummaryByKind({ roomId, playerId, npcId, kind: "bulk" }),
+          repo.getLatestSummaryByKind({ roomId, playerId, npcId, kind: "reflection" }),
+          collectivePromise,
+        ]);
+      return {
+        memoryCount,
+        retrieved: [],
+        latestBulkSummary,
+        latestReflection,
+        timingMs: Date.now() - start,
+        collective,
+      };
+    }
+
+    const queryEmbedding = await embedText(playerMessage);
     const [retrieved, memoryCount, latestBulkSummary, latestReflection, collective] =
       await Promise.all([
         repo.searchSimilar({ roomId, playerId, npcId, queryEmbedding, k: 5 }),
