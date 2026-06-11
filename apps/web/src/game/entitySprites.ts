@@ -163,14 +163,18 @@ export function createPlayerSprite(
   return sprite;
 }
 
-export function createNpcSprite(scene: Phaser.Scene, npcId: string): Phaser.GameObjects.Sprite {
+export function createNpcSprite(
+  scene: Phaser.Scene,
+  npcId: string,
+  tintOverride?: number,
+): Phaser.GameObjects.Sprite {
   const variant = npcVariantForId(npcId);
   const frame = npcFrameIndex(variant, facingToIndex("down"), WALK_FRAMES);
   const sprite = scene.add.sprite(0, SPRITE_FOOT_Y, ASSET_KEYS.spritesNpcs, frame);
   sprite.setOrigin(0.5, 1);
   sprite.setScale(SPRITE_SCALE);
   applyFacingFlip(sprite, "down");
-  sprite.setTint(npcTintForId(npcId));
+  sprite.setTint(tintOverride ?? npcTintForId(npcId));
   return sprite;
 }
 

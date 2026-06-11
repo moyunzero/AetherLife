@@ -129,7 +129,95 @@ Run 2026-06-09T04:58:46Z，完整表格见 [LLM-MODEL-VERIFY.md § Run history](
 
 **Config B 验证（2026-06-09 午）：** `LLM_PROVIDER=nvidia` + `LLM_MODEL_NPC=openai/gpt-oss-120b` — NPC 探针 **1940 ms PASS**；worker 启动日志 `provider=nvidia model=openai/gpt-oss-120b`。
 
-### 3.2 端到端 Speak 延迟（`benchmark-llm-e2e-latency.mjs`）
+### 3.2 口径说明：SDK-only vs 浏览器全路径
+
+| 脚本 | 测什么 | 不含什么 |
+|------|--------|----------|
+| `scripts/benchmark-llm-e2e-latency.mjs` | Colyseus SDK 直连 `speak` + gateway POST | **无** Playwright、**无** `nl/parse`、**无** React composer / MessageList、**无** Phaser tween |
+| `scripts/benchmark-speak-browser.mjs` | 真实 Web UI（`?phaserFallback=1&speakLatencyTrace=1`） | 含 `nl/parse` 网络、`thinking` 气泡、`done` 后 composer idle、移动用例 sprite 权威格 |
+
+§3.2 下表为 **SDK-only**；玩家体感须看 §3.2.1。**P0 提速后** `nl/parse` 与 `speak` 并行，浏览器分段里 `nl_parse_network` 通常 **<5 ms**（不再阻塞发送）。
+
+### 3.2.1 浏览器全路径 Speak（`benchmark-speak-browser.mjs`）
+
+**环境：** `pnpm dev:stack`（禁止 `LLM_MOCK`）；`BENCHMARK_ROUNDS` 默认 15（warmup 首轮不计入统计）。
+
+```bash
+pkill -f "LLM_MOCK=1.*src.main" || true
+pnpm dev:stack
+node scripts/benchmark-speak-browser.mjs   # 或 pnpm benchmark:speak-browser
+node scripts/benchmark-llm-e2e-latency.mjs # 同会话 SDK 对照
+```
+
+**分段 KPI：** `t0` 点击发送 → `nl_parse` response → `speakAck` → `.message--thinking` visible → **首 `speak_partial` mark（TTFT）** / `[data-testid=npc-streaming-reply]` → `.message--npc` 有字 → composer 非 `aria-busy` →（移动用例）Phaser `npcGrid` 到达权威格。
+
+**Slice 0–4 提速后目标（`BENCHMARK_ROUNDS=15`）：**
+
+| 用例 | done p50 | TTFT（`speak_partial`） |
+|------|----------|-------------------------|
+| B1 闲聊 | ≤5s | ≤2s |
+| B3 快路径 | ≤5s | N/A（零 social LLM） |
+| B2 物理 | 8–12s | 可选 stub 首句 partial |
+
+JSON 报告字段：`segmentsMs.ttft_partial`、`speakIntent`、`phaseTimingMs`（来自 job `done`；fast lane 含 `t_fast_lane_ms`、`t_fetch_state_ms`、`t_compose_ms`）。
+
+**B1 CASUAL Fast Lane（P3）：** `can_use_casual_fast_lane` 命中时 `process_job` 在 graph 前 `speakPartial`（`preview_casual_stub`），再 `run_casual_fast_lane`：`fetch_state?skipNearbyLore=1` → `apply_social_event` → `compose_reply`；**无** Postgres checkpoint / 6 节点 LangGraph / memory HTTP。RECALL/NARRATIVE/PHYSICAL 及 non-deterministic CASUAL 仍走 `run_npc_turn_interactive`。
+
+**B1 TTFT（P4，≤2s 目标）：** CASUAL deterministic stub 在 **三处** 同步：`packages/shared` `previewCasualSpeakStub`（`stableStringHash` + 与 Python 相同模板池）→ (1) Web `dispatchSpeak` **client_mirror**（`setStreamingReply` + `recordSpeakLatencyMark("speak_partial", { source: "client_mirror" })`，在 `room.send` 前）；(2) `GameRoom` / SSE `chat.ts` **speakAck 后立即** `emitJobEvent(speakPartial)`（enqueue 前）；(3) worker fast lane 若 payload `casualPreviewEmitted` 则 **跳过** 重复 `partial_emit`。Benchmark TTFT = 首次 `speak_partial` mark（通常 client_mirror **~0–1 ms**）。RECALL 等 intent **禁止** 早发（共享 `classifySpeakIntent` 与 worker 对齐）。
+
+**Run 2026-06-11 — Slice 0–4 验收**（Config B：`LLM_PROVIDER=nvidia`，`BENCHMARK_ROUNDS=15`，skip warmup；JSON：`.planning/benchmarks/speak-browser-1781148871581.json`）：
+
+| 用例 | 消息 | total p50 | total p95 | ttft p50 | speakIntent |
+|------|------|-----------|-----------|----------|-------------|
+| B1 闲聊 | 你好，用一句话简短回复 | **11424 ms** | 13941 ms | 8212 ms | casual |
+| B2 物理 | 请向右走一步 | **15450 ms** | 26091 ms | 4546 ms | physical |
+| B3 快路径 | 去费雪旁边 | **6902 ms** | 11955 ms | 3142 ms | physical |
+
+对照 § 目标：B3 total **达标**（≤5s）；B1/B2 仍受 social/tool LLM 延迟与 NVIDIA 路由波动影响；`speakPartial` TTFT 已可观测但 B1 首字 **~8s**（JSON reply 流式解析 + 上游 TTFT）。
+
+**Run 2026-06-11 — P3 Fast Lane**（`LLM_PROVIDER=nvidia`，`BENCHMARK_ROUNDS=15`，含 warmup；B1 15 轮完整，全量脚本在 B2 r15 超时中断）：
+
+| 用例 | 消息 | total p50 | total p95 | ttft p50 | speakIntent |
+|------|------|-----------|-----------|----------|-------------|
+| B1 闲聊 | 你好，用一句话简短回复 | **3377 ms** | 6958 ms | **3251 ms** | casual |
+
+对照 § 目标：B1 total **达标**（p50 ≤5s，较 Slice 0–4 **11.4s** 降 ~70%）；TTFT p50 **3.3s** 仍高于 ≤2s（`speakAck`→worker BRPOP→early `speakPartial` 占主导；方案 C / job 调度为 follow-up）。修复 fast-lane `done` 竞态：`GameRoom` speakAck 先于 enqueue + `useNpcChat` onDone adopt `jobId`（Guardrail #70）。
+
+**Run 2026-06-11 — P4 TTFT（client_mirror + game-server stub）**（`LLM_PROVIDER=nvidia`，`BENCHMARK_ROUNDS=15`，`pnpm dev:stack` 真实 LLM）：
+
+| 用例 | 消息 | total p50 | ttft p50 | speakIntent |
+|------|------|-----------|----------|-------------|
+| B1 闲聊 | 你好，用一句话简短回复 | **4521 ms** | **1 ms** | casual |
+
+JSON：`.planning/benchmarks/speak-browser-1781155186602.json`
+
+对照 § 目标：B1 TTFT **达标**（p50 ≤2s）；首字由 Web `client_mirror` 在 dispatch 打 mark，不再依赖 Redis BRPOP + worker HTTP。B1 total p50 **4521 ms**（达标 ≤5s）；p95 **9476 ms** 仍受 fast lane `done` 与 LLM 路由波动影响。
+
+**Run 2026-06-10 — P0/P1 基线**（`BENCHMARK_ROUNDS=5`，无 `speakPartial` / `speakIntent`）：
+
+| 用例 | 消息 | total p50 | total p95 | bubble p50 | nl_parse p50 |
+|------|------|-----------|-----------|------------|--------------|
+| B1 闲聊 | 你好，用一句话简短回复 | **12036 ms** | 14546 ms | 12019 ms | 1 ms |
+| B2 物理 | 请向右走一步 | **20603 ms** | 26593 ms | 20601 ms | 0 ms |
+| B3 快路径 | 去费雪旁边 | **10493 ms** | 23681 ms | 10476 ms | 0 ms |
+
+**同会话 SDK 对照（单次）：**
+
+| 路径 | 消息 | total | speakAck |
+|------|------|-------|----------|
+| gateway-chat | 你好… | 9599 ms | POST 4096 ms |
+| colyseus-speak | hello benchmark | 12724 ms | 2501 ms |
+| colyseus-speak | 请向右走一步 | 18076 ms | 2698 ms |
+
+**观察：**
+
+1. P0（`speak` 先发送、`nl/parse` 后台）后，浏览器 **total ≈ bubble**；旧体感「多等 2s parse」已消除。
+2. Slice 0–4：B3 p50 **6.9s**（较 2026-06-10 **10.5s** 改善）；B2 p50 **15.5s**（较 **20.6s** 改善）；B1 Slice 0–4 基本持平（CASUAL 仍走 LangGraph + memory 并行）。**P3 Fast Lane**：B1 total p50 **3.4s**（达标）；TTFT p50 **3.3s**（未达 ≤2s，queue/worker 启动为主因）。
+3. `speakIntent` 分桶与 `phaseTimingMs` 已写入 benchmark JSON；TTFT 来自 Performance mark `speak_partial`。
+4. `thinking_visible` 在 P0-B 后于 **dispatch 后 ~76 ms** 出现（不再等 `speakAck`）。
+5. 完整 JSON：`.planning/benchmarks/speak-browser-*.json`。
+
+### 3.2.2 端到端 Speak 延迟（`benchmark-llm-e2e-latency.mjs`，SDK-only）
 
 测量分段：
 
@@ -193,11 +281,17 @@ Worker 日志摘录（SiliconFlow 配置）：
 
 ## 5. 附录：benchmark 脚本
 
-`scripts/benchmark-llm-e2e-latency.mjs` — 输出人类可读分段 + JSON summary（可 pipe 到 CI artifact）。
+| 脚本 | 命令 |
+|------|------|
+| 浏览器全路径 | `pnpm benchmark:speak-browser` 或 `node scripts/benchmark-speak-browser.mjs` |
+| SDK-only | `node scripts/benchmark-llm-e2e-latency.mjs` |
 
 ```bash
 pnpm dev:stack
+node scripts/benchmark-speak-browser.mjs
 node scripts/benchmark-llm-e2e-latency.mjs | tee .planning/e2e-full-run/llm-latency-$(date +%Y%m%d).json
 ```
 
-JSON 字段：`postMs` / `speakAckMs` / `firstThinkingMs` / `llmDoneMs` / `totalMs` / `llmCallSummary`。
+SDK JSON 字段：`postMs` / `speakAckMs` / `firstThinkingMs` / `llmDoneMs` / `totalMs` / `llmCallSummary`。
+
+浏览器 JSON：`cases[].results[].segmentsMs`（`total` / `nl_parse_network` / `npc_bubble` / `sprite_arrived` 等）+ `window.__speakLatencyMarks`（`VITE_SPEAK_LATENCY_TRACE=1` 或 URL `speakLatencyTrace=1`）。

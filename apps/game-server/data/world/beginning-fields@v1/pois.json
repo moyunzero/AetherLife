@@ -1,0 +1,32 @@
+{
+  "pois": [
+    {
+      "id": "well",
+      "labelZh": "水井",
+      "lx": 34,
+      "ly": 13,
+      "kind": "social"
+    },
+    {
+      "id": "npc-1-home",
+      "labelZh": "学者小屋",
+      "lx": 23,
+      "ly": 10,
+      "kind": "home"
+    },
+    {
+      "id": "npc-2-home",
+      "labelZh": "工匠棚",
+      "lx": 9,
+      "ly": 21,
+      "kind": "home"
+    },
+    {
+      "id": "npc-3-home",
+      "labelZh": "湖畔小屋",
+      "lx": 28,
+      "ly": 27,
+      "kind": "home"
+    }
+  ]
+}

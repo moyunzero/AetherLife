@@ -1,5 +1,15 @@
-import { describe, expect, it } from "vitest";
-import { createDefaultRoom, findNpc } from "@aetherlife/shared";
+import { describe, expect, it, beforeEach, afterEach } from "vitest";
+import {
+  createDefaultRoom,
+  defaultBeginningFieldsBundle,
+  findNpc,
+  loadWorldRegistry,
+} from "@aetherlife/shared";
+import bfCollisionFixture from "../../data/world/beginning-fields@v1/collision.json";
+import {
+  bootBeginningFieldsCollision,
+  resetRegionWalkabilityForTests,
+} from "../world/region-walkability.js";
 import { applyGameAction, ExecutorError } from "./executor.js";
 
 describe("applyGameAction", () => {
@@ -107,6 +117,70 @@ describe("applyGameAction", () => {
     const { room: next } = applyGameAction(room, { type: "move", x: 3, y: 3 }, "npc-1");
     const npc = findNpc(next, "npc-1");
     expect(npc?.x === 3 && npc?.y === 3).toBe(false);
+  });
+
+  describe("with beginning-fields collision", () => {
+    beforeEach(() => {
+      resetRegionWalkabilityForTests();
+      loadWorldRegistry(defaultBeginningFieldsBundle());
+      bootBeginningFieldsCollision(bfCollisionFixture as {
+        width: number;
+        height: number;
+        cells: number[];
+      });
+    });
+
+    afterEach(() => {
+      resetRegionWalkabilityForTests();
+    });
+
+    it("snaps near Fisher to walkable neighbor not blocked terrain (9,20)", () => {
+      const room = createDefaultRoom();
+      findNpc(room, "npc-2")!.x = 9;
+      findNpc(room, "npc-2")!.y = 21;
+      const { room: next } = applyGameAction(
+        room,
+        { type: "move", x: 9, y: 20 },
+        "npc-1",
+        {
+          otherPlayerCells: [{ x: 20, y: 13 }],
+          moveSnapAnchor: { x: 9, y: 21 },
+        },
+      );
+      const npc1 = findNpc(next, "npc-1");
+      expect(npc1?.x === 9 && npc1?.y === 20).toBe(false);
+      expect(npc1?.x === 9 && npc1?.y === 21).toBe(false);
+      const distToFeixue =
+        Math.abs((npc1?.x ?? 0) - 9) + Math.abs((npc1?.y ?? 0) - 21);
+      expect(distToFeixue).toBe(1);
+    });
+  });
+
+  it("snaps blocked NPC-relative move to neighbor of moveSnapAnchor not player", () => {
+    const room = createDefaultRoom();
+    room.player = { x: 20, y: 13 };
+    findNpc(room, "npc-1")!.x = 20;
+    findNpc(room, "npc-1")!.y = 13;
+    findNpc(room, "npc-2")!.x = 9;
+    findNpc(room, "npc-2")!.y = 21;
+    const { room: next } = applyGameAction(
+      room,
+      { type: "move", x: 9, y: 21 },
+      "npc-1",
+      {
+        otherPlayerCells: [{ x: 20, y: 13 }],
+        moveSnapAnchor: { x: 9, y: 21 },
+        moveAnchorCell: { x: 20, y: 13 },
+      },
+    );
+    const npc1 = findNpc(next, "npc-1");
+    expect(npc1?.x === 9 && npc1?.y === 21).toBe(false);
+    const distToFeixue =
+      Math.abs((npc1?.x ?? 0) - 9) + Math.abs((npc1?.y ?? 0) - 21);
+    expect(distToFeixue).toBe(1);
+    const distToPlayer =
+      Math.abs((npc1?.x ?? 0) - 20) + Math.abs((npc1?.y ?? 0) - 13);
+    expect(distToPlayer).toBeGreaterThan(1);
   });
 
   it("prefers initiator-adjacent cell when target below player is blocked", () => {

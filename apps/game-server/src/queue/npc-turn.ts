@@ -12,6 +12,8 @@ export type NpcTurnJobPayload = {
   playerMessage: string;
   recentTurns?: DialogueTurnPayload[];
   enqueuedAt: string;
+  /** game-server already emitted speakPartial stub for CASUAL fast lane */
+  casualPreviewEmitted?: boolean;
 };
 
 const QUEUE_NAME = "npc-turn";
@@ -60,8 +62,10 @@ export async function addNpcTurnJob(input: {
   npcId: string;
   playerId: string;
   recentTurns?: DialogueTurnPayload[];
+  jobId?: string;
+  casualPreviewEmitted?: boolean;
 }): Promise<string> {
-  const jobId = randomUUID();
+  const jobId = input.jobId ?? randomUUID();
   const payload: NpcTurnJobPayload = {
     roomId: input.roomId,
     jobId,
@@ -70,6 +74,7 @@ export async function addNpcTurnJob(input: {
     playerMessage: input.playerMessage,
     recentTurns: input.recentTurns,
     enqueuedAt: new Date().toISOString(),
+    ...(input.casualPreviewEmitted ? { casualPreviewEmitted: true } : {}),
   };
 
   const q = getQueue();

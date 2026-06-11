@@ -1,5 +1,5 @@
 /**
- * Full-stack E2E orchestrator — Phase 1 (cloud) + 2→13, real LLM only.
+ * Full-stack E2E orchestrator — Phase 1 (cloud) + 2→13 + 16, real LLM only.
  * Phase 9 voice deferred. Requires: pnpm dev:stack running. See docs/E2E-FULL-RUN.md
  */
 import { spawnSync } from "node:child_process";
@@ -72,6 +72,7 @@ const STEPS = [
   { phase: "12.1", kind: "uat", script: "uat:phase12.1:playwright" },
   { phase: "13", kind: "verify", script: "verify:phase13" },
   { phase: "13", kind: "uat", script: "uat:phase13:playwright" },
+  { phase: "16", kind: "verify", script: "verify:phase16" },
 ];
 
 function log(line) {

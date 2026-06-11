@@ -38,4 +38,19 @@ describe("MessageList memory citation", () => {
     );
     expect(html).not.toContain("npc-memory-callback");
   });
+
+  it("shows streaming partial instead of thinking placeholder", () => {
+    const html = renderToStaticMarkup(
+      createElement(MessageList, {
+        messages: [],
+        thinkingNpcId: "npc-1",
+        activeNpcId: "npc-1",
+        thinkingNpcName: "阿明",
+        streamingReply: "你好呀",
+      }),
+    );
+    expect(html).toContain('data-testid="npc-streaming-reply"');
+    expect(html).toContain("阿明：你好呀");
+    expect(html).not.toContain("正在思考");
+  });
 });

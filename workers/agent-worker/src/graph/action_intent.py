@@ -3,14 +3,18 @@ from typing import Any
 
 STATE_CHANGING_TOOLS = frozenset({"move", "interact", "wait"})
 
-EXPLICIT_COORD_PATTERN = re.compile(r"[\(（]\s*\d+\s*[,，]\s*\d+\s*[\)）]")
+EXPLICIT_COORD_PATTERN = re.compile(
+    r"[\(（]\s*(\d+)\s*[,，]\s*(\d+)\s*[\)）]",
+)
 
 MOVE_PATTERNS = (
     r"移动",
     r"走到",
     r"走去",
+    r"走一步",
+    r"向[左右上下]",
     r"去\s*[\(（]?\s*\d+\s*[,，]\s*\d+\s*[\)）]?",
-    r"左侧|右侧|左边|右边|上方|下方|旁边|到我|来我|过来",
+    r"左侧|右侧|左边|右边|上方|下方|下面|下边|旁边|附近|旁白|到我|来我|过来",
     r"\bmove\b",
     r"\bgo to\b",
 )
@@ -67,6 +71,146 @@ def _clamp_cell(x: int, y: int, room: dict[str, Any]) -> tuple[int, int]:
     return max(0, min(x, max_x)), max(0, min(y, max_y))
 
 
+def build_dialogue_context(
+    player_message: str,
+    recent_turns: list[dict[str, str]] | None = None,
+) -> str:
+    parts: list[str] = []
+    for turn in recent_turns or []:
+        text = (turn.get("text") or "").strip()
+        if text:
+            parts.append(text)
+    current = (player_message or "").strip()
+    if current:
+        parts.append(current)
+    return "\n".join(parts)
+
+
+def _npc_named_in_message(message: str, room: dict[str, Any]) -> dict[str, Any] | None:
+    """Single NPC unambiguously referenced by display name in the player message."""
+    text = (message or "").strip()
+    if not text:
+        return None
+    matches: list[dict[str, Any]] = []
+    for npc in room.get("npcs") or []:
+        name = (npc.get("name") or "").strip()
+        if len(name) >= 2 and name in text:
+            matches.append(npc)
+    if not matches:
+        return None
+    if len(matches) == 1:
+        return matches[0]
+    matches.sort(key=lambda n: len(str(n.get("name") or "")), reverse=True)
+    return matches[0]
+
+
+def _npc_anchor_from_message(
+    message: str,
+    room: dict[str, Any],
+    dialogue_context: str = "",
+) -> dict[str, Any] | None:
+    anchor = _npc_named_in_message(message, room)
+    if anchor is not None:
+        return anchor
+    text = (message or "").strip()
+    if not text or not re.search(r"她|他|它", text):
+        return None
+    context = (dialogue_context or "").strip()
+    if not context:
+        return None
+    return _npc_named_in_message(context, room)
+
+
+def resolve_npc_snap_anchor_cell(
+    message: str,
+    room: dict[str, Any],
+    dialogue_context: str = "",
+) -> tuple[int, int] | None:
+    """NPC cell for server snap when move intent is relative to another NPC."""
+    text = (message or "").strip()
+    if not text or not player_requests_move(text):
+        return None
+    if EXPLICIT_COORD_PATTERN.search(text):
+        return None
+    if re.search(r"我(?:的|这边|这边儿)?|到我|来我|过来", text, re.IGNORECASE):
+        return None
+    anchor_npc = _npc_anchor_from_message(text, room, dialogue_context)
+    if anchor_npc is None:
+        return None
+    try:
+        return int(anchor_npc["x"]), int(anchor_npc["y"])
+    except (TypeError, ValueError, KeyError):
+        return None
+
+
+def resolve_npc_relative_move_cell(
+    message: str,
+    room: dict[str, Any],
+    dialogue_context: str = "",
+) -> tuple[int, int] | None:
+    """Resolve move target relative to another NPC named in the message (e.g. 费雪下方)."""
+    text = (message or "").strip()
+    if not text or not player_requests_move(text):
+        return None
+    if EXPLICIT_COORD_PATTERN.search(text):
+        return None
+    # 「我/我的/到我」→ player anchor (resolve_relative_move_cell)
+    if re.search(r"我(?:的|这边|这边儿)?|到我|来我|过来", text, re.IGNORECASE):
+        return None
+
+    anchor_npc = _npc_anchor_from_message(text, room, dialogue_context)
+    if anchor_npc is None:
+        return None
+    try:
+        nx, ny = int(anchor_npc["x"]), int(anchor_npc["y"])
+    except (TypeError, ValueError, KeyError):
+        return None
+
+    if re.search(r"下方|下面|下边", text, re.IGNORECASE):
+        return _clamp_cell(nx, ny + 1, room)
+    if re.search(r"上方|上面|上边", text, re.IGNORECASE):
+        return _clamp_cell(nx, ny - 1, room)
+    if re.search(r"左侧|左边|左方", text, re.IGNORECASE):
+        return _clamp_cell(nx - 1, ny, room)
+    if re.search(r"右侧|右边|右方", text, re.IGNORECASE):
+        return _clamp_cell(nx + 1, ny, room)
+    if re.search(
+        r"旁边|附近|旁白|那边|那里|那儿|去找|去找她|去找他",
+        text,
+        re.IGNORECASE,
+    ):
+        return _clamp_cell(nx, ny, room)
+    return None
+
+
+def resolve_injected_move_cell(
+    message: str,
+    room: dict[str, Any],
+    dialogue_context: str = "",
+) -> tuple[int, int] | None:
+    """Priority: explicit (x,y) → other-NPC-relative → player-relative."""
+    return (
+        resolve_explicit_move_cell(message, room)
+        or resolve_npc_relative_move_cell(message, room, dialogue_context)
+        or resolve_relative_move_cell(message, room)
+    )
+
+
+def resolve_explicit_move_cell(message: str, room: dict[str, Any]) -> tuple[int, int] | None:
+    """Parse (x,y) from player message — full destination for move tool."""
+    text = (message or "").strip()
+    if not text:
+        return None
+    match = EXPLICIT_COORD_PATTERN.search(text)
+    if not match:
+        return None
+    try:
+        x, y = int(match.group(1)), int(match.group(2))
+    except (TypeError, ValueError):
+        return None
+    return _clamp_cell(x, y, room)
+
+
 def resolve_relative_move_cell(message: str, room: dict[str, Any]) -> tuple[int, int] | None:
     """Deterministic NL relative move when LLM omits move tool (C-01 anchor = state.player)."""
     text = (message or "").strip()
@@ -95,20 +239,67 @@ def resolve_relative_move_cell(message: str, room: dict[str, Any]) -> tuple[int,
     return None
 
 
-def inject_relative_move_tool(
+def align_move_tool_to_intended_target(
+    tool_calls: list[dict[str, Any]] | None,
+    *,
+    player_message: str,
+    room: dict[str, Any],
+    dialogue_context: str = "",
+) -> list[dict[str, Any]]:
+    """Override LLM one-step move when player named explicit coords or another NPC-relative target."""
+    target = resolve_explicit_move_cell(player_message, room) or resolve_npc_relative_move_cell(
+        player_message,
+        room,
+        dialogue_context,
+    )
+    if target is None:
+        return list(tool_calls or [])
+    tx, ty = target
+    aligned: list[dict[str, Any]] = []
+    for call in tool_calls or []:
+        if call.get("name") != "move":
+            aligned.append(call)
+            continue
+        args = {**(call.get("args") or {}), "type": "move", "x": tx, "y": ty}
+        aligned.append({**call, "args": args})
+    return aligned
+
+
+def align_move_tool_to_explicit_coords(
     tool_calls: list[dict[str, Any]] | None,
     *,
     player_message: str,
     room: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    if has_state_changing_tool(tool_calls):
-        return list(tool_calls or [])
-    target = resolve_relative_move_cell(player_message, room)
-    if target is None:
-        return list(tool_calls or [])
-    x, y = target
-    injected = {"name": "move", "args": {"type": "move", "x": x, "y": y}}
-    return [injected, *(tool_calls or [])]
+    """When player names (x,y), override LLM one-step move with full destination."""
+    return align_move_tool_to_intended_target(
+        tool_calls,
+        player_message=player_message,
+        room=room,
+    )
+
+
+def inject_relative_move_tool(
+    tool_calls: list[dict[str, Any]] | None,
+    *,
+    player_message: str,
+    room: dict[str, Any],
+    dialogue_context: str = "",
+) -> list[dict[str, Any]]:
+    base = list(tool_calls or [])
+    if not has_state_changing_tool(base):
+        target = resolve_injected_move_cell(player_message, room, dialogue_context)
+        if target is None:
+            return base
+        x, y = target
+        injected = {"name": "move", "args": {"type": "move", "x": x, "y": y}}
+        return [injected, *base]
+    return align_move_tool_to_intended_target(
+        base,
+        player_message=player_message,
+        room=room,
+        dialogue_context=dialogue_context,
+    )
 
 
 def build_tool_retry_message(room: dict[str, Any]) -> str:

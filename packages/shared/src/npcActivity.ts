@@ -1,6 +1,7 @@
 /** MVP ambient activity keys (14-UI-SPEC + unknown fallback). */
 export const NPC_ACTIVITY_KEYS = [
   "idle",
+  "wandering",
   "patrol",
   "fishing",
   "tending_crops",
@@ -10,6 +11,8 @@ export const NPC_ACTIVITY_KEYS = [
   "cooking",
   "socializing",
   "resting",
+  "at_poi",
+  "stationary",
   "unknown",
 ] as const;
 
@@ -18,6 +21,7 @@ export type NpcActivityKey = (typeof NPC_ACTIVITY_KEYS)[number];
 /** Server activityKey → proximity display copy (zh). idle = empty (UI hides row). */
 export const NPC_ACTIVITY_LABEL_ZH: Record<NpcActivityKey, string> = {
   idle: "",
+  wandering: "在闲逛",
   patrol: "在巡逻",
   fishing: "在钓鱼",
   tending_crops: "在照看作物",
@@ -27,6 +31,8 @@ export const NPC_ACTIVITY_LABEL_ZH: Record<NpcActivityKey, string> = {
   cooking: "在做饭",
   socializing: "在与人闲聊",
   resting: "在休息",
+  at_poi: "在附近转转",
+  stationary: "在待着",
   unknown: "在忙别的",
 };
 

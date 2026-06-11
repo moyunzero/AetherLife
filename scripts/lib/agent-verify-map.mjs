@@ -155,6 +155,19 @@ export const GOLDEN_FLOWS = [
     requiresStack: true,
     triggers: [/apps\/web\/src\/ChatPage\.tsx$/, /npcResetEpoch/],
   },
+  {
+    id: "GF-09",
+    name: "Phase 16 ambient + background NPC tier",
+    verify: ["verify:phase16"],
+    requiresStack: true,
+    triggers: [
+      /apps\/game-server\/src\/ambient\//,
+      /packages\/shared\/src\/backgroundNpc/,
+      /apps\/web\/src\/game\/bgNpcLabels/,
+      /scripts\/verify-phase16\.mjs$/,
+      /apps\/game-server\/data\/world\/.*spawns\.json$/,
+    ],
+  },
 ];
 
 /** High-risk paths — warn on diff unless listed in declared scope. */

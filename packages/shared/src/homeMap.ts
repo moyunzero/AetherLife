@@ -1,6 +1,14 @@
+import {
+  BEGINNING_FIELDS_ID,
+  getRegionById,
+  regionAt,
+} from "./worldRegion.js";
+
+const beginningFields = getRegionById(BEGINNING_FIELDS_ID);
+
 /** Beginning Fields Tiled map covers this many world grid cells (1 Tiled tile = 1 cell @ 48px). */
-export const HOME_MAP_TILE_W = 40;
-export const HOME_MAP_TILE_H = 40;
+export const HOME_MAP_TILE_W = beginningFields?.size.w ?? 40;
+export const HOME_MAP_TILE_H = beginningFields?.size.h ?? 40;
 
 /** Bump when `HOME_*_SPAWN` coords change — invalidates client sessionStorage grid restore. */
 export const HOME_SPAWN_CONFIG_VERSION = 1;
@@ -28,5 +36,5 @@ export function homeNpcSpawn(npcId: HomeNpcId): { x: number; y: number } {
 
 /** True when (gx, gy) lies inside the one-city homestead background bounds. */
 export function isHomeMapRegionCell(gx: number, gy: number): boolean {
-  return gx >= 0 && gx < HOME_MAP_TILE_W && gy >= 0 && gy < HOME_MAP_TILE_H;
+  return regionAt(gx, gy)?.id === BEGINNING_FIELDS_ID;
 }

@@ -8,9 +8,14 @@ import httpx
 import redis
 
 from src.config import Settings, get_settings
+from src.graph.ambient_intent import run_ambient_intent_job
 from src.graph.lore_loop import run_lore_job
 from src.graph.memory_quote import pick_memory_quote
+from src.graph.casual_fast_lane import run_casual_fast_lane
 from src.graph.npc_loop import run_npc_memory_tail, run_npc_turn_interactive
+from src.graph.nodes.llm_social_turn import preview_casual_stub
+from src.graph.speak_intent import can_use_casual_fast_lane
+from src.graph.job_context import reset_job_context, set_job_context
 from src.llm.call_budget import (
     get_recorder,
     llm_call_summary_payload,
@@ -23,8 +28,10 @@ from src.llm.errors import format_llm_error
 
 BRIDGE_LIST_KEY = "aetherlife:npc-turn:jobs"
 LORE_BRIDGE_LIST_KEY = "aetherlife:chunk-lore:jobs"
+AMBIENT_INTENT_BRIDGE_LIST_KEY = "aetherlife:npc-ambient-intent:jobs"
 BLPOP_TIMEOUT_S = 5
 LORE_BLPOP_TIMEOUT_S = 1
+AMBIENT_BLPOP_TIMEOUT_S = 1
 
 
 def create_redis_client(redis_url: str) -> redis.Redis:
@@ -85,6 +92,26 @@ def process_lore_job(client: httpx.Client, settings: Settings, payload: dict) ->
     run_lore_job(payload, settings=settings, client=client)
 
 
+def process_ambient_intent_job(client: httpx.Client, settings: Settings, payload: dict) -> None:
+    print(
+        f"ambient intent job received jobId={payload.get('jobId')} npc={payload.get('npcId')}",
+        file=sys.stderr,
+    )
+    run_ambient_intent_job(payload, settings=settings, client=client)
+
+
+def drain_one_ambient_intent_job(r: redis.Redis, client: httpx.Client, settings: Settings) -> bool:
+    raw = r.rpop(AMBIENT_INTENT_BRIDGE_LIST_KEY)
+    if not raw:
+        return False
+    payload = json.loads(raw)
+    try:
+        process_ambient_intent_job(client, settings, payload)
+    except Exception as exc:
+        print(f"ambient intent job error jobId={payload.get('jobId')}: {exc}", file=sys.stderr)
+    return True
+
+
 def drain_one_lore_job(r: redis.Redis, client: httpx.Client, settings: Settings) -> bool:
     """Process at most one pending chunk-lore job (non-blocking). Returns True if handled."""
     # game-server LPUSH → RPOP oldest first (FIFO), same as main-loop BRPOP
@@ -109,15 +136,48 @@ def process_job(client: httpx.Client, settings: Settings, payload: dict) -> None
 
     emit_job_event(client, settings, job_id, "thinking", {"status": "planning", "npcId": npc_id})
 
+    phase_timing: dict[str, int] = {}
+
+    def partial_emit(text: str) -> None:
+        emit_job_event(
+            client,
+            settings,
+            job_id,
+            "speakPartial",
+            {"text": text, "npcId": npc_id},
+        )
+
+    ctx_tokens = set_job_context(partial_emit=partial_emit, phase_timing=phase_timing)
     start_recorder()
-    result = run_npc_turn_interactive(
-        room_id=room_id,
-        player_message=player_message,
-        npc_id=npc_id,
-        player_id=player_id,
-        recent_turns=recent_turns if isinstance(recent_turns, list) else [],
-        settings=settings,
-    )
+    try:
+        recent = recent_turns if isinstance(recent_turns, list) else []
+        preview_already_emitted = bool(payload.get("casualPreviewEmitted"))
+        _intent, fast_preview = can_use_casual_fast_lane(player_message, recent)
+        if fast_preview is not None:
+            if not preview_already_emitted:
+                stub = preview_casual_stub(player_message, speak_intent=_intent.value)
+                if stub:
+                    partial_emit(stub)
+            result = run_casual_fast_lane(
+                room_id=room_id,
+                player_message=player_message,
+                npc_id=npc_id,
+                player_id=player_id,
+                recent_turns=recent,
+                preview=fast_preview,
+                settings=settings,
+            )
+        else:
+            result = run_npc_turn_interactive(
+                room_id=room_id,
+                player_message=player_message,
+                npc_id=npc_id,
+                player_id=player_id,
+                recent_turns=recent,
+                settings=settings,
+            )
+    finally:
+        reset_job_context(ctx_tokens)
     perception = result.get("social_perception")
     if isinstance(perception, dict) and result.get("social_applied"):
         print(
@@ -147,6 +207,11 @@ def process_job(client: httpx.Client, settings: Settings, payload: dict) -> None
         "toolCalls": result.get("tool_calls") or [],
         "traceRunId": trace_run_id,
     }
+    speak_intent = result.get("speak_intent")
+    if isinstance(speak_intent, str) and speak_intent.strip():
+        done_payload["speakIntent"] = speak_intent.strip()
+    if phase_timing:
+        done_payload["phaseTimingMs"] = phase_timing
     if result.get("gate_rejected"):
         done_payload["gateRejected"] = True
         gate_kind = result.get("gate_kind")
@@ -243,7 +308,7 @@ def run_worker() -> None:
             f"npc-turn bridge queue cleared on startup ({stale_npc} stale jobs)",
             file=sys.stderr,
         )
-    print("connected to Redis; waiting for npc-turn + chunk-lore jobs", file=sys.stderr)
+    print("connected to Redis; waiting for npc-turn + chunk-lore + ambient-intent jobs", file=sys.stderr)
 
     with httpx.Client() as client:
         while True:
@@ -255,6 +320,9 @@ def run_worker() -> None:
                 if not item:
                     item = r.brpop(LORE_BRIDGE_LIST_KEY, timeout=LORE_BLPOP_TIMEOUT_S)
                     queue = "lore" if item else None
+                if not item:
+                    item = r.brpop(AMBIENT_INTENT_BRIDGE_LIST_KEY, timeout=AMBIENT_BLPOP_TIMEOUT_S)
+                    queue = "ambient" if item else None
             except redis.exceptions.TimeoutError:
                 continue
             except redis.exceptions.ConnectionError as exc:
@@ -282,11 +350,18 @@ def run_worker() -> None:
                     )
                 # Fairness: one lore job per speak job when lore backlog exists (ISSUE-030)
                 drain_one_lore_job(r, client, settings)
+                drain_one_ambient_intent_job(r, client, settings)
+                continue
+            if queue == "lore":
+                try:
+                    process_lore_job(client, settings, payload)
+                except Exception as exc:
+                    print(f"lore job error jobId={payload.get('jobId')}: {exc}", file=sys.stderr)
                 continue
             try:
-                process_lore_job(client, settings, payload)
+                process_ambient_intent_job(client, settings, payload)
             except Exception as exc:
-                print(f"lore job error jobId={payload.get('jobId')}: {exc}", file=sys.stderr)
+                print(f"ambient intent job error jobId={payload.get('jobId')}: {exc}", file=sys.stderr)
 
 
 def main() -> None:

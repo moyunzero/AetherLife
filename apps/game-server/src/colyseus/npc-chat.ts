@@ -2,6 +2,7 @@ import {
   checkPlayerMessageContent,
   contentBlockedPayload,
   findNpc,
+  isBackgroundNpc,
   MAX_PLAYER_MESSAGE_LEN,
 } from "@aetherlife/shared";
 import { addNpcTurnJob } from "../queue/npc-turn.js";
@@ -25,7 +26,9 @@ export function getContentBlockedResponse(text: string): ReturnType<typeof conte
 export function validateChatNpcId(roomId: string, npcId: unknown): string | null {
   if (typeof npcId !== "string" || !npcId.trim()) return null;
   const room = getOrCreate(roomId);
-  return findNpc(room.state, npcId) ? npcId : null;
+  const npc = findNpc(room.state, npcId);
+  if (!npc || isBackgroundNpc(npc)) return null;
+  return npcId;
 }
 
 export async function startNpcChatTurn(
@@ -33,15 +36,18 @@ export async function startNpcChatTurn(
   message: string,
   npcId: string,
   playerId: string,
+  jobId?: string,
+  options?: { casualPreviewEmitted?: boolean },
 ): Promise<string> {
   getOrCreate(roomId);
   const recentTurns = getRecentTurns(roomId, playerId, npcId, 10);
-  const jobId = await addNpcTurnJob({
+  return addNpcTurnJob({
     roomId,
     playerMessage: message,
     npcId,
     playerId,
     recentTurns,
+    jobId,
+    casualPreviewEmitted: options?.casualPreviewEmitted,
   });
-  return jobId;
 }

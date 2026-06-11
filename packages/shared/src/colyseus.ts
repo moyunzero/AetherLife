@@ -24,6 +24,7 @@ export const COLYSEUS_CLIENT_MESSAGES = {
 
 export const COLYSEUS_SERVER_MESSAGES = {
   thinking: "thinking",
+  speakPartial: "speakPartial",
   done: "done",
   error: "error",
   moveAck: "moveAck",
@@ -68,6 +69,15 @@ export type ColyseusSpeakIdlePayload = {
   npcId: string;
 };
 
+/** Incremental NPC reply while social LLM streams (non-terminal). */
+export type ColyseusSpeakPartialPayload = {
+  jobId?: string;
+  npcId?: string;
+  /** Cumulative visible reply text. */
+  text: string;
+  done?: boolean;
+};
+
 /** SSE/Colyseus `done` payload after an NPC speak job completes. */
 export type ColyseusNpcJobDonePayload = {
   jobId?: string;
@@ -86,6 +96,11 @@ export type ColyseusNpcJobDonePayload = {
   };
   /** Highest-scoring retrieved memory snippet for PLAY-03 citation UI (optional). */
   memoryQuote?: string;
+  /** Rule-based speak intent bucket (casual | physical | recall | social_edge | narrative). */
+  speakIntent?: string;
+  /** Worker phase timings in milliseconds (fetch, memory, social LLM, tool LLM, apply). */
+  phaseTimingMs?: Record<string, number>;
+  toolCalls?: Array<{ name?: string; args?: Record<string, unknown> }>;
 };
 
 /** Loaded chunk tile window for client render (Phase 10). */

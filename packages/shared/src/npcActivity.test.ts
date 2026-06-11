@@ -7,9 +7,10 @@ import {
 } from "./npcActivity.js";
 
 describe("NPC_ACTIVITY_KEYS", () => {
-  it("includes all 10 MVP keys plus unknown", () => {
+  it("includes all MVP keys plus unknown", () => {
     expect(NPC_ACTIVITY_KEYS).toEqual([
       "idle",
+      "wandering",
       "patrol",
       "fishing",
       "tending_crops",
@@ -19,6 +20,8 @@ describe("NPC_ACTIVITY_KEYS", () => {
       "cooking",
       "socializing",
       "resting",
+      "at_poi",
+      "stationary",
       "unknown",
     ]);
   });
@@ -27,6 +30,11 @@ describe("NPC_ACTIVITY_KEYS", () => {
 describe("activityDisplayZh", () => {
   it('returns "在钓鱼" for fishing', () => {
     expect(activityDisplayZh("fishing")).toBe("在钓鱼");
+  });
+
+  it("returns labels for at_poi and stationary (F-05)", () => {
+    expect(activityDisplayZh("at_poi")).toBe("在附近转转");
+    expect(activityDisplayZh("stationary")).toBe("在待着");
   });
 
   it("returns empty string for idle", () => {

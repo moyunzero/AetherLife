@@ -1,0 +1,16 @@
+{
+  "regions": [
+    {
+      "id": "beginning-fields@v1",
+      "labelZh": "起始田野",
+      "anchor": { "gx": 0, "gy": 0 },
+      "size": { "w": 40, "h": 40 }
+    },
+    {
+      "id": "village-plaza@v1",
+      "labelZh": "村内广场",
+      "anchor": { "gx": 40, "gy": 0 },
+      "size": { "w": 20, "h": 40 }
+    }
+  ]
+}

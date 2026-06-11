@@ -1,40 +1,35 @@
 {
   "npcId": "npc-3",
   "persona": "host",
-  "_comment": "Host persona — waypoints near npc-3 home (Tiled gx28 gy27).",
+  "_comment": "Hybrid persona — AM stationary pond (home), midday poi plaza, evening wander plaza.",
   "segments": [
     {
       "fromMinute": 360,
       "toMinute": 540,
       "activityKey": "cooking",
-      "stationary": true,
-      "waypoints": [{ "gx": 28, "gy": 27 }]
+      "zoneId": "beginning-fields@v1:pond",
+      "mobility": "stationary"
     },
     {
       "fromMinute": 540,
       "toMinute": 900,
       "activityKey": "socializing",
-      "stationary": true,
-      "waypoints": [{ "gx": 34, "gy": 13 }]
+      "zoneId": "beginning-fields@v1:plaza",
+      "mobility": "poi"
     },
     {
       "fromMinute": 900,
       "toMinute": 1200,
       "activityKey": "patrol",
-      "stationary": false,
-      "waypoints": [
-        { "gx": 28, "gy": 27 },
-        { "gx": 31, "gy": 27 },
-        { "gx": 28, "gy": 24 }
-      ],
-      "waypointMode": "loop"
+      "zoneId": "beginning-fields@v1:plaza",
+      "mobility": "wander"
     },
     {
       "fromMinute": 1200,
       "toMinute": 360,
       "activityKey": "resting",
-      "stationary": true,
-      "waypoints": [{ "gx": 28, "gy": 27 }]
+      "zoneId": "beginning-fields@v1:pond",
+      "mobility": "stationary"
     }
   ]
 }

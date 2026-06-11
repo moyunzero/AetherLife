@@ -55,6 +55,8 @@ export function createInternalMemoriesRouter(): Router {
       return;
     }
 
+    const skipEmbed = req.query.skipEmbed === "1" || req.query.skipEmbed === "true";
+
     try {
       const service = MemoryService.getInstance();
       const context = await service.buildMemoryContext(
@@ -62,6 +64,7 @@ export function createInternalMemoriesRouter(): Router {
         playerMessage,
         npcId,
         playerId,
+        { skipEmbed },
       );
       res.json({ ok: true, ...context });
     } catch (err) {

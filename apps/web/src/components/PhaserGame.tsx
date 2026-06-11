@@ -3,13 +3,14 @@ import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "rea
 import {
   chunkOf,
   createDefaultRoom,
+  regionAt,
   type BiomeId,
   type ChunkView,
   type GameObject,
   type NpcState,
   type RoomState,
 } from "@aetherlife/shared";
-import type { PlayerSnapshot } from "../hooks/useColyseusRoom.js";
+import type { NpcAmbientSnapshot, PlayerSnapshot } from "../hooks/useColyseusRoom.js";
 import type { LocalPlayerMotionBridge } from "../game/localPlayerMotion.js";
 import type { MovementSyncController } from "../game/MovementSyncController.js";
 import { ExploreCoordsStrip } from "./ExploreCoordsStrip.js";
@@ -58,6 +59,7 @@ type Props = {
   collectiveAttitudeLine?: string | null;
   gameClock?: { minute: number; label: string } | null;
   npcActivityById?: Record<string, string>;
+  npcAmbientById?: Record<string, NpcAmbientSnapshot>;
   speakBusyNpcId?: string | null;
   onBootFailed?: () => void;
 };
@@ -98,6 +100,7 @@ type RegistrySnapshot = {
   collectiveAttitudeLine: string | null;
   gameClock: { minute: number; label: string } | null;
   npcActivityById: Record<string, string>;
+  npcAmbientById: Record<string, NpcAmbientSnapshot>;
   speakBusyNpcId: string | null;
 };
 
@@ -124,6 +127,7 @@ function pushRoomRegistry(game: Phaser.Game, snap: RegistrySnapshot): void {
   game.registry.set("collectiveAttitudeLine", snap.collectiveAttitudeLine);
   game.registry.set("gameClock", snap.gameClock);
   game.registry.set("npcActivityById", snap.npcActivityById);
+  game.registry.set("npcAmbientById", snap.npcAmbientById);
   game.registry.set("speakBusyNpcId", snap.speakBusyNpcId);
   game.registry.set("roomSync", Date.now());
 }
@@ -198,6 +202,7 @@ export async function probePhaserBoot(timeoutMs = BOOT_TIMEOUT_MS): Promise<bool
         collectiveAttitudeLine: null,
         gameClock: null,
         npcActivityById: {},
+        npcAmbientById: {},
         speakBusyNpcId: null,
       });
       game.events.once("ready", () => finish(true));
@@ -234,6 +239,7 @@ export function PhaserGame({
   collectiveAttitudeLine = null,
   gameClock = null,
   npcActivityById = {},
+  npcAmbientById = {},
   speakBusyNpcId = null,
   onBootFailed,
 }: Props) {
@@ -249,10 +255,12 @@ export function PhaserGame({
     const { cx, cy } = chunkOf(exploreGrid.gx, exploreGrid.gy);
     const loreEntry = loreForChunk?.(cx, cy);
     const labels = lorePlaceLabel(loreEntry, biome);
+    const regionLabelZh = regionAt(exploreGrid.gx, exploreGrid.gy)?.labelZh ?? "";
     return {
       gx: exploreGrid.gx,
       gy: exploreGrid.gy,
       biome,
+      regionLabelZh,
       ...labels,
     };
   }, [exploreGrid, loadedChunks, loreForChunk]);
@@ -287,6 +295,7 @@ export function PhaserGame({
     collectiveAttitudeLine,
     gameClock,
     npcActivityById,
+    npcAmbientById,
     speakBusyNpcId,
   });
   registryRef.current = {
@@ -310,6 +319,7 @@ export function PhaserGame({
     collectiveAttitudeLine,
     gameClock,
     npcActivityById,
+    npcAmbientById,
     speakBusyNpcId,
   };
 
@@ -362,6 +372,7 @@ export function PhaserGame({
       collectiveAttitudeLine,
       gameClock,
       npcActivityById,
+      npcAmbientById,
       speakBusyNpcId,
     });
 
@@ -458,6 +469,7 @@ export function PhaserGame({
       collectiveAttitudeLine,
       gameClock,
       npcActivityById,
+      npcAmbientById,
       speakBusyNpcId,
     });
     game.registry.events.emit("changedata", game.registry, "roomSync");
@@ -490,6 +502,7 @@ export function PhaserGame({
     remoteInterpMs,
     gameClock,
     npcActivityById,
+    npcAmbientById,
     speakBusyNpcId,
   ]);
 
@@ -515,6 +528,7 @@ export function PhaserGame({
           flavorLine={exploreCoords.flavor}
           lorePending={exploreCoords.pending}
           gameClockLabel={gameClock?.label}
+          regionLabelZh={exploreCoords.regionLabelZh}
         />
       ) : null}
       {connected && exploreCoords && journalStoryHook ? (

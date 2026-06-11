@@ -3,10 +3,12 @@ import { WebSocketTransport } from "@colyseus/ws-transport";
 import { COLYSEUS_ROOM_NAME } from "@aetherlife/shared";
 import type { Express } from "express";
 import { GameRoom } from "./GameRoom.js";
+import { bootWorldRegistry } from "../world/registry-boot.js";
 
 let gameServer: Server | null = null;
 
 export function attachColyseus(app: Express): { colyseus: Server } {
+  bootWorldRegistry();
   const colyseus = new Server({
     transport: new WebSocketTransport(),
     express: (colyseusApp) => {

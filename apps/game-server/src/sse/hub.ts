@@ -8,7 +8,7 @@ import { getOrCreate, setState } from "../room/store.js";
 import { applyMapAndBumpVersion } from "../colyseus/version.js";
 import type { RoomState } from "@aetherlife/shared";
 
-export type JobEventType = "thinking" | "done" | "error";
+export type JobEventType = "thinking" | "speakPartial" | "done" | "error";
 
 type BufferedEvent = { type: JobEventType; data: unknown };
 
@@ -77,6 +77,13 @@ function routeColyseusEvent(jobId: string, type: JobEventType, data: unknown): v
   if (type === "thinking") {
     if (sessionId) {
       sendToClient(room, sessionId, COLYSEUS_SERVER_MESSAGES.thinking, base);
+    }
+    return;
+  }
+
+  if (type === "speakPartial") {
+    if (sessionId) {
+      sendToClient(room, sessionId, COLYSEUS_SERVER_MESSAGES.speakPartial, base);
     }
     return;
   }

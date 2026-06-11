@@ -32,6 +32,11 @@ import { getOrCreate, reset, setState } from "../room/store.js";
 import { getChunkLoader } from "../world/chunk-loader.js";
 import { getChunkLore } from "../world/lore-repository.js";
 import { clearDialogueForPlayer } from "../npc/dialogue-session.js";
+import {
+  getCachedWorkerState,
+  setCachedWorkerState,
+  workerStateCacheKey,
+} from "../colyseus/workerStateCache.js";
 import { requireWorkerAuth } from "./internal.js";
 
 function formatZodError(error: { issues: Array<{ path: (string | number)[]; message: string }> }) {
@@ -157,6 +162,14 @@ async function applyActionsHandler(req: Request, res: Response): Promise<void> {
   const moveAnchorCell = initiatorPlayerId
     ? findPlayerCellByPlayerId(roomId, initiatorPlayerId)
     : null;
+  const rawSnapAnchor = req.body?.moveSnapAnchor;
+  const moveSnapAnchor =
+    rawSnapAnchor &&
+    typeof rawSnapAnchor === "object" &&
+    Number.isFinite(Number(rawSnapAnchor.x)) &&
+    Number.isFinite(Number(rawSnapAnchor.y))
+      ? { x: Number(rawSnapAnchor.x), y: Number(rawSnapAnchor.y) }
+      : undefined;
 
   const attitudeCtx = initiatorPlayerId
     ? await CollectiveService.getInstance().getCollectiveContext(
@@ -181,6 +194,7 @@ async function applyActionsHandler(req: Request, res: Response): Promise<void> {
     try {
       const result = applyGameAction(current.state, parsed.data, actingNpcId, {
         otherPlayerCells: playerCells,
+        moveSnapAnchor,
         moveAnchorCell: moveAnchorCell ?? undefined,
       });
       current = setState(roomId, result.room);
@@ -206,8 +220,14 @@ async function applyActionsHandler(req: Request, res: Response): Promise<void> {
   const colyseusRoom = getColyseusRoom(roomId);
   colyseusRoom?.refreshFromMap();
 
-  const loader = getChunkLoader(roomId);
-  await loader.persistDelta(0, 0, { objects: [...current.state.objects] });
+  const needsChunkPersist = actions.some((raw) => {
+    const parsed = safeParseGameAction(raw);
+    return parsed.success && parsed.data.type === "interact";
+  });
+  if (needsChunkPersist) {
+    const loader = getChunkLoader(roomId);
+    await loader.persistDelta(0, 0, { objects: [...current.state.objects] });
+  }
 
   res.json({ ok: true, state: current.state, applied });
 }
@@ -231,12 +251,16 @@ async function buildMemoryCounts(
 async function buildWorkerStatePayload(
   roomId: string,
   playerId: string,
+  options?: { skipNearbyLore?: boolean },
 ): Promise<{
   state: ReturnType<typeof roomStateForInitiator>;
   nearbyLore: Array<{ cx: number; cy: number; nameZh: string; flavorOneLine: string }>;
 }> {
   const record = getOrCreate(roomId);
   const viewState = roomStateForInitiator(record.state, roomId, playerId);
+  if (options?.skipNearbyLore) {
+    return { state: viewState, nearbyLore: [] };
+  }
   const anchor = findPlayerCellByPlayerId(roomId, playerId);
   const nearbyLore = anchor ? await buildNearbyLore(roomId, anchor.x, anchor.y) : [];
   return { state: viewState, nearbyLore };
@@ -355,8 +379,19 @@ export function createInternalRoomsRouter(): Router {
   router.get("/:roomId/worker-state", requireWorkerAuth, async (req, res) => {
     const { roomId } = req.params;
     const playerId = playerIdFromRequest(req);
+    const skipNearbyLore =
+      req.query.skipNearbyLore === "1" || req.query.skipNearbyLore === "true";
+    const cacheKey = workerStateCacheKey(roomId, playerId, skipNearbyLore);
+    const cached = getCachedWorkerState(cacheKey);
+    if (cached) {
+      res.json(cached);
+      return;
+    }
     try {
-      const payload = await buildWorkerStatePayload(roomId, playerId);
+      const payload = await buildWorkerStatePayload(roomId, playerId, {
+        skipNearbyLore,
+      });
+      setCachedWorkerState(cacheKey, payload);
       res.json(payload);
     } catch (err) {
       const message = err instanceof Error ? err.message : "worker-state failed";

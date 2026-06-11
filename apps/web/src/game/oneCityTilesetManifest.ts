@@ -3,13 +3,6 @@ import type { AssetSheetDef } from "./assetManifest.js";
 
 export const ONE_CITY_TILESET_IMAGES: AssetSheetDef[] = [
   {
-    "kind": "spritesheet",
-    "key": "Atlas_Buildings",
-    "url": "/assets/one-city/tilesets/Atlas_Buildings.png",
-    "frameWidth": 16,
-    "frameHeight": 16
-  },
-  {
     "kind": "image",
     "key": "tilesets/Buildings_0_House_Hay_1.png",
     "url": "/assets/one-city/tilesets/Buildings_0_House_Hay_1.png"

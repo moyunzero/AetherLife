@@ -87,24 +87,84 @@ export function syncColyseusFromMap(colyseus: GameRoomState, map: RoomState): vo
     const npc = map.npcs.find((n) => n.id === id);
     if (!npc) continue;
     const activityKey = npc.activityKey ?? "idle";
+    const intentReasonZh = npc.intentReasonZh ?? "";
+    const joinActive = npc.joinVicinityActive ?? false;
+    const joinUntil = npc.joinVicinityUntil ?? 0;
+    const joinStarted = npc.joinVicinityStartedAt ?? 0;
     if (slot === "npc1") {
       colyseus.npc1X = npc.x;
       colyseus.npc1Y = npc.y;
       colyseus.npc1ActivityKey = activityKey;
+      colyseus.npc1IntentReasonZh = intentReasonZh;
+      colyseus.npc1JoinVicinityActive = joinActive;
+      colyseus.npc1JoinVicinityUntil = joinUntil;
+      colyseus.npc1JoinVicinityStartedAt = joinStarted;
     } else if (slot === "npc2") {
       colyseus.npc2X = npc.x;
       colyseus.npc2Y = npc.y;
       colyseus.npc2ActivityKey = activityKey;
+      colyseus.npc2IntentReasonZh = intentReasonZh;
+      colyseus.npc2JoinVicinityActive = joinActive;
+      colyseus.npc2JoinVicinityUntil = joinUntil;
+      colyseus.npc2JoinVicinityStartedAt = joinStarted;
     } else {
       colyseus.npc3X = npc.x;
       colyseus.npc3Y = npc.y;
       colyseus.npc3ActivityKey = activityKey;
+      colyseus.npc3IntentReasonZh = intentReasonZh;
+      colyseus.npc3JoinVicinityActive = joinActive;
+      colyseus.npc3JoinVicinityUntil = joinUntil;
+      colyseus.npc3JoinVicinityStartedAt = joinStarted;
     }
   }
 
   const door = map.objects.find((o) => o.id === "door-1");
   if (door) {
     colyseus.doorOpen = door.state === "open";
+  }
+
+  const bgSlots: Array<["bgNpc1" | "bgNpc2" | "bgNpc3" | "bgNpc4", string]> = [
+    ["bgNpc1", "bg-villager-1"],
+    ["bgNpc2", "bg-villager-2"],
+    ["bgNpc3", "bg-villager-3"],
+    ["bgNpc4", "bg-villager-4"],
+  ];
+
+  for (const [slot, id] of bgSlots) {
+    const npc = map.npcs.find((n) => n.id === id);
+    const active = Boolean(npc);
+    const activityKey = npc?.activityKey ?? "wandering";
+    const x = npc?.x ?? 0;
+    const y = npc?.y ?? 0;
+    if (slot === "bgNpc1") {
+      colyseus.bgNpc1Active = active;
+      if (npc) {
+        colyseus.bgNpc1X = x;
+        colyseus.bgNpc1Y = y;
+        colyseus.bgNpc1ActivityKey = activityKey;
+      }
+    } else if (slot === "bgNpc2") {
+      colyseus.bgNpc2Active = active;
+      if (npc) {
+        colyseus.bgNpc2X = x;
+        colyseus.bgNpc2Y = y;
+        colyseus.bgNpc2ActivityKey = activityKey;
+      }
+    } else if (slot === "bgNpc3") {
+      colyseus.bgNpc3Active = active;
+      if (npc) {
+        colyseus.bgNpc3X = x;
+        colyseus.bgNpc3Y = y;
+        colyseus.bgNpc3ActivityKey = activityKey;
+      }
+    } else {
+      colyseus.bgNpc4Active = active;
+      if (npc) {
+        colyseus.bgNpc4X = x;
+        colyseus.bgNpc4Y = y;
+        colyseus.bgNpc4ActivityKey = activityKey;
+      }
+    }
   }
 }
 
