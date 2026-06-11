@@ -52,6 +52,16 @@ export function activityLabelY(spriteMode: boolean | undefined): number {
   return base + ACTIVITY_LABEL_Y_OFFSET;
 }
 
+/**
+ * Create and configure a Phaser Text object to serve as an NPC activity label.
+ *
+ * The label is positioned at (0,0), styled with the activity label font and stroke,
+ * anchored at its bottom center, set to not scroll with the camera, and starts fully transparent.
+ *
+ * @param scene - The Phaser scene to create the label in.
+ * @param npcId - The NPC identifier used to set the label's name and `testid` data.
+ * @returns The configured `Phaser.GameObjects.Text` instance for the NPC activity label.
+ */
 export function createActivityLabel(scene: Phaser.Scene, npcId: string): Phaser.GameObjects.Text {
   const label = scene.add.text(0, 0, "", {
     fontSize: ACTIVITY_LABEL_FONT_SIZE,
@@ -97,7 +107,22 @@ function tweenAlpha(
   });
 }
 
-/** Proximity activity lines (LIFE-02) — parallel to nameplates, same fade timing. */
+/**
+ * Update proximity activity labels for a set of targets and animate their fade in/out.
+ *
+ * The function evaluates whether each target's activity label should be shown based on the local player cell,
+ * per-NPC ambient state, and the IDs of NPCs that are thinking, active, or speaking; it updates label text,
+ * starts or stops alpha tweens, and returns the list of NPC IDs whose labels are visible after the update.
+ *
+ * @param scene - The Phaser scene used to create/drive tweens.
+ * @param targets - Array of activity label targets to update.
+ * @param localCell - The player's current grid cell, or `null` if unknown (labels are hidden when `null`).
+ * @param npcAmbientById - Mapping from NPC ID to its ambient UI state used to resolve activity text and visibility.
+ * @param thinkingNpcId - NPC ID currently considered "thinking", which can affect label resolution/visibility.
+ * @param activeNpcId - NPC ID currently active (e.g., engaged), which can affect label resolution/visibility.
+ * @param speakBusyNpcId - NPC ID currently speaking/busy, which can affect label resolution/visibility.
+ * @returns An array of `npcId` values for targets whose activity labels are currently shown. 
+ */
 export function updateActivityLabels(
   scene: Phaser.Scene,
   targets: ActivityTarget[],

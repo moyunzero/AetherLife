@@ -234,9 +234,10 @@ function bakeTileset(tsxFileName, firstgid) {
 }
 
 /**
- * Flatten Tiled group layers; merge group opacity into children.
- * @param {object[]} layers
- * @param {number} parentOpacity
+ * Flatten Tiled group layers into a single array, applying group opacity to child layers.
+ * @param {object[]} layers - Array of Tiled layers (may include group layers).
+ * @param {number} [parentOpacity=1] - Opacity inherited from parent groups; multiplied into child layers' opacity.
+ * @returns {object[]} Flattened layers with group nesting removed and each layer's `opacity` multiplied by its parent group opacities.
  */
 function flattenLayers(layers, parentOpacity = 1) {
   /** @type {object[]} */
@@ -259,12 +260,13 @@ function flattenLayers(layers, parentOpacity = 1) {
 const BEGINNING_FIELDS_GRASS_GID = 5211;
 
 /**
- * Bake walkability grid from Tiled tilelayer.
- * Prefers layer "Collision" (non-zero gid = blocked).
- * Fallback: terrain "Water" layer — grass gid walkable, other non-zero gids blocked.
- * @param {object[]} flatLayers
- * @param {number} mapWidth
- * @param {number} mapHeight
+ * Produce a walkability (collision) grid from flattened Tiled tile layers.
+ *
+ * @param {object[]} flatLayers - Flattened map layers; expects tile layers with names "Collision" or "Water" containing `.data`, `.width`, and `.height`.
+ * @param {number} mapWidth - Expected map width (tile count) for validation.
+ * @param {number} mapHeight - Expected map height (tile count) for validation.
+ * @returns {{width: number, height: number, cells: number[], source: string}} An object with `width` and `height` equal to the map dimensions, `cells` as a flat array of 0 (walkable) or 1 (blocked), and `source` indicating which layer produced the grid ("Collision" or "Water-gids").
+ * @throws {Error} If neither a "Collision" nor a "Water" tilelayer with `.data` is found, or if a found layer's dimensions do not match `mapWidth`/`mapHeight`.
  */
 function bakeCollisionFromLayers(flatLayers, mapWidth, mapHeight) {
   /** @type {{ name: string, type: string, width?: number, height?: number, data?: number[] } | undefined} */
@@ -298,6 +300,14 @@ function bakeCollisionFromLayers(flatLayers, mapWidth, mapHeight) {
   return { width: mapWidth, height: mapHeight, cells, source: "Water-gids" };
 }
 
+/**
+ * Bake the BeginningFields Tiled map and produce baked map, tileset manifest, collision data, and copied tileset images.
+ *
+ * Reads the source Tiled JSON and referenced TSX tilesets, embeds/copies tileset images into the web assets directory, flattens layers, computes collision data, writes the baked map JSON, writes a TypeScript tileset manifest, and writes collision JSON to both server and public directories. Logs produced file paths and the count of copied tileset images and blocked collision cells.
+ *
+ * @throws {Error} If the source map JSON cannot be found.
+ * @throws {Error} If the Fan-tasy tilesets directory cannot be found (suggests setting FANTASY_TILESET_ROOT).
+ */
 function main() {
   if (!existsSync(mapSourcePath)) {
     throw new Error(`Map JSON not found: ${mapSourcePath}`);

@@ -39,6 +39,12 @@ import {
 } from "../colyseus/workerStateCache.js";
 import { requireWorkerAuth } from "./internal.js";
 
+/**
+ * Transform a Zod-like validation error into a list of readable issue objects.
+ *
+ * @param error - An object with an `issues` array where each issue has a `path` (an array of string|number segments) and a `message`
+ * @returns An array of `{ path: string, message: string }` where `path` is the original issue path joined by `.` and `message` is the issue message
+ */
 function formatZodError(error: { issues: Array<{ path: (string | number)[]; message: string }> }) {
   return error.issues.map((issue) => ({
     path: issue.path.join("."),
@@ -132,6 +138,11 @@ async function recordActionCollectiveRules(
   }
 }
 
+/**
+ * Validate and apply an ordered list of game actions to a room, mutate the room state, enforce collective gates, audit successful mutations, and respond with the updated state and how many actions were applied.
+ *
+ * Validates request shape and acting NPC, parses each action in order, blocks actions disallowed by collective gate state (responding 403), applies actions (responding 400 on executor errors or parse failures) and records successful mutations. After applying actions it refreshes the Colyseus room, persists chunk object deltas if any successfully-parsed action is of type `"interact"`, and responds with `{ ok: true, state, applied }`. Recording of collective-rule events is performed asynchronously; failures in that background task are logged and do not affect the HTTP response.
+ */
 async function applyActionsHandler(req: Request, res: Response): Promise<void> {
   const { roomId } = req.params;
   const actions = req.body?.actions;
@@ -247,7 +258,15 @@ async function buildMemoryCounts(
   return Object.fromEntries(entries);
 }
 
-/** Worker fetch_state: spatial snapshot + lore only (no memoryCounts — avoids DB contention with memory tail). */
+/**
+ * Build a worker payload containing the room view state for a specific player and nearby chunk lore.
+ *
+ * @param roomId - The room identifier
+ * @param playerId - The player identifier used to compute the viewable state and lore anchor
+ * @param options - Optional flags controlling payload contents
+ * @param options.skipNearbyLore - If true, `nearbyLore` will be an empty array and lore lookup will be skipped
+ * @returns An object with `state` (the view of the room for the given player) and `nearbyLore` (an array of nearby chunk lore entries, each with `cx`, `cy`, `nameZh`, and `flavorOneLine`)
+ */
 async function buildWorkerStatePayload(
   roomId: string,
   playerId: string,
@@ -361,6 +380,16 @@ export function createRoomsRouter(): Router {
   return router;
 }
 
+/**
+ * Create an Express Router exposing internal worker endpoints for room operations.
+ *
+ * The router enforces optional internal token auth for POST /:roomId/apply-actions,
+ * requires worker auth for GET /:roomId/worker-state, serves a cached worker-state
+ * payload (honoring a `skipNearbyLore` query flag), and delegates action application
+ * to the shared `applyActionsHandler`.
+ *
+ * @returns An Express `Router` configured with the internal room endpoints
+ */
 export function createInternalRoomsRouter(): Router {
   const router = Router();
 

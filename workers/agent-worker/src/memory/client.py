@@ -11,6 +11,15 @@ _MEMORY_CONTEXT_INTERACTIVE_TIMEOUT_S = 8.0
 
 
 def _game_headers(settings: Settings) -> dict[str, str]:
+    """
+    Build HTTP request headers for calls to the game server.
+    
+    Parameters:
+        settings (Settings): Configuration object; if `settings.internal_worker_token` is set it will be used to add an `Authorization` header.
+    
+    Returns:
+        dict[str, str]: A headers dictionary. Includes `{"Authorization": "Bearer <token>"}` when `settings.internal_worker_token` is present, otherwise an empty dict.
+    """
     headers: dict[str, str] = {}
     if settings.internal_worker_token:
         headers["Authorization"] = f"Bearer {settings.internal_worker_token}"
@@ -55,6 +64,21 @@ def fetch_memory_context(
     attempts: int = 3,
     skip_embed: bool = False,
 ) -> dict[str, Any]:
+    """
+    Fetch the memory-context JSON for a room/player/NPC, optionally omitting embedded content.
+    
+    Parameters:
+        room_id (str): Identifier of the room whose memory context to fetch.
+        player_message (str): The player's message used to scope the returned memory context.
+        npc_id (str, optional): NPC identifier to scope the memory context. Defaults to "npc-1".
+        player_id (str, optional): Player identifier to scope the memory context. Defaults to "__legacy__".
+        timeout (float | None, optional): Request timeout in seconds; when None, a module default is used.
+        attempts (int, optional): Number of GET attempts for retryable server errors.
+        skip_embed (bool, optional): If True, request excludes embedded content (`skipEmbed=1`).
+    
+    Returns:
+        dict[str, Any]: Parsed JSON object representing the memory context.
+    """
     params: dict[str, str] = {
         "playerMessage": player_message,
         "npcId": npc_id,

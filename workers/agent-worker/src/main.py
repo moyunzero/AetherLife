@@ -35,7 +35,15 @@ AMBIENT_BLPOP_TIMEOUT_S = 1
 
 
 def create_redis_client(redis_url: str) -> redis.Redis:
-    """Upstash + blocking pop needs socket_timeout=None so block timeout is not treated as socket error."""
+    """
+    Create and validate a Redis client configured for long-running blocking operations.
+    
+    Parameters:
+        redis_url (str): Redis connection URL (e.g., from Upstash or REDIS_URL).
+    
+    Returns:
+        redis.Redis: A connected Redis client configured with response decoding enabled, no socket timeout (suitable for blocking pops), retry-on-timeout, and periodic health checks.
+    """
     client = redis.from_url(
         redis_url,
         decode_responses=True,
@@ -85,6 +93,16 @@ def validate_llm_settings(settings: Settings) -> None:
 
 
 def process_lore_job(client: httpx.Client, settings: Settings, payload: dict) -> None:
+    """
+    Handle a single chunk-lore job payload by running the lore processing pipeline.
+    
+    This function records receipt of the job to stderr and invokes the lore job runner with the provided HTTP client and settings.
+    
+    Parameters:
+        client (httpx.Client): HTTP client used by the lore pipeline for outbound requests.
+        settings (Settings): Application settings and configuration used by the pipeline.
+        payload (dict): Job payload containing at least `jobId` and chunk coordinates `cx`, `cy`; may include other job-specific fields consumed by the lore runner.
+    """
     print(
         f"lore job received jobId={payload.get('jobId')} chunk=({payload.get('cx')},{payload.get('cy')})",
         file=sys.stderr,
@@ -93,6 +111,14 @@ def process_lore_job(client: httpx.Client, settings: Settings, payload: dict) ->
 
 
 def process_ambient_intent_job(client: httpx.Client, settings: Settings, payload: dict) -> None:
+    """
+    Process a single ambient-intent job payload by invoking the ambient intent pipeline.
+    
+    Logs receipt of the job (including `jobId` and `npcId` when present) and calls the ambient intent worker to handle the provided payload.
+    
+    Parameters:
+        payload (dict): Job payload expected to include keys such as `jobId` and `npcId`; additional fields required by the ambient intent pipeline may also be present.
+    """
     print(
         f"ambient intent job received jobId={payload.get('jobId')} npc={payload.get('npcId')}",
         file=sys.stderr,
@@ -101,6 +127,14 @@ def process_ambient_intent_job(client: httpx.Client, settings: Settings, payload
 
 
 def drain_one_ambient_intent_job(r: redis.Redis, client: httpx.Client, settings: Settings) -> bool:
+    """
+    Attempt to remove and process a single ambient-intent job from the Redis queue.
+    
+    Performs a non-blocking pop from the ambient-intent bridge list; if an item is found it is parsed as JSON and passed to the ambient-intent job processor. Exceptions raised during processing are caught and logged to stderr.
+    
+    Returns:
+        true if a job was removed from the queue and handed to the processor, false otherwise.
+    """
     raw = r.rpop(AMBIENT_INTENT_BRIDGE_LIST_KEY)
     if not raw:
         return False
@@ -113,7 +147,14 @@ def drain_one_ambient_intent_job(r: redis.Redis, client: httpx.Client, settings:
 
 
 def drain_one_lore_job(r: redis.Redis, client: httpx.Client, settings: Settings) -> bool:
-    """Process at most one pending chunk-lore job (non-blocking). Returns True if handled."""
+    """
+    Attempt to process a single pending chunk-lore job from the lore queue without blocking.
+    
+    Attempts a non-blocking pop from the lore queue and, if an item is found, parses and processes it; exceptions during processing are caught and logged.
+    
+    Returns:
+        `True` if a job was popped and processing was attempted, `False` if the queue was empty.
+    """
     # game-server LPUSH → RPOP oldest first (FIFO), same as main-loop BRPOP
     raw = r.rpop(LORE_BRIDGE_LIST_KEY)
     if not raw:
@@ -127,6 +168,27 @@ def drain_one_lore_job(r: redis.Redis, client: httpx.Client, settings: Settings)
 
 
 def process_job(client: httpx.Client, settings: Settings, payload: dict) -> None:
+    """
+    Handle a single NPC "speak" job: run the appropriate LLM pipeline, emit progress and final events to the game server, and start asynchronous memory tailing.
+    
+    This function:
+    - Emits an initial "thinking" event and sends incremental "speakPartial" events via a job-scoped partial_emit callback.
+    - Establishes job context and an LLM call recorder for phase timing and summarization.
+    - Selects between a casual fast-preview pipeline and the interactive NPC-turn pipeline, runs the chosen pipeline, and resets job context afterward.
+    - Audits the produced reply, assembles a final "done" payload (including optional fields such as `speakIntent`, `phaseTimingMs`, `gateRejected`/`gateKind`, `collectiveUpdated`, `memoryQuote`, and `llmCallSummary`), and emits the "done" event.
+    - Launches a background daemon thread to run memory tailing and, if applicable, log a full LLM call summary.
+    
+    Parameters:
+        client (httpx.Client): HTTP client used to send job events to the game server.
+        settings (Settings): Runtime settings/configuration used by pipelines and event emission.
+        payload (dict): Job payload containing at least the key `jobId`. Recognized optional keys:
+            - roomId (str): Room identifier (defaults to "default").
+            - npcId (str): NPC identifier (defaults to "npc-1").
+            - playerMessage (str): The player's message that triggered the job.
+            - playerId (str): Player identifier (defaults to "__legacy__").
+            - recentTurns (list): Recent conversational turns for context.
+            - casualPreviewEmitted (bool): If true, suppresses emitting a casual preview stub.
+    """
     job_id = payload["jobId"]
     room_id = payload.get("roomId", "default")
     npc_id = payload.get("npcId", "npc-1")
@@ -139,6 +201,12 @@ def process_job(client: httpx.Client, settings: Settings, payload: dict) -> None
     phase_timing: dict[str, int] = {}
 
     def partial_emit(text: str) -> None:
+        """
+        Emit a "speakPartial" job event carrying a text fragment for the current NPC.
+        
+        Parameters:
+            text (str): Fragment of speech to emit; included in the event payload as "text" alongside the current NPC's id.
+        """
         emit_job_event(
             client,
             settings,
@@ -267,6 +335,14 @@ def run_mock() -> None:
 
 
 def run_worker() -> None:
+    """
+    Start and run the agent worker loop that pulls jobs from Redis and dispatches them.
+    
+    Initializes settings, optional LangSmith and database environment, validates LLM configuration, sets up the checkpointer, connects to Redis (clearing stale npc-turn jobs on startup), and enters an infinite loop that blocks for jobs and processes them. Queue polling order prioritizes npc-turn jobs, then chunk-lore, then ambient-intent; each queue item is parsed as JSON and dispatched to the appropriate handler. For npc-turn jobs the worker emits status events, handles errors by emitting an "error" job event, and performs fairness draining of one lore and one ambient-intent job after each npc job. Connection and configuration failures cause the process to exit or recreate connections as appropriate.
+    
+    Returns:
+        None
+    """
     settings = get_settings()
     configure_langsmith(settings)
     if settings.database_url and not os.getenv("DATABASE_URL"):
@@ -365,6 +441,11 @@ def run_worker() -> None:
 
 
 def main() -> None:
+    """
+    Entry point that starts the appropriate worker mode based on environment and settings.
+    
+    If the environment variable `LLM_MOCK` equals "1" and no Redis URL is configured, runs the mock worker and returns; otherwise starts the full worker loop.
+    """
     settings = get_settings()
     if os.getenv("LLM_MOCK") == "1" and not settings.redis_url:
         run_mock()

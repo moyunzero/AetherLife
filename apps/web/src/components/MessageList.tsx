@@ -10,17 +10,40 @@ type Props = {
   streamingReply?: string | null;
 };
 
+/**
+ * Format a chat message's text for NPC display, prefixing with the NPC's name when present and sanitizing NPC replies.
+ *
+ * @param message - The chat message; when `message.role` is `"npc"` the function uses `message.npcName` and `message.text` to build the display string
+ * @returns The formatted text: `message.text` unchanged for non-NPC roles; for NPC messages, the sanitized `message.text` prefixed with `{npcName}：` when `message.npcName` is present
+ */
 function formatNpcText(message: ChatMessage): string {
   if (message.role !== "npc") return message.text;
   const prefix = message.npcName ? `${message.npcName}：` : "";
   return `${prefix}${sanitizeNpcReplyText(message.text)}`;
 }
 
+/**
+ * Prepare a possibly truncated display value for a memory string and provide the full text when truncated.
+ *
+ * @param text - The memory text to format for display.
+ * @param maxLen - Maximum number of characters to show before truncating; defaults to 120.
+ * @returns An object with `display` (the original text or a truncated version ending with an ellipsis) and `title` (the full original text) only when truncation occurred.
+ */
 function formatMemoryDisplay(text: string, maxLen = 120): { display: string; title?: string } {
   if (text.length <= maxLen) return { display: text };
   return { display: `${text.slice(0, maxLen)}…`, title: text };
 }
 
+/**
+ * Render the chat message list including NPC replies, memory callbacks, and an optional streaming "thinking" indicator.
+ *
+ * @param messages - Array of chat messages to render in order.
+ * @param thinkingNpcId - NPC id that is currently producing a reply, or `null` when none.
+ * @param activeNpcId - Id of the currently active NPC; used to decide whether the thinking indicator is shown.
+ * @param thinkingNpcName - Display name used when rendering the thinking/streaming UI.
+ * @param streamingReply - Optional incremental reply text to display while an NPC reply is streaming; may be `null` or omitted.
+ * @returns The rendered message list element.
+ */
 export function MessageList({
   messages,
   thinkingNpcId,

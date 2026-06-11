@@ -34,6 +34,12 @@ const DEFAULT_CASUAL_REPLIES = [
   "好，我记下了。",
 ] as const;
 
+/**
+ * Selects a deterministic casual reply based on the trimmed input message.
+ *
+ * @param msg - The incoming message used to choose a reply pool and select an entry
+ * @returns A single reply chosen deterministically from greeting, brief, or default reply pools according to the message content
+ */
 export function pickCasualReply(msg: string): string {
   const key = msg.trim();
   let pool: readonly string[];
@@ -47,6 +53,15 @@ export function pickCasualReply(msg: string): string {
   return pool[stableStringHash(key) % pool.length];
 }
 
+/**
+ * Produces a deterministic, short social reply or `null` when no reply should be generated.
+ *
+ * Uses social inference on the trimmed `message` first: returns `请不要这样说话。` for inferred `"rude"`, `好的，我会尽力帮忙。` for inferred `"help"`, or `我听到了：<truncated message>` for other non-null inferences (message truncated to 120 characters). If no social inference is made, may return a canned casual reply selected deterministically from fixed reply pools when `speakIntent` indicates casual speech or the message matches meta-brief patterns, provided the message does not request a physical action; otherwise returns `null`.
+ *
+ * @param message - The raw input message to analyze and respond to (trimmed internally).
+ * @param speakIntent - The classified speaking intent; influences whether a casual reply is allowed.
+ * @returns A short reply string as described above, or `null` if no reply should be produced.
+ */
 function deterministicSocialReply(message: string, speakIntent: SpeakIntentValue): string | null {
   const msg = message.trim();
   if (!msg) return null;
@@ -71,7 +86,11 @@ function deterministicSocialReply(message: string, speakIntent: SpeakIntentValue
   return null;
 }
 
-/** Early speakPartial text for CASUAL deterministic turns. */
+/**
+ * Produce a deterministic casual reply stub when the message's classified intent is CASUAL.
+ *
+ * @returns A deterministic casual reply stub when the message's intent is CASUAL, or `null` otherwise.
+ */
 export function previewCasualSpeakStub(message: string): string | null {
   const intent = classifySpeakIntent(message);
   if (intent !== SpeakIntent.CASUAL) return null;
@@ -83,6 +102,12 @@ export type CasualFastLanePreview = {
   stub: string;
 };
 
+/**
+ * Produces a casual fast-lane preview when the message is classified as CASUAL and a deterministic stub can be generated.
+ *
+ * @param message - The input message to classify and generate a stub for
+ * @returns A preview object with `intent` and `stub`, or `null` if the message is not CASUAL or no stub is available
+ */
 export function canUseCasualFastLane(message: string): CasualFastLanePreview | null {
   const intent = classifySpeakIntent(message);
   if (intent !== SpeakIntent.CASUAL) return null;

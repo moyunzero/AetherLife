@@ -33,7 +33,17 @@ import { playerRequestsMove } from "./lib/playerMoveIntent.js";
 import { subscribeTabPresence } from "./lib/playerSession.js";
 import { playerDisplayName } from "./lib/playerDisplayName.js";
 
-/** Merge HTTP room snapshot into moveMap; Colyseus grid wins over stale HTTP npc coords. */
+/**
+ * Apply live grid coordinates to a RoomState, preferring grid positions over snapshot NPC coordinates.
+ *
+ * For each NPC in `roomState`, if `grids` contains an entry for that NPC's `id`, the NPC's `x` and `y`
+ * are replaced with the corresponding grid coordinates; otherwise the NPC is left unchanged.
+ *
+ * @param roomState - The source RoomState (typically an HTTP snapshot) whose NPC list will be merged.
+ * @param _prev - Previous RoomState (present for call-site compatibility; not used).
+ * @param grids - Mapping from NPC `id` to live `{ x, y }` grid coordinates (Colyseus-provided positions).
+ * @returns A new RoomState with NPC `x`/`y` values overwritten by grid coordinates when available.
+ */
 function mergeRoomStateIntoMoveMap(
   roomState: RoomState,
   _prev: RoomState,
@@ -49,6 +59,12 @@ function mergeRoomStateIntoMoveMap(
   return { ...roomState, npcs };
 }
 
+/**
+ * Renders the main chat page that manages Colyseus room state, NPC chat and movement,
+ * the map view (Phaser or fallback), UI panels, and the message composer.
+ *
+ * @returns The ChatPage React element
+ */
 export function ChatPage() {
   const mapRoomId = getMapRoomId();
   const [duplicateTab, setDuplicateTab] = useState(false);

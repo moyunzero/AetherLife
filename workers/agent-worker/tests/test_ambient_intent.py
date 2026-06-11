@@ -16,12 +16,41 @@ from src.config import Settings
 
 @pytest.fixture(autouse=True)
 def _clear_join_counts():
+    """
+    Pytest autouse fixture that clears join-vicinity usage counts before and after each test.
+    
+    This fixture calls clear_join_vicinity_counts_for_tests() prior to yielding control to the test and again after the test finishes to reset shared daily counters.
+    """
     clear_join_vicinity_counts_for_tests()
     yield
     clear_join_vicinity_counts_for_tests()
 
 
 def _payload(**overrides):
+    """
+    Builds a default ambient-intent job payload and applies any provided overrides.
+    
+    Parameters:
+        overrides (dict): Keys to merge into the default payload; values replace the corresponding defaults.
+    
+    Returns:
+        payload (dict): A dictionary representing the ambient-intent job, defaulting to:
+            {
+                "jobId": "ambient-test-npc-1-segment_change-480",
+                "roomId": "test-room",
+                "npcId": "npc-1",
+                "gameMinute": 480,
+                "trigger": "segment_change",
+                "segment": {
+                    "zoneId": "home-yard",
+                    "activityKey": "patrol",
+                    "mobility": "wander",
+                    "fromMinute": 480,
+                    "toMinute": 720,
+                },
+            }
+        with any provided overrides merged into it.
+    """
     base = {
         "jobId": "ambient-test-npc-1-segment_change-480",
         "roomId": "test-room",
@@ -102,6 +131,20 @@ def test_run_ambient_intent_job_posts_to_game_server():
     payload = _payload()
 
     def handler(request: httpx.Request) -> httpx.Response:
+        """
+        Validate that the incoming request is a POST for the test NPC intent endpoint with expected JSON body fields and respond with HTTP 204.
+        
+        Expects the request URL path to end with "/internal/rooms/test-room/npc-intent" and the JSON body to contain:
+        - npcId == "npc-1"
+        - trigger == "segment_change"
+        - intent.zoneId == "home-yard"
+        
+        Returns:
+            httpx.Response: Response with status code 204.
+        
+        Raises:
+            AssertionError: If any of the URL or JSON body expectations are not met.
+        """
         assert request.url.path.endswith("/internal/rooms/test-room/npc-intent")
         body = json.loads(request.content.decode())
         assert body["npcId"] == "npc-1"

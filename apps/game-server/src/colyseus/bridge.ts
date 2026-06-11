@@ -76,6 +76,14 @@ export function syncMapPlayerPosition(roomId: string, x: number, y: number): voi
   state.player.y = y;
 }
 
+/**
+ * Synchronizes Colyseus room state fields with values from a snapshot map.
+ *
+ * Copies NPC positions and status fields for three main NPC slots, background NPC activity/position for four background slots, and the door open state from `map` into the provided `colyseus` state object. When map values are missing, sensible defaults are applied (e.g., activity keys `"idle"` or `"wandering"`, coordinates `0`, booleans `false`, numeric timestamps `0`).
+ *
+ * @param colyseus - The authoritative Colyseus room state to update.
+ * @param map - The snapshot room state to read NPC, object, and background NPC data from.
+ */
 export function syncColyseusFromMap(colyseus: GameRoomState, map: RoomState): void {
   const npcSlots: Array<["npc1" | "npc2" | "npc3", string]> = [
     ["npc1", "npc-1"],

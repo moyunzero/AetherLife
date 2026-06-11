@@ -11,6 +11,15 @@ function playerIdFromInternal(req: Request): string {
   );
 }
 
+/**
+ * Create an Express Router exposing internal, worker-authenticated memory management endpoints.
+ *
+ * The router is configured with `mergeParams: true` and `requireWorkerAuth` applied to all routes.
+ * Exposed endpoints allow appending player/NPC memories, building memory context, fetching recent or oldest memories,
+ * storing reflections, creating bulk summaries, and deleting memories for a room.
+ *
+ * @returns An Express `Router` configured as described above
+ */
 export function createInternalMemoriesRouter(): Router {
   const router = Router({ mergeParams: true });
   router.use(requireWorkerAuth);

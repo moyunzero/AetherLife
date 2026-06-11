@@ -17,6 +17,11 @@ import { waitForDevStack } from "./lib/wait-for-stack.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
+/**
+ * Load environment variables from the repository root .env file into process.env.
+ *
+ * If a .env file exists at `root/.env`, this reads it line-by-line, ignores blank lines and lines beginning with `#`, and for lines containing an `=` sets `process.env[key]` to the trimmed value split at the first `=` only when that key is not already defined in `process.env`.
+ */
 function loadEnv() {
   const envPath = resolve(root, ".env");
   if (!existsSync(envPath)) return;
@@ -34,11 +39,19 @@ function loadEnv() {
 const args = process.argv.slice(2);
 const shouldStart = args.includes("--start");
 
+/**
+ * Terminate any running mock-LLM worker processes.
+ *
+ * Targets processes whose command line matches the pattern `LLM_MOCK=1.*src.main` and sends them a termination signal.
+ */
 function killMockWorker() {
   spawnSync("pkill", ["-f", "LLM_MOCK=1.*src.main"], { stdio: "ignore" });
 }
 
-/** @returns {import("node:child_process").ChildProcess | null} */
+/**
+ * Starts the development stack ("pnpm dev:stack") as a detached background process with `LLM_MOCK` unset.
+ * @returns {import("node:child_process").ChildProcess | null} The spawned detached ChildProcess (the parent is not kept alive by it), or `null` if the process could not be started.
+ */
 function startDevStackBackground() {
   console.log("[e2e:phase16] starting pnpm dev:stack in background…");
   const child = spawn("pnpm", ["dev:stack"], {
@@ -51,6 +64,14 @@ function startDevStackBackground() {
   return child;
 }
 
+/**
+ * Run the Phase 16 end-to-end verification flow for the development stack.
+ *
+ * Loads environment variables, enforces E2E policies requiring a real LLM, kills any mock LLM worker,
+ * optionally starts the dev stack in the background, waits for the game-server and web services to become reachable,
+ * invokes the Phase 16 verifier script with the discovered service URLs injected into the environment, and
+ * exits the process with the verifier's exit status (or 1 if absent).
+ */
 async function main() {
   loadEnv();
   assertE2eNoMock("e2e:phase16");

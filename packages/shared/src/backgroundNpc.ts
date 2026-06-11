@@ -20,10 +20,21 @@ export type BackgroundNpcSpawn = {
   activityKey?: string;
 };
 
+/**
+ * Determines whether an NPC identifier corresponds to a background villager.
+ *
+ * @returns `true` if `npcId` starts with `"bg-villager-"`, `false` otherwise.
+ */
 export function isBackgroundNpcId(npcId: string): boolean {
   return npcId.startsWith("bg-villager-");
 }
 
+/**
+ * Determine whether an NPC should be treated as a background NPC.
+ *
+ * @param npc - Object containing the NPC `id` and optional `isBackgroundNpc` flag used to evaluate background status
+ * @returns `true` if the NPC is marked as a background NPC or its id indicates a background villager, `false` otherwise.
+ */
 export function isBackgroundNpc(npc: Pick<NpcState, "id" | "isBackgroundNpc">): boolean {
   return npc.isBackgroundNpc === true || isBackgroundNpcId(npc.id);
 }
@@ -64,6 +75,13 @@ export const DEFAULT_BACKGROUND_NPC_SPAWNS: readonly BackgroundNpcSpawn[] = [
   },
 ] as const;
 
+/**
+ * Create NpcState objects for background NPCs using spawn definitions and a region anchor.
+ *
+ * @param spawns - Spawn definitions containing local offsets, display name, wander zone, and optional activityKey
+ * @param regionAnchor - Global coordinates ({ gx, gy }) used to convert each spawn's local `lx`/`ly` into world `x`/`y`
+ * @returns An array of `NpcState` objects positioned relative to `regionAnchor`. Each state has `status` set to `"idle"`, an empty `inventory`, `isBackgroundNpc` set to `true`, `backgroundWanderZoneId` taken from the spawn, and `activityKey` set to the spawn's `activityKey` or `"wandering"` when absent.
+ */
 export function backgroundNpcStatesFromSpawns(
   spawns: readonly BackgroundNpcSpawn[],
   regionAnchor: { gx: number; gy: number },
@@ -81,6 +99,12 @@ export function backgroundNpcStatesFromSpawns(
   }));
 }
 
+/**
+ * Get the default background NPC states for a specified world region.
+ *
+ * @param regionId - The world region identifier to generate defaults for; defaults to `"beginning-fields@v1"`. Only `"beginning-fields@v1"` has predefined defaults.
+ * @returns An array of `NpcState` objects for the region. Returns an empty array for regions without predefined background NPC spawns.
+ */
 export function defaultBackgroundNpcStates(regionId: WorldRegionId = "beginning-fields@v1"): NpcState[] {
   if (regionId !== "beginning-fields@v1") return [];
   return backgroundNpcStatesFromSpawns(DEFAULT_BACKGROUND_NPC_SPAWNS, { gx: 0, gy: 0 });

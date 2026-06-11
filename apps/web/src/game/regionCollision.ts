@@ -22,8 +22,11 @@ const gridsByRegionId = new Map<WorldRegionId, RegionCollisionGrid>([
 ]);
 
 /**
- * Walkability for a global cell inside a registered region with baked collision.
- * @returns `true`/`false` when region has collision data; `undefined` when outside or no bake.
+ * Determine whether a global grid cell at the given coordinates is walkable using a region's baked collision.
+ *
+ * @param gx - Global x (column) cell coordinate
+ * @param gy - Global y (row) cell coordinate
+ * @returns `true` if the cell is walkable (cell value `0`), `false` if blocked (cell value `1`), or `undefined` if the coordinates are outside any registered region, the region has no baked collision grid, or the cell is missing
  */
 export function regionWalkabilityAt(gx: number, gy: number): boolean | undefined {
   const region = regionAt(gx, gy);

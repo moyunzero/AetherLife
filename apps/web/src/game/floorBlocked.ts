@@ -8,6 +8,13 @@ import {
 import { clientWorldSeed } from "../lib/worldSeed.js";
 import { regionWalkabilityAt } from "./regionCollision.js";
 
+/**
+ * Create a string key for a grid coordinate.
+ *
+ * @param x - The x coordinate of the cell
+ * @param y - The y coordinate of the cell
+ * @returns The key formatted as "x,y"
+ */
 function cellKey(x: number, y: number): string {
   return `${x},${y}`;
 }
@@ -31,6 +38,17 @@ export function isStaticFloorBlocked(
   return false;
 }
 
+/**
+ * Determine whether the terrain at the given global coordinates is walkable.
+ *
+ * This consults any region-level walkability override, then checks the matching loaded chunk tile if available, and falls back to the global biome's walkability when the chunk is not present.
+ *
+ * @param chunks - Loaded chunk views to consult for tile-level walkability
+ * @param gx - Global X coordinate
+ * @param gy - Global Y coordinate
+ * @param worldSeed - World seed used to resolve biome walkability when no chunk is available
+ * @returns `true` if the terrain at `(gx, gy)` is walkable, `false` otherwise.
+ */
 export function isTerrainWalkable(
   chunks: readonly ChunkView[],
   gx: number,

@@ -56,6 +56,15 @@ async function pushBridgeJob(payload: NpcTurnJobPayload): Promise<void> {
   }
 }
 
+/**
+ * Enqueues an NPC turn job (and records it in the in-memory mock store) and returns its job id.
+ *
+ * @param input - Job details.
+ * @param input.jobId - Optional externally supplied job id; if omitted a new UUID is generated.
+ * @param input.recentTurns - Optional recent dialogue turns to include in the payload.
+ * @param input.casualPreviewEmitted - If true, marks the payload with `casualPreviewEmitted: true`.
+ * @returns The job id used to identify the enqueued job.
+ */
 export async function addNpcTurnJob(input: {
   roomId: string;
   playerMessage: string;

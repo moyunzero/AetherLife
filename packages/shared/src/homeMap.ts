@@ -34,7 +34,13 @@ export function homeNpcSpawn(npcId: HomeNpcId): { x: number; y: number } {
   return { ...HOME_NPC_SPAWNS[npcId] };
 }
 
-/** True when (gx, gy) lies inside the one-city homestead background bounds. */
+/**
+ * Determine whether a game-grid cell is within the Beginning Fields (home) region.
+ *
+ * @param gx - Game-grid x coordinate
+ * @param gy - Game-grid y coordinate
+ * @returns `true` if the cell at (`gx`, `gy`) belongs to the Beginning Fields home region, `false` otherwise.
+ */
 export function isHomeMapRegionCell(gx: number, gy: number): boolean {
   return regionAt(gx, gy)?.id === BEGINNING_FIELDS_ID;
 }

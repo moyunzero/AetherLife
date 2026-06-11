@@ -32,7 +32,21 @@ def run_casual_fast_lane(
     preview: SocialTurnOut,
     settings: Settings | None = None,
 ) -> GraphState:
-    """Sync pipeline without StateGraph: fetch → social → compose."""
+    """
+    Run a deterministic, synchronous "casual" NPC turn pipeline that fetches state, applies a provided social preview and tools, then composes the final reply.
+    
+    Parameters:
+        room_id (str): Identifier of the chat room or scene.
+        player_message (str): The incoming message from the player driving this turn.
+        npc_id (str): Identifier of the NPC taking the turn.
+        player_id (str): Identifier of the player who sent the message.
+        recent_turns (list[dict[str, str]] | None): Optional list of recent turns to seed short-term context.
+        preview (SocialTurnOut): Precomputed social perception and reply draft used to seed social processing.
+        settings (Settings | None): Optional settings override; if omitted, defaults from get_settings() are used.
+    
+    Returns:
+        GraphState: Updated graph state after applying social perception, tool effects, and reply composition.
+    """
     cfg = settings or get_settings()
     t_total = time.perf_counter()
 

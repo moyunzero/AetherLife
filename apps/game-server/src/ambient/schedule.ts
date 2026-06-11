@@ -23,20 +23,47 @@ export type NpcSchedule = {
   segments: ScheduleSegment[];
 };
 
-/** Coerce unknown activity keys to idle at load/validation time (T-14-01). */
+/**
+ * Ensure an activity key is valid for schedules, coercing unknown keys to `"idle"`.
+ *
+ * @param key - The activity key to validate
+ * @returns The original `key` if it is a known activity key, otherwise `"idle"`
+ */
 export function validateActivityKey(key: string): string {
   return isKnownActivityKey(key) ? key : "idle";
 }
 
+/**
+ * Normalize an integer minute into the range 0–1439 (minutes since midnight).
+ *
+ * @param minute - A minute value that may be negative or outside a single day
+ * @returns The equivalent minute within 0–1439
+ */
 export function normalizeMinute(minute: number): number {
   return ((minute % 1440) + 1440) % 1440;
 }
 
-/** Stable key for segment-change detection (enqueue ambient intent). */
+/**
+ * Produces a stable string key that uniquely identifies a schedule segment for change detection.
+ *
+ * @param segment - The schedule segment to key
+ * @returns A stable string combining `zoneId`, `activityKey`, `mobility`, and the `fromMinute-toMinute` range
+ */
 export function segmentKey(segment: ScheduleSegment): string {
   return `${segment.zoneId}|${segment.activityKey}|${segment.mobility}|${segment.fromMinute}-${segment.toMinute}`;
 }
 
+/**
+ * Determines whether a given minute falls inside a schedule segment.
+ *
+ * Minutes are normalized into the range 0–1439. The segment is treated as a half-open interval
+ * that includes `fromMinute` and excludes `toMinute`. Segments that wrap past midnight are supported.
+ *
+ * @param minute - The minute to test (may be outside 0–1439; will be normalized)
+ * @param fromMinute - Segment start minute (inclusive; will be normalized)
+ * @param toMinute - Segment end minute (exclusive; will be normalized)
+ * @returns `true` if the normalized `minute` lies within the segment, `false` otherwise.
+ */
 export function minuteInSegment(minute: number, fromMinute: number, toMinute: number): boolean {
   const m = normalizeMinute(minute);
   const from = normalizeMinute(fromMinute);
@@ -48,18 +75,35 @@ export function minuteInSegment(minute: number, fromMinute: number, toMinute: nu
   return m >= from || m < to;
 }
 
-/** True sleep / no movement — resting & idle only. Stationary/poi use zone linger (see ambient/README.md). */
+/**
+ * Determines whether an NPC should not move during the given schedule segment.
+ *
+ * @param segment - The schedule segment to evaluate
+ * @returns `true` if the segment's activity is `"idle"` or `"resting"`, `false` otherwise
+ */
 export function shouldSkipMovement(segment: ScheduleSegment): boolean {
   return segment.activityKey === "idle" || segment.activityKey === "resting";
 }
 
-/** stationary | poi → micro-wander within LINGER_RADIUS; wander → full zone pick. */
+/**
+ * Determines whether a mobility value represents a linger behaviour.
+ *
+ * @param mobility - The mobility classification to check
+ * @returns `true` if `mobility` is `"stationary"` or `"poi"`, `false` otherwise
+ */
 export function isLingerMobility(mobility: Mobility): boolean {
   return mobility === "stationary" || mobility === "poi";
 }
 
 const MOBILITY_SET = new Set<Mobility>(["wander", "stationary", "poi"]);
 
+/**
+ * Loads and validates an NPC schedule JSON file and returns a normalized NpcSchedule.
+ *
+ * @param filePath - Path to the schedule JSON file
+ * @returns The parsed and normalized `NpcSchedule` with validated segments
+ * @throws Error if the file is malformed or missing required fields, if the segment count exceeds `MAX_SEGMENTS`, if any segment contains legacy `waypoints`/`stationary` fields, if a segment is missing `zoneId`, or if a segment's `mobility` is invalid
+ */
 function parseScheduleFile(filePath: string): NpcSchedule {
   const raw = JSON.parse(readFileSync(filePath, "utf8")) as NpcSchedule & {
     segments: Array<Record<string, unknown>>;
@@ -107,7 +151,14 @@ function loadSchedules(): Map<string, NpcSchedule> {
 
 const SCHEDULES = loadSchedules();
 
-/** Resolve the active schedule segment for an NPC at a game minute. */
+/**
+ * Get the schedule segment active for an NPC at a given game minute.
+ *
+ * The supplied minute is normalized into the 0–1439 range before matching.
+ *
+ * @param gameMinute - Minute of the game day; any integer is accepted and will be normalized to 0–1439
+ * @returns The matching `ScheduleSegment` for the normalized minute, or `null` if no segment applies or the NPC schedule is not present
+ */
 export function resolveScheduleSegment(npcId: string, gameMinute: number): ScheduleSegment | null {
   const schedule = SCHEDULES.get(npcId);
   if (!schedule) return null;
@@ -121,17 +172,31 @@ export function resolveScheduleSegment(npcId: string, gameMinute: number): Sched
   return null;
 }
 
-/** Test hook: loaded schedule count. */
+/**
+ * Get the number of NPC schedules currently loaded.
+ *
+ * @returns The count of NPC schedules loaded into memory.
+ */
 export function loadedScheduleCount(): number {
   return SCHEDULES.size;
 }
 
-/** Test hook: full schedule for assertions. */
+/**
+ * Retrieves the full loaded schedule for an NPC for use in tests and assertions.
+ *
+ * @param npcId - The NPC identifier
+ * @returns The NPC's schedule, or `undefined` if no schedule is loaded for `npcId`
+ */
 export function getNpcSchedule(npcId: string): NpcSchedule | undefined {
   return SCHEDULES.get(npcId);
 }
 
-/** Fail fast at boot when schedule segment zoneId is absent from WorldRegistry (T-16-01). */
+/**
+ * Validate that every loaded NPC schedule segment references an existing zone in the provided WorldRegistry.
+ *
+ * @param registry - The world registry whose zones are considered authoritative
+ * @throws {Error} When any loaded schedule contains a segment with a `zoneId` not present in the registry
+ */
 export function validateNpcSchedulesAgainstRegistry(registry: WorldRegistry): void {
   const knownZoneIds = new Set<string>();
   for (const zones of registry.zonesByRegion.values()) {
