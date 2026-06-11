@@ -151,6 +151,12 @@ export function npcTintForId(npcId: string): number {
   );
 }
 
+/**
+ * Create and configure a player character sprite positioned at the sprite foot baseline.
+ *
+ * @param paletteRow - Palette row index used to select the character frame (0-based)
+ * @returns The configured Phaser.GameObjects.Sprite positioned at SPRITE_FOOT_Y with origin (0.5, 1), scaled by SPRITE_SCALE, and oriented for the down-facing frame
+ */
 export function createPlayerSprite(
   scene: Phaser.Scene,
   paletteRow: number,
@@ -163,6 +169,14 @@ export function createPlayerSprite(
   return sprite;
 }
 
+/**
+ * Creates an NPC sprite positioned at the module sprite baseline, using the NPC's variant frame and tint.
+ *
+ * @param scene - The Phaser scene to add the sprite to.
+ * @param npcId - Identifier used to deterministically select the NPC variant and default tint.
+ * @param tintOverride - Optional color tint (hex number) to apply instead of the computed tint.
+ * @returns The configured Phaser.GameObjects.Sprite for the NPC.
+ */
 export function createNpcSprite(
   scene: Phaser.Scene,
   npcId: string,

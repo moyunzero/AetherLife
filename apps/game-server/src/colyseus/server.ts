@@ -7,6 +7,16 @@ import { bootWorldRegistry } from "../world/registry-boot.js";
 
 let gameServer: Server | null = null;
 
+/**
+ * Attach and configure a Colyseus Server instance onto an existing Express app.
+ *
+ * Initializes the world registry, mounts the provided Express `app` onto Colyseus' internal express app,
+ * defines and configures the game room (filtering by `mapRoomId` and sorting by client count), and stores
+ * the created Server in the module-level `gameServer`.
+ *
+ * @param app - The Express application to register with Colyseus
+ * @returns An object containing the created Colyseus `Server` as `colyseus`
+ */
 export function attachColyseus(app: Express): { colyseus: Server } {
   bootWorldRegistry();
   const colyseus = new Server({

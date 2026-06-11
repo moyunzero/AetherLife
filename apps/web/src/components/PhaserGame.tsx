@@ -104,6 +104,15 @@ type RegistrySnapshot = {
   speakBusyNpcId: string | null;
 };
 
+/**
+ * Writes the provided room snapshot into the Phaser game's registry, mirroring room state keys used by the RoomScene.
+ *
+ * The function updates registry entries (grid size, players, entities, movement/animation flags, chunk/lore data,
+ * runtime controls like `movementSync`, and ambient/activity maps) and sets `roomSync` to the current timestamp.
+ *
+ * @param game - The Phaser game whose registry will be updated
+ * @param snap - A RegistrySnapshot containing the room state to write into the registry
+ */
 function pushRoomRegistry(game: Phaser.Game, snap: RegistrySnapshot): void {
   game.registry.set("gridW", snap.width);
   game.registry.set("gridH", snap.height);
@@ -132,6 +141,14 @@ function pushRoomRegistry(game: Phaser.Game, snap: RegistrySnapshot): void {
   game.registry.set("roomSync", Date.now());
 }
 
+/**
+ * Attempts to initialize a minimal Phaser game to verify Phaser can boot in the current environment.
+ *
+ * Resolves `false` immediately when executed server-side or when VITE_PHASER_FORCE_FALLBACK is set to "1". On completion it removes any temporary DOM elements and destroys any created Phaser instance.
+ *
+ * @param timeoutMs - Maximum time in milliseconds to wait for Phaser to emit its "ready" event.
+ * @returns `true` if Phaser signaled ready before the timeout, `false` otherwise.
+ */
 export async function probePhaserBoot(timeoutMs = BOOT_TIMEOUT_MS): Promise<boolean> {
   if (typeof window === "undefined") return false;
   if (import.meta.env.VITE_PHASER_FORCE_FALLBACK === "1") return false;
@@ -212,6 +229,20 @@ export async function probePhaserBoot(timeoutMs = BOOT_TIMEOUT_MS): Promise<bool
   });
 }
 
+/**
+ * Render the Phaser-backed room scene and keep its runtime registry synchronized with the component props.
+ *
+ * This component mounts a Phaser Game into the DOM, writes an initial room snapshot into the game's registry,
+ * listens for registry changes (explore grid) to update UI strips, and pushes incremental updates whenever
+ * relevant props change. It also handles Phaser boot lifecycle (including a boot timeout) and teardown.
+ *
+ * @param bootOk - When false, the Phaser game is not initialized.
+ * @param motionBridgeRef - Optional ref that will be set to the local player's motion bridge when the room scene becomes active.
+ * @param movementSyncRef - Optional ref supplying a movement synchronization object stored into the Phaser registry.
+ * @param discoverToast - Optional payload for the lore discovery toast shown above the viewport.
+ * @param onBootFailed - Callback invoked when Phaser fails to finish booting within the configured timeout.
+ * @returns The React element containing the room scene, UI overlays, and the mounted Phaser canvas.
+ */
 export function PhaserGame({
   bootOk,
   connected,

@@ -23,21 +23,51 @@ export const LINGER_PAUSE_PERCENT = 30;
 /** Max walkable cells sampled per zone per tick — caps DoS from huge zone rects (T-16-02). */
 export const MAX_ZONE_SAMPLE_CELLS = 256;
 
+/**
+ * Decide if an NPC should pause movement during a linger period for the given game minute using a stable, deterministic hash.
+ *
+ * @param npcId - Unique identifier for the NPC
+ * @param gameMinute - Current in-game minute used to stabilize per-minute behavior
+ * @returns `true` if the NPC should pause this minute, `false` otherwise
+ */
 function shouldPauseLinger(npcId: string, gameMinute: number): boolean {
   return stableStringHash(`linger:${npcId}:${gameMinute}`) % 100 < LINGER_PAUSE_PERCENT;
 }
 
+/**
+ * Compute the Chebyshev distance between two grid coordinates.
+ *
+ * @param ax - X coordinate of the first point
+ * @param ay - Y coordinate of the first point
+ * @param bx - X coordinate of the second point
+ * @param by - Y coordinate of the second point
+ * @returns The Chebyshev distance (the larger of the absolute x and y differences) between the two points
+ */
 function chebyshev(ax: number, ay: number, bx: number, by: number): number {
   return Math.max(Math.abs(ax - bx), Math.abs(ay - by));
 }
 
+/**
+ * Finds a zone by its zone identifier.
+ *
+ * @param zoneId - Zone identifier that includes region and local IDs (e.g., a `ZoneId`-formatted string)
+ * @returns The matching `Zone` if present in the registry, or `undefined` if no match is found
+ */
 function findZone(registry: WorldRegistry, zoneId: string): Zone | undefined {
   const { regionId, localId } = parseZoneId(zoneId as ZoneId);
   const zones = registry.zonesByRegion.get(regionId);
   return zones?.find((z) => z.localId === localId);
 }
 
-/** Hash-stable subsample when zone area exceeds MAX_ZONE_SAMPLE_CELLS. */
+/**
+ * Decides whether a zone-local cell should be included when deterministically subsampling large zone rectangles.
+ *
+ * @param zoneId - Zone identifier used to stabilize sampling across ticks
+ * @param lx - Local x coordinate within the zone
+ * @param ly - Local y coordinate within the zone
+ * @param rect - Zone rectangle with width `w` and height `h` used to compute sampling density
+ * @returns `true` if the cell should be sampled (included), `false` otherwise
+ */
 export function shouldSampleZoneCell(
   zoneId: string,
   lx: number,
@@ -50,6 +80,13 @@ export function shouldSampleZoneCell(
   return stableStringHash(`${zoneId}:${lx}:${ly}`) % stride === 0;
 }
 
+/**
+ * Append a grid cell to an NPC's recent-cell history and trim the history to at most MAX_RECENT entries.
+ *
+ * @param recent - The current recent-cell history (ordered from oldest to newest)
+ * @param cell - The grid cell to append to the history
+ * @returns The updated recent-cell history with `cell` appended; oldest entries removed if needed to keep length at or below `MAX_RECENT`
+ */
 function pushRecent(recent: GridCell[], cell: GridCell): GridCell[] {
   const next = [...recent, cell];
   if (next.length > MAX_RECENT) next.shift();
@@ -66,6 +103,12 @@ export type ZoneWanderInput = {
   gameMinute: number;
 };
 
+/**
+ * Selects a navigation target for an NPC inside the segment's zone, applying POI preference, deterministic zone sampling, linger pausing, optional social bias toward nearby players, and avoidance of recently visited cells.
+ *
+ * @param input - ZoneWanderInput describing the NPC state, schedule segment (zoneId, mobility, activityKey), movement grid, nearby player cells, recent target history, and current game minute.
+ * @returns An object containing `targetGx` and `targetGy` (the chosen global grid coordinates) and `nextRecent` (the updated recent-cells list including the chosen target)
+ */
 export function pickZoneTarget(input: ZoneWanderInput): {
   targetGx: number;
   targetGy: number;

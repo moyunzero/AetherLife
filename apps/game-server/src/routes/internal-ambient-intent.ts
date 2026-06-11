@@ -7,11 +7,28 @@ import { isTerrainWalkableInRegion } from "../world/region-walkability.js";
 
 const VALID_TRIGGERS = new Set<AmbientIntentTrigger>(["segment_change", "speak_end"]);
 
+/**
+ * Determine whether the target tile at the given region coordinates can be traversed.
+ *
+ * @param gx - The region's x-coordinate for the target tile
+ * @param gy - The region's y-coordinate for the target tile
+ * @returns `true` if the tile at (`gx`, `gy`) is walkable, `false` otherwise
+ */
 function targetIntentWalkable(gx: number, gy: number): boolean {
   const walkable = isTerrainWalkableInRegion(gx, gy);
   return walkable !== false;
 }
 
+/**
+ * Create an authenticated internal Express router for handling NPC ambient intent operations.
+ *
+ * Exposes two POST endpoints:
+ * - POST /:roomId/npc-intent/pending-clear: clears a pending NPC ambient intent job for the given room and NPC.
+ * - POST /:roomId/npc-intent: validates and sets an NPC ambient intent (validates trigger, gameMinute, intent schema,
+ *   and target walkability for target intents) and clears any related pending job on success or validation failure.
+ *
+ * @returns An Express Router configured with worker authentication and the NPC ambient intent routes.
+ */
 export function createInternalAmbientIntentRouter(): Router {
   const router = Router({ mergeParams: true });
   router.use(requireWorkerAuth);

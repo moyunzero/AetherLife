@@ -7,6 +7,18 @@ from src.graph.speak_intent import can_use_casual_fast_lane
 
 
 def _preview_for(message: str) -> SocialTurnOut:
+    """
+    Return a SocialTurnOut preview for the given player message when the casual fast lane applies.
+    
+    Parameters:
+    	message (str): Player message text to evaluate for casual fast lane eligibility.
+    
+    Returns:
+    	SocialTurnOut: The preview turn produced for the message.
+    
+    Raises:
+    	AssertionError: If no preview turn is available (casual fast lane not applicable).
+    """
     _, turn = can_use_casual_fast_lane(message)
     assert turn is not None
     return turn

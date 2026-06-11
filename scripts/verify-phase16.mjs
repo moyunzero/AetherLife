@@ -58,12 +58,30 @@ const report = {
   pass: false,
 };
 
+/**
+ * Append a test case result to the run report and fail the run on a failing case.
+ *
+ * Adds an entry to `report.cases` with the provided `id`, `title`, `ok` flag, optional `detail`, and an ISO timestamp; logs the result. If `ok` is `false`, throws an Error to stop execution.
+ *
+ * @param {string} id - Short identifier for the check (e.g., "P16-01").
+ * @param {string} title - Human-readable title describing the check.
+ * @param {boolean} ok - Pass status for the check; `true` for pass, `false` for fail.
+ * @param {string} [detail=""] - Optional additional information to record with the case.
+ * @throws {Error} When `ok` is `false`.
+ */
 function record(id, title, ok, detail = "") {
   report.cases.push({ id, title, ok, detail, at: new Date().toISOString() });
   console.log(`${ok ? "✓" : "✗"} ${id} ${title}${detail ? ` — ${detail}` : ""}`);
   if (!ok) throw new Error(`${id}: ${title}${detail ? ` (${detail})` : ""}`);
 }
 
+/**
+ * Take a full-page screenshot of the given Playwright page, save it under the phase output directory, record the screenshot path in the report, and log the relative path.
+ *
+ * @param {import('playwright').Page} page - Playwright page to capture.
+ * @param {string} filename - Filename (relative to the phase output directory) to write the screenshot to.
+ * @returns {string} The absolute path to the written screenshot file.
+ */
 async function shot(page, filename) {
   await mkdir(outDir, { recursive: true });
   const file = resolve(outDir, filename);
@@ -74,6 +92,13 @@ async function shot(page, filename) {
   return file;
 }
 
+/**
+ * Capture a screenshot of the Phaser canvas element and save it to the output directory.
+ * Also records the screenshot path in the report and logs the saved file.
+ * @param {import('playwright').Page} page - Playwright page containing the Phaser canvas.
+ * @param {string} filename - Filename to use within the output directory.
+ * @returns {string} The absolute path to the saved screenshot file.
+ */
 async function shotCanvas(page, filename) {
   await mkdir(outDir, { recursive: true });
   const file = resolve(outDir, filename);
@@ -85,6 +110,11 @@ async function shotCanvas(page, filename) {
   return file;
 }
 
+/**
+ * Checks the game-server health endpoint and throws if the service is unavailable or the response is not a recognized healthy body.
+ *
+ * @throws {Error} If the HTTP response status is not OK (error message includes the status code) or if the parsed JSON does not indicate a healthy game-server (expects `service === "game-server"` or `status === "ok"` or `ok === true`).
+ */
 async function healthOk() {
   const res = await fetch(`${httpBase}/health`);
   if (!res.ok) throw new Error(`health ${res.status}`);
@@ -94,6 +124,12 @@ async function healthOk() {
   }
 }
 
+/**
+ * Load Playwright's Chromium launcher from the pinned scripts/.pw-deps dependency.
+ *
+ * @returns {object} The Playwright `chromium` export used to launch browsers.
+ * @throws {Error} If the Playwright Chromium export cannot be found in the bundled dependency.
+ */
 async function loadPlaywright() {
   const pwEntry = resolve(root, "scripts", ".pw-deps", "node_modules", "playwright", "index.mjs");
   const pw = await import(pathToFileURL(pwEntry).href);
@@ -104,6 +140,16 @@ async function loadPlaywright() {
   return chromium;
 }
 
+/**
+ * Read and validate the on-screen game clock HUD text.
+ *
+ * Waits for the element with `data-testid="explore-game-clock"` to become visible,
+ * extracts and trims its text content, and verifies it matches the expected clock pattern.
+ *
+ * @param {import('playwright').Page} page - Playwright page containing the HUD.
+ * @returns {string} The trimmed clock text (e.g., "9:05" or "12:34").
+ * @throws {Error} If the clock element's text does not match the expected `CLOCK_RE` pattern or the element does not become visible within the timeout.
+ */
 async function readGameClockText(page) {
   const el = page.locator('[data-testid="explore-game-clock"]');
   await el.waitFor({ state: "visible", timeout: 30_000 });
@@ -114,6 +160,13 @@ async function readGameClockText(page) {
   return text;
 }
 
+/**
+ * Read the visible region HUD label from the page.
+ *
+ * Waits up to 30 seconds for the element with `data-testid="explore-region-label"` to become visible, then returns its trimmed text.
+ * @returns {string} The trimmed region label text.
+ * @throws {Error} If the label is empty or the element does not become visible within 30 seconds.
+ */
 async function readRegionLabel(page) {
   const el = page.locator('[data-testid="explore-region-label"]');
   await el.waitFor({ state: "visible", timeout: 30_000 });
@@ -124,6 +177,20 @@ async function readRegionLabel(page) {
   return text;
 }
 
+/**
+ * Reads the page's ambient debug probe and returns a normalized snapshot of ambient state.
+ *
+ * @returns {{ok: boolean, minute: number|null, label: string|undefined, activityById: Object, visibleNpcIds: string[], reasonZhById: Object, visibleIntentNpcIds: string[], reason?: string}} 
+ * An object where:
+ *  - `ok` is `true` if a valid minute is present and not `360`, `false` otherwise.
+ *  - `minute` is the current ambient minute or `null`/`undefined` if unavailable.
+ *  - `label` is the ambient label reported by the probe.
+ *  - `activityById` maps NPC ids to their activity data (empty object if absent).
+ *  - `visibleNpcIds` is an array of NPC ids currently visible (empty array if absent).
+ *  - `reasonZhById` maps NPC ids to localized reason strings (empty object if absent).
+ *  - `visibleIntentNpcIds` is an array of NPC ids with visible intents (empty array if absent).
+ *  - `reason` is provided when the probe function is missing or returns null to explain the failure.
+ */
 async function readAmbientProbe(page) {
   return page.evaluate(() => {
     const fn = window.__aetherlife_ambientDebug;
@@ -146,6 +213,11 @@ async function readAmbientProbe(page) {
   });
 }
 
+/**
+ * Read a snapshot of NPC positions from the page's NPC debug hook.
+ * @param {import('playwright').Page} page - Playwright page to evaluate the debug function in.
+ * @returns {{ok: boolean, npcs: {id: string, x: number, y: number}[], reason?: string}} Object with `ok` indicating whether a non-empty NPC array was returned and `npcs` as an array of `{id, x, y}` position entries; when the debug hook is missing `ok` is `false` and `reason` is provided.
+ */
 async function readNpcSnapshot(page) {
   return page.evaluate(() => {
     const fn = window.__aetherlife_npcDebug;
@@ -161,6 +233,11 @@ async function readNpcSnapshot(page) {
   });
 }
 
+/**
+ * Collects NPC-intent DOM nodes from the page and returns their test IDs and trimmed text content.
+ * @param {import('playwright').Page} page - Playwright page to query.
+ * @returns {{testId: string|null, text: string}[]} An array of objects where `testId` is the element's `data-testid` attribute and `text` is the element's trimmed text content.
+ */
 async function countIntentDomNodes(page) {
   return page.evaluate(() => {
     const nodes = document.querySelectorAll('[data-testid^="npc-intent-"]');
@@ -171,6 +248,15 @@ async function countIntentDomNodes(page) {
   });
 }
 
+/**
+ * Determine whether any NPC's grid position changed between two snapshots.
+ *
+ * Compares NPCs by `id` and reports whether any matching NPC has a different `x` or `y` value.
+ *
+ * @param {Array<{id: string, x: number, y: number}>} before - Snapshot of NPCs before the interval.
+ * @param {Array<{id: string, x: number, y: number}>} after - Snapshot of NPCs after the interval.
+ * @returns {boolean} `true` if at least one NPC present in both snapshots has a different `x` or `y`, `false` otherwise.
+ */
 function npcPositionsChanged(before, after) {
   if (!before?.length || !after?.length) return false;
   const afterById = new Map(after.map((n) => [n.id, n]));
@@ -182,6 +268,12 @@ function npcPositionsChanged(before, after) {
   return false;
 }
 
+/**
+ * Nudges the player with a short movement pattern to provoke proximity-based game logic and waits for movement to finish.
+ *
+ * Waits up to 15 seconds for the page's move debug to report `pending === 0` and `!locomoting`. Timeouts are swallowed (the function does not throw on wait timeout).
+ * @param {import('playwright').Page} page - Playwright page used to simulate the input and observe move debug.
+ */
 async function nudgePlayerForProximity(page) {
   await page.locator('[data-testid="explore-coords-strip"]').click();
   for (let i = 0; i < 20; i += 1) {
@@ -197,6 +289,12 @@ async function nudgePlayerForProximity(page) {
   ).catch(() => undefined);
 }
 
+/**
+ * Detects whether any activity values differ between two activity maps.
+ * @param {Record<string, unknown>} before - Mapping of activity values keyed by ID from the earlier snapshot.
+ * @param {Record<string, unknown>} after - Mapping of activity values keyed by ID from the later snapshot.
+ * @returns {boolean} `true` if any ID's activity value differs between `before` and `after`, `false` otherwise.
+ */
 function activityChanged(before, after) {
   const keys = new Set([...Object.keys(before ?? {}), ...Object.keys(after ?? {})]);
   for (const id of keys) {
@@ -205,6 +303,13 @@ function activityChanged(before, after) {
   return false;
 }
 
+/**
+ * Write the verification report to disk and log its relative path.
+ *
+ * Sets report.finishedAt to the current ISO timestamp, ensures the output
+ * directory exists, writes a pretty-printed `verify-report.json` into the
+ * output directory, and logs the report file path relative to the repository root.
+ */
 async function writeReport() {
   report.finishedAt = new Date().toISOString();
   await mkdir(outDir, { recursive: true });
@@ -213,6 +318,14 @@ async function writeReport() {
   console.log(`verify:phase16: report → ${relative(root, reportPath)}`);
 }
 
+/**
+ * Verify that background ("bg-villager-*") NPCs exist in the room and that attempting to send chat as a background NPC is rejected.
+ *
+ * Fetches the room state, ensures there are between 2 and 4 NPCs whose IDs start with "bg-villager-", and posts a chat message as "bg-villager-1" expecting an HTTP 400 response.
+ *
+ * @returns {{ bgCount: number, bgIds: Array<string> }} An object containing the count of matched background NPCs and their IDs.
+ * @throws {Error} If the room state fetch fails, if the number of background NPCs is not between 2 and 4, or if the chat POST does not return HTTP 400.
+ */
 async function assertBackgroundNpcSpeakBlocked() {
   const stateRes = await fetch(`${httpBase}/rooms/${roomId}/state`);
   if (!stateRes.ok) {
@@ -237,6 +350,12 @@ async function assertBackgroundNpcSpeakBlocked() {
   return { bgCount: bgNpcs.length, bgIds: bgNpcs.map((n) => n.id) };
 }
 
+/**
+ * Retrieve background NPCs for the current room whose IDs start with "bg-villager-".
+ *
+ * @returns {Array<object>} Array of NPC objects from the room state matching the `bg-villager-` id prefix.
+ * @throws {Error} If fetching the room state responds with a non-OK HTTP status.
+ */
 async function fetchRoomBgNpcs() {
   const stateRes = await fetch(`${httpBase}/rooms/${roomId}/state`);
   if (!stateRes.ok) {
@@ -248,6 +367,16 @@ async function fetchRoomBgNpcs() {
   );
 }
 
+/**
+ * Move the player to a target grid cell and wait until movement has settled.
+ *
+ * Sends a move command for the specified grid coordinates and waits (up to 30 seconds)
+ * for the page's movement debug to report `pending === 0` and `locomoting === false`.
+ *
+ * @param {object} page - Playwright Page instance.
+ * @param {number} x - Target grid X coordinate.
+ * @param {number} y - Target grid Y coordinate.
+ */
 async function movePlayerToGrid(page, x, y) {
   await page.evaluate(({ tx, ty }) => {
     window.__aetherlife_sendMoveTo?.(tx, ty);
@@ -261,6 +390,13 @@ async function movePlayerToGrid(page, x, y) {
   );
 }
 
+/**
+ * Polls the background-NPC debug probe until a visible bg nameplate is observed or the timeout is reached.
+ *
+ * @param {import('playwright').Page} page - Playwright page used to evaluate the bg NPC debug probe.
+ * @param {number} [timeoutMs=8000] - Maximum time to wait in milliseconds.
+ * @returns {Object} The last probe returned by `readBgNpcProbe`, typically an object with an `ok` boolean and `visibleBgNameplates` (or a `reason` when `ok` is `false`).
+ */
 async function waitForBgNameplate(page, timeoutMs = 8000) {
   const deadline = Date.now() + timeoutMs;
   let last = await readBgNpcProbe(page);
@@ -271,10 +407,25 @@ async function waitForBgNameplate(page, timeoutMs = 8000) {
   return last;
 }
 
+/**
+ * Compute the Chebyshev distance between two grid coordinates.
+ * @param {number} ax - X coordinate of the first point.
+ * @param {number} ay - Y coordinate of the first point.
+ * @param {number} bx - X coordinate of the second point.
+ * @param {number} by - Y coordinate of the second point.
+ * @returns {number} The Chebyshev distance (the larger of the absolute differences in X and Y).
+ */
 function chebyshevDistance(ax, ay, bx, by) {
   return Math.max(Math.abs(ax - bx), Math.abs(ay - by));
 }
 
+/**
+ * List nearby grid cells around a background NPC ordered by proximity.
+ *
+ * @param {number} bgX - Background NPC grid X coordinate.
+ * @param {number} bgY - Background NPC grid Y coordinate.
+ * @returns {{x: number, y: number}[]} An array of candidate grid cells (objects with `x` and `y`) within a Chebyshev distance of 2 from the background NPC, excluding the NPC's own cell and any cells with negative coordinates, sorted by increasing distance from `(bgX, bgY)`.
+ */
 function cellsNearBg(bgX, bgY) {
   const out = [];
   for (let dx = -2; dx <= 2; dx += 1) {
@@ -293,10 +444,26 @@ function cellsNearBg(bgX, bgY) {
   );
 }
 
+/**
+ * Retrieve the in-page move debug object produced by the application, or null if unavailable.
+ * @returns {Object|null} The object returned by `window.__aetherlife_moveDebug()` when present, or `null` if the function is not defined on the page.
+ */
 async function readMoveDebug(page) {
   return page.evaluate(() => window.__aetherlife_moveDebug?.() ?? null);
 }
 
+/**
+ * Move the player to nearby cells around a background NPC and attempt to observe its nameplate.
+ * @param {import('@playwright/test').Page} page - Playwright page used to move the player and read debug probes.
+ * @param {number} bgX - Background NPC grid X coordinate to approach.
+ * @param {number} bgY - Background NPC grid Y coordinate to approach.
+ * @returns {Promise<{
+ *   probe: import('./').BgNpcProbe|object,
+ *   playerCell: {x: number, y: number}|null,
+ *   dist: number|null,
+ *   targetCell: {x: number, y: number}|null
+ * }>} An object containing the latest background-NPC probe, the player's settled grid cell (or null if unavailable), the Chebyshev distance from the player to the NPC (or null), and the candidate target cell that produced a successful nameplate observation (or null if none succeeded).
+ */
 async function movePlayerNearBgNpc(page, bgX, bgY) {
   for (const cell of cellsNearBg(bgX, bgY)) {
     await movePlayerToGrid(page, cell.x, cell.y);
@@ -319,6 +486,12 @@ async function movePlayerNearBgNpc(page, bgX, bgY) {
   };
 }
 
+/**
+ * Probe the page for background-NPC nameplate visibility and related debug data.
+ *
+ * @param {import('playwright').Page} page - Playwright Page to evaluate the bg-NPC debug function on.
+ * @returns {{ok: boolean, visibleBgNameplates: Array<object>, reason?: string}} `ok` is `true` if at least one visible background nameplate meets the visibility criteria (its `testid` equals `"bg-npc-nameplate"`, its `fontSize` string includes `"11"`, and its `alpha` is greater than `0.05`); `visibleBgNameplates` is the array of plates returned by the page probe. If the in-page debug function is missing, `ok` is `false` and `reason` contains an explanatory message.
+ */
 async function readBgNpcProbe(page) {
   return page.evaluate(() => {
     const fn = window.__aetherlife_bgNpcDebug;
@@ -339,6 +512,13 @@ async function readBgNpcProbe(page) {
   });
 }
 
+/**
+ * Runs the Phase 16 end-to-end verification routine that exercises the web client and game server, records check results, captures screenshots, and writes a verification report.
+ *
+ * Performs health checks, validates background NPC speak-blocking, boots a headless Chromium page, verifies HUD elements (region label and game clock), captures ambient and NPC debug probes, checks ambient ticks and NPC movement/activity, probes intent-related data and DOM, ensures no Phaser fallback banner, seeks proximity to a background NPC to validate muted nameplate behaviour, verifies cross-region HUD label, takes screenshots at each step, and aggregates results into the persistent verify-report.json.
+ *
+ * On failure the function records the error into the report, attempts failure screenshots when possible, closes the browser, writes the report, and rethrows the error.
+ */
 async function main() {
   assertE2eNoMock("verify:phase16");
   console.log(`verify:phase16 → ${webUrl} WORLD_SEED=${process.env.WORLD_SEED}`);

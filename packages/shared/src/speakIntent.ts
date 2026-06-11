@@ -67,29 +67,57 @@ const INTERACT_PATTERNS: RegExp[] = [
 
 const INSULT_MARKERS = ["丑", "滚", "蠢", "有病", "变态", "活该", "什么玩意", "傻", "废物", "去死"];
 
+/**
+ * Determines whether a message expresses a request to move or go somewhere.
+ *
+ * @param message - The input text to analyze for movement intent
+ * @returns `true` if any movement pattern matches the trimmed message, `false` otherwise
+ */
 export function playerRequestsMove(message: string): boolean {
   const text = (message || "").trim();
   if (!text) return false;
   return MOVE_PATTERNS.some((p) => p.test(text));
 }
 
+/**
+ * Determines whether a message requests an interaction (for example, opening or interacting with doors).
+ *
+ * @param message - The input text to analyze
+ * @returns `true` if the message requests an interaction (such as opening or interacting with doors), `false` otherwise
+ */
 export function playerRequestsInteract(message: string): boolean {
   const text = (message || "").trim();
   if (!text) return false;
   return INTERACT_PATTERNS.some((p) => p.test(text));
 }
 
+/**
+ * Determines whether the message requests a physical action (movement or interaction).
+ *
+ * @returns `true` if the message requests movement or an interaction, `false` otherwise.
+ */
 export function playerRequestsPhysicalAction(message: string): boolean {
   return playerRequestsMove(message) || playerRequestsInteract(message);
 }
 
+/**
+ * Detects whether a message is phrased as a recall-style question.
+ *
+ * @param message - The text to analyze
+ * @returns `true` if the message contains any recall marker, `false` otherwise.
+ */
 export function isRecallQuestion(message: string): boolean {
   const msg = (message || "").trim();
   if (!msg) return false;
   return RECALL_MARKERS.some((marker) => msg.includes(marker));
 }
 
-/** Heuristic social edge — mirrors collective/social_turn.infer_social_from_message */
+/**
+ * Determine whether a message expresses a rude tone, a help request, or neither.
+ *
+ * @param message - The text to analyze
+ * @returns `"rude"` if the message contains insult-like tokens, `"help"` if the message contains help/request tokens (for example the Chinese characters "帮" or "请"), `null` otherwise
+ */
 export function inferSocialFromMessage(message: string): "rude" | "help" | null {
   const msg = (message || "").trim();
   if (!msg) return null;
@@ -98,13 +126,24 @@ export function inferSocialFromMessage(message: string): "rude" | "help" | null 
   return null;
 }
 
-/** Pure greeting only — excludes "你好狂啊" etc. that merely start with 你好. */
+/**
+ * Determines whether the trimmed message is a standalone casual greeting (pure greeting only; excludes messages that only start with a greeting such as "你好狂啊").
+ *
+ * @returns `true` if the trimmed message matches the casual-greeting-only pattern (a pure greeting), `false` otherwise.
+ */
 export function isCasualGreetingOnly(message: string): boolean {
   const msg = (message || "").trim();
   if (!msg) return false;
   return CASUAL_GREETING_ONLY_RE.test(msg);
 }
 
+/**
+ * Classifies a user's message into one of the speak intent categories.
+ *
+ * Empty or unrecognized messages default to `SpeakIntent.NARRATIVE`.
+ *
+ * @returns The inferred speak intent: one of `SpeakIntent.PHYSICAL`, `SpeakIntent.RECALL`, `SpeakIntent.SOCIAL_EDGE`, `SpeakIntent.CASUAL`, or `SpeakIntent.NARRATIVE`.
+ */
 export function classifySpeakIntent(message: string): SpeakIntentValue {
   const msg = (message || "").trim();
   if (!msg) return SpeakIntent.NARRATIVE;
@@ -117,6 +156,12 @@ export function classifySpeakIntent(message: string): SpeakIntentValue {
   return SpeakIntent.NARRATIVE;
 }
 
+/**
+ * Determines whether memory context should be omitted for a given speak intent.
+ *
+ * @param intent - The speak intent to evaluate
+ * @returns `true` if memory context should be skipped for `PHYSICAL` or `CASUAL`, `false` otherwise
+ */
 export function shouldSkipMemoryContext(intent: SpeakIntentValue): boolean {
   return intent === SpeakIntent.PHYSICAL || intent === SpeakIntent.CASUAL;
 }

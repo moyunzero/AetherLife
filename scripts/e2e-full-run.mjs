@@ -75,6 +75,11 @@ const STEPS = [
   { phase: "16", kind: "verify", script: "verify:phase16" },
 ];
 
+/**
+ * Writes a prefixed E2E run message to stdout and returns that message with a trailing newline.
+ * @param {string} line - Message text to log.
+ * @returns {string} The logged message prefixed with "[e2e-full-run] " and terminated with `\n`.
+ */
 function log(line) {
   const msg = `[e2e-full-run] ${line}`;
   console.log(msg);

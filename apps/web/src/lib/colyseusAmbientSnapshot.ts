@@ -57,6 +57,13 @@ type AmbientSchemaState = {
   bgNpc4Y?: number;
 };
 
+/**
+ * Creates an ambient snapshot for the specified main NPC slot.
+ *
+ * @param state - Colyseus schema state object containing NPC ambient fields
+ * @param prefix - The main NPC slot to read (`"npc1"`, `"npc2"`, or `"npc3"`)
+ * @returns An `NpcAmbientSnapshot` for that slot. Fields default as follows when missing: `activityKey` => `"idle"`, `intentReasonZh` => `""`, `joinVicinityActive` => `false`, `joinVicinityUntil` => `0`, `joinVicinityStartedAt` => `0`
+ */
 function snapshotNpcAmbient(
   state: AmbientSchemaState,
   prefix: "npc1" | "npc2" | "npc3",
@@ -70,7 +77,17 @@ function snapshotNpcAmbient(
   };
 }
 
-/** Pure snapshot from Colyseus GameRoomState fields (ambient tick + speak sync). */
+/**
+ * Produce a pure snapshot of ambient NPC state and game clock derived from a Colyseus room schema.
+ *
+ * @param state - Colyseus schema object containing ambient/game-minute and per-NPC fields
+ * @returns An object with:
+ *   - `gameClock`: current game minute and its formatted label
+ *   - `npcActivityById`: map of NPC id → activity key
+ *   - `npcAmbientById`: per-NPC ambient snapshots (activity, intent, join-vicinity fields)
+ *   - `mainNpcGridById`: positions for main NPCs keyed by NPC id when both X and Y are numeric
+ *   - `bgNpcGridById`: positions for active background villager NPCs keyed by NPC id when both X and Y are numeric
+ */
 export function snapshotAmbientStateFromSchema(state: AmbientSchemaState): {
   gameClock: GameClockState;
   npcActivityById: Record<string, string>;

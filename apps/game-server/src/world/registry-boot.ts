@@ -11,7 +11,11 @@ type RegionsFile = {
   regions: Array<{ id: string; size: { w: number; h: number } }>;
 };
 
-/** Load WorldRegion registry + collision grids from disk (game-server boot). */
+/**
+ * Initialize the world region registry by loading region definitions, zones, points of interest, and spawn data from disk and registering per-region collision grids when present.
+ *
+ * After constructing the registry, validate NPC schedules against the loaded registry.
+ */
 export function bootWorldRegistry(): void {
   const regionsFile = JSON.parse(readFileSync(join(DATA_DIR, "regions.json"), "utf8")) as RegionsFile;
   const zonesByRegionId: Record<string, unknown> = {};

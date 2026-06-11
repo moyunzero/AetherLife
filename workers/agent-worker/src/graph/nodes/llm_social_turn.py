@@ -84,6 +84,17 @@ _DEFAULT_CASUAL_REPLIES = (
 
 
 def _pick_casual_reply(msg: str) -> str:
+    """
+    Selects a deterministic casual reply appropriate for a player's message.
+    
+    Chooses a reply from a greeting, meta-brief, or default casual reply pool based on the message content and returns a reply deterministically chosen for the same input.
+    
+    Parameters:
+        msg (str): The player's message used to pick the reply pool and select the reply.
+    
+    Returns:
+        str: A reply string from the selected casual reply pool.
+    """
     key = msg.strip()
     if is_casual_greeting_only(key):
         pool = _GREETING_REPLIES
@@ -95,12 +106,29 @@ def _pick_casual_reply(msg: str) -> str:
 
 
 def preview_casual_stub(player_message: str, *, speak_intent: str = "casual") -> str | None:
-    """Early speakPartial text for CASUAL deterministic turns (before fetch/graph)."""
+    """
+    Return a deterministic casual reply draft when the player message can be handled without invoking the social LLM.
+    
+    Parameters:
+    	player_message (str): The player's raw message.
+    	speak_intent (str): Hint about speaking intent (default "casual"); influences deterministic reply selection.
+    
+    Returns:
+    	str | None: Casual reply draft if a deterministic SocialTurnOut is produced, `None` otherwise.
+    """
     turn = _deterministic_social_turn(player_message, speak_intent=speak_intent)
     return turn.reply if turn is not None else None
 
 
 def _emit_partial_reply(text: str) -> None:
+    """
+    Emit a cleaned partial reply to the configured partial-emitter if available.
+    
+    Strips surrounding whitespace from `text`; if a partial-emitter function has been registered via `get_partial_emit()` and the cleaned text is non-empty, calls the emitter with the cleaned text.
+    
+    Parameters:
+        text (str): The raw partial reply text to emit.
+    """
     emit = get_partial_emit()
     cleaned = text.strip()
     if emit is not None and cleaned:
@@ -108,7 +136,17 @@ def _emit_partial_reply(text: str) -> None:
 
 
 def _extract_reply_from_json_stream(buffer: str) -> str:
-    """Best-effort incremental reply field extraction from streaming JSON."""
+    """
+    Extract the current value of the JSON "reply" field from an incremental/streaming buffer.
+    
+    Parses the buffer looking for a `"reply"` key and returns the currently extractable string content for that field without the surrounding quotes. Handles common JSON escape sequences so partial streamed escapes are interpreted when complete; returns an empty string if the `"reply"` key has not yet appeared or no extractable content is available.
+    
+    Parameters:
+        buffer (str): The accumulated streaming text (possibly partial JSON).
+    
+    Returns:
+        str: The extracted reply text, or an empty string if the reply field is not yet present or not extractable.
+    """
     match = re.search(r'"reply"\s*:\s*"', buffer)
     if not match:
         return ""
@@ -148,7 +186,21 @@ def _deterministic_social_turn(
     *,
     speak_intent: str = "",
 ) -> SocialTurnOut | None:
-    """Rule-based social + reply — skip social LLM when heuristics are sufficient."""
+    """
+    Determine a deterministic social perception and reply from the player's message when simple heuristics suffice.
+    
+    Produces a fixed or heuristic `SocialTurnOut` for short-circuit cases (empty messages return `None`). Specific outcomes:
+    - If the message's social inference is available: returns that perception with a canned reply (rude → "请不要这样说话。", help → "好的，我会尽力帮忙。", otherwise an acknowledgement).
+    - If the speak intent indicates casual or the message requests a brief reply and the player is not asking for physical actions: returns a skip-kind social perception with a deterministic casual reply.
+    - If the message is a casual greeting only and not requesting physical action: returns a skip-kind social perception with a deterministic casual reply.
+    - Otherwise returns `None` to signal that an LLM-based social turn is required.
+    
+    Parameters:
+        speak_intent (str): optional intent hint (e.g., `"casual"`) that biases toward short/casual replies.
+    
+    Returns:
+        SocialTurnOut | None: a deterministic social turn when heuristics apply, `None` if no deterministic decision can be made.
+    """
     msg = player_message.strip()
     if not msg:
         return None
@@ -176,6 +228,17 @@ def _deterministic_social_turn(
 
 
 def _parse_social_turn_json(content: str) -> SocialTurnOut | None:
+    """
+    Parse a raw LLM output string and extract a SocialTurnOut if present.
+    
+    Attempts to interpret the provided content (which may include code fences or extra surrounding text) as JSON describing a social turn. If full JSON parsing fails, tries to recover the key fields (social.kind, social.summary, social.delta, and reply) and construct a SocialTurnOut. Returns None when a valid social turn cannot be extracted.
+    
+    Parameters:
+        content (str): Raw LLM response text, possibly wrapped in code fences or containing additional non-JSON text.
+    
+    Returns:
+        SocialTurnOut | None: A parsed SocialTurnOut when extraction succeeds, `None` otherwise.
+    """
     text = content.strip()
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
@@ -217,6 +280,12 @@ def _parse_social_turn_json(content: str) -> SocialTurnOut | None:
 
 
 def _mock_social_perception(message: str) -> SocialPerception:
+    """
+    Return a SocialPerception inferred from the message or a default skip perception.
+    
+    Returns:
+        SocialPerception: The result of `infer_social_from_message(message)` if available; otherwise a perception with `kind=SOCIAL_SKIP_KIND`, `summary=""`, and `delta=0`.
+    """
     inferred = infer_social_from_message(message)
     if inferred is not None:
         return inferred
@@ -239,6 +308,18 @@ def _stub_physical_action_turn(player_message: str) -> SocialTurnOut:
 
 
 def _mock_social_turn(state: GraphState) -> SocialTurnOut:
+    """
+    Produce a deterministic mock SocialTurnOut based on state["player_message"] for use in mock/preview mode.
+    
+    Parameters:
+        state (GraphState): Graph state containing a "player_message" key whose value is the player's text.
+    
+    Returns:
+        SocialTurnOut: A mock social perception and reply draft. The reply is:
+          - "（模拟）我听到了：{msg[:120]}" when the inferred social kind is the skip kind and the message is non-empty, or "（模拟）我听到了你的话。" if empty;
+          - "请不要这样说话。" when the inferred social kind is "rude";
+          - "（模拟）好的，{msg[:80]}" for all other kinds.
+    """
     msg = (state.get("player_message") or "").strip()
     social = _mock_social_perception(msg)
     if social.kind == SOCIAL_SKIP_KIND:
@@ -269,6 +350,22 @@ def _build_social_messages(state: GraphState) -> list[SystemMessage | HumanMessa
 
 
 def run_social_turn_llm(state: GraphState, *, settings: Settings | None = None) -> SocialTurnOut:
+    """
+    Run the social-turn LLM (or mock) to produce a SocialTurnOut for the current player message.
+    
+    Builds and sends a social prompt based on `state` (including room and memory context), streams partial reply text if supported, parses the LLM's JSON output into a SocialTurnOut, and reconciles the parsed social perception with heuristics. Falls back to a deterministic mock or a safe skip-social reply when parsing or providers fail.
+    
+    Parameters:
+        state (GraphState): Current graph state containing at least `player_message` and context used to build the prompt.
+        settings (Settings | None): Optional settings override; when omitted the global configuration is used.
+    
+    Returns:
+        SocialTurnOut: The parsed and reconciled social perception plus the NPC reply draft. On full failure returns a skip-kind SocialTurnOut with a fallback reply.
+    
+    Raises:
+        LlmCallError: If an LLM provider error (non-retryable or auth) prevents producing a valid response.
+        Exception: Authentication errors from providers are re-raised directly.
+    """
     cfg = settings or get_settings()
     if cfg.llm_mock or os.getenv("LLM_MOCK") == "1":
         return _mock_social_turn(state)
@@ -396,6 +493,19 @@ def _invoke_tool_turn(
     settings: Settings,
     reply_draft: str,
 ) -> list[dict[str, Any]]:
+    """
+    Builds and returns a list of planned tool calls for the current turn, injecting any required relative movement adjustments.
+    
+    If mock mode is enabled, returns a deterministic mock tool call plan. Otherwise, selects allowed tools, prompts an NPC-capable LLM (with the drafted reply included) to produce tool calls, and, when the player requests a physical action but the first LLM response contains no state-changing tool, retries once with an explicit retry prompt. The returned calls are post-processed with inject_relative_move_tool to convert absolute moves into relative movement instructions.
+    
+    Parameters:
+        state (GraphState): Current graph state containing keys like "player_message", "room_snapshot", "recent_turns", and "allowed_tools".
+        settings (Settings): Runtime settings / configuration used to create LLM clients and detect mock mode.
+        reply_draft (str): The drafted NPC reply to include in the prompt so the tool planner can align actions with the reply.
+    
+    Returns:
+        list[dict[str, Any]]: A list of tool call dictionaries (each with at least "name" and "args") after relative-move injection. In mock mode this is a deterministic mock plan; on failure it returns an empty plan with movement injection applied.
+    """
     t0 = time.perf_counter()
     if settings.llm_mock or os.getenv("LLM_MOCK") == "1":
         room_snapshot = state.get("room_snapshot") or {}
@@ -464,6 +574,21 @@ def _invoke_tool_turn(
 
 
 def llm_social_turn(state: GraphState, *, settings: Settings | None = None) -> GraphState:
+    """
+    Orchestrates an NPC "social" turn: determines a SocialPerception, drafts the NPC reply, and optionally produces tool call plans for physical actions, returning an updated GraphState.
+    
+    Parameters:
+        state (GraphState): Current graph state; expected keys include "player_message", "speak_intent", "room_snapshot", and "recent_turns".
+        settings (Settings | None): Optional runtime configuration; if omitted the global settings are used.
+    
+    Returns:
+        GraphState: A copy of `state` updated with:
+            - "social_perception": the perceived social info as a serializable mapping,
+            - "reply_draft": the NPC's drafted reply string,
+            - "tool_calls": list of planned tool call dicts (empty when no physical action planned),
+            - "social_applied": False,
+            - "collective_updated": False.
+    """
     cfg = settings or get_settings()
     player_message = state.get("player_message") or ""
     speak_intent = state.get("speak_intent") or ""

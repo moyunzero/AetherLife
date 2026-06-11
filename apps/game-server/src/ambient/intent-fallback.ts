@@ -25,12 +25,26 @@ const NPC_ZONE_POOLS: Record<string, Record<string, string[]>> = {
   },
 };
 
+/**
+ * Selects the phrase pool for a given NPC within a zone.
+ *
+ * @param npcId - NPC identifier (e.g., "npc-1"). If unknown, falls back to the default NPC pool.
+ * @param zoneId - Zone identifier; zone suffix (text after the last `:`) is used to pick a zone-specific pool.
+ * @returns An array of Chinese motivation/emotion strings for the requested NPC and zone. Falls back in this order when a zone-specific pool is missing: the NPC's `default`, then `orchard`, then a single-item fallback `["心里有点事"]`.
+ */
 function poolFor(npcId: string, zoneId: string): string[] {
   const byNpc = NPC_ZONE_POOLS[npcId] ?? NPC_ZONE_POOLS["npc-1"]!;
   const suffix = ZONE_SUFFIX(zoneId);
   return byNpc[suffix] ?? byNpc.default ?? byNpc.orchard ?? ["心里有点事"];
 }
 
+/**
+ * Compute a stable pseudo-random index from a string seed.
+ *
+ * @param seed - Input string used to deterministically derive the index
+ * @param size - Exclusive upper bound for the index; must be a positive integer
+ * @returns An integer in the range [0, size) deterministically derived from `seed`
+ */
 function stableIndex(seed: string, size: number): number {
   let hash = 0;
   for (let i = 0; i < seed.length; i += 1) {
@@ -40,8 +54,14 @@ function stableIndex(seed: string, size: number): number {
 }
 
 /**
- * Rule-based motivation reasonZh at segment start (before async LLM).
- * 12–18 chars; must not match activityDisplayZh for activityKey.
+ * Selects a deterministic Chinese motivation reason for an NPC at segment start.
+ *
+ * Chooses from per-NPC, zone-aware phrase pools using a stable hash of `npcId`, `zoneId`, and `activityKey`. If the chosen phrase contains the activity's Chinese label (with a leading "在" removed), the next phrase is used. The result is truncated to at most 18 characters.
+ *
+ * @param npcId - NPC identifier used to pick the phrase pool
+ * @param zoneId - Zone identifier used to select zone-specific phrases
+ * @param activityKey - Activity key whose display label is avoided in the chosen phrase
+ * @returns The selected Chinese motivation reason, truncated to at most 18 characters
  */
 export function pickIntentFallbackReasonZh(
   npcId: string,

@@ -12,10 +12,22 @@ import { pickZoneTarget } from "./zone-wander.js";
 
 export const MAIN_AMBIENT_NPC_IDS = ["npc-1", "npc-2", "npc-3"] as const;
 
+/**
+ * Checks whether the given NPC ID identifies a main ambient NPC.
+ *
+ * @param npcId - The NPC identifier to check.
+ * @returns `true` if `npcId` is one of the `MAIN_AMBIENT_NPC_IDS`, `false` otherwise.
+ */
 function isMainAmbientNpcId(npcId: string): npcId is (typeof MAIN_AMBIENT_NPC_IDS)[number] {
   return (MAIN_AMBIENT_NPC_IDS as readonly string[]).includes(npcId);
 }
 
+/**
+ * Produce a full-day wandering schedule segment for an NPC's configured background zone, or return `null` if none is set.
+ *
+ * @param npc - NPC state used to read the background wander zone and fallback activity
+ * @returns A `ScheduleSegment` covering minutes 0–1440 with `mobility: "wander"` and `activityKey` from the NPC (or `"wandering"`), or `null` if the NPC has no background wander zone configured
+ */
 function backgroundWanderSegment(npc: NpcState): ScheduleSegment | null {
   const zoneId = npc.backgroundWanderZoneId?.trim();
   if (!zoneId) return null;
@@ -28,6 +40,15 @@ function backgroundWanderSegment(npc: NpcState): ScheduleSegment | null {
   };
 }
 
+/**
+ * Advances a background NPC's ambient behavior for one tick: sets its wander activity, selects a zone target, updates recent-target memory, and moves the NPC at most one grid step toward that target.
+ *
+ * Updates the NPC's `activityKey`, clears `intentReasonZh`, writes the NPC's new `x`/`y` if movement occurs, and updates `recentNpcCells` in `ctx`.
+ *
+ * @param npc - The background NPC state to update
+ * @param ctx - Partial ambient tick context; uses `gameState`, `map`, `loader`, and `recentNpcCells` (the function will update `recentNpcCells` for `npc.id`)
+ * @param playerCells - Positions of players in the room used when selecting safe/appropriate targets
+ */
 function runBackgroundNpcTick(
   npc: NpcState,
   ctx: Pick<AmbientTickContext, "gameState" | "map" | "loader" | "recentNpcCells">,
@@ -87,10 +108,25 @@ export type AmbientTickContext = {
   recentNpcCells: Map<string, GridCell[]>;
 };
 
+/**
+ * Computes the Chebyshev distance between two grid coordinates.
+ *
+ * @param ax - X coordinate of the first point
+ * @param ay - Y coordinate of the first point
+ * @param bx - X coordinate of the second point
+ * @param by - Y coordinate of the second point
+ * @returns The Chebyshev distance (the larger of the absolute differences in x and y)
+ */
 function chebyshev(ax: number, ay: number, bx: number, by: number): number {
   return Math.max(Math.abs(ax - bx), Math.abs(ay - by));
 }
 
+/**
+ * Clears an NPC's join-vicinity state when its join window has expired or a player is within Chebyshev distance 2.
+ *
+ * @param npc - NPC state to update; this may modify `joinVicinityActive`, `joinVicinityUntil`, `joinVicinityStartedAt`, and `joinVicinityPlayerId`
+ * @param playerCells - Positions of players in the room used to determine proximity
+ */
 function clearJoinVicinityIfDone(npc: NpcState, playerCells: GridCell[]): void {
   if (!npc.joinVicinityActive) return;
   const now = Date.now();
@@ -104,6 +140,17 @@ function clearJoinVicinityIfDone(npc: NpcState, playerCells: GridCell[]): void {
   }
 }
 
+/**
+ * Selects a walkable grid cell near a player for an NPC that is actively trying to "join" players.
+ *
+ * If the NPC's join-vicinity is not active or has expired, returns `null`. Prefers a cell adjacent to the player identified by `npc.joinVicinityPlayerId` when available; otherwise uses the closest player from `playerCells`. From the chosen player cell, returns the nearest non-center adjacent walkable cell; if none exist, returns the nearest walkable cell to the player.
+ *
+ * @param npc - NPC state (used for position and join-vicinity metadata)
+ * @param roomId - Room identifier (used to resolve a player by ID)
+ * @param playerCells - Current player positions in the room
+ * @param grid - Movement grid used to test walkability
+ * @returns The selected `GridCell` to move toward, or `null` if no valid join-vicinity target exists
+ */
 export function pickJoinVicinityTarget(
   npc: NpcState,
   roomId: string,
@@ -154,6 +201,13 @@ export function pickJoinVicinityTarget(
   return candidates[0] ?? null;
 }
 
+/**
+ * Update an NPC's `intentReasonZh` from the cached intent when a valid, non-expired intent exists.
+ *
+ * @param npc - NPC state object to update
+ * @param roomId - Room identifier used to fetch the cached intent
+ * @param gameMinute - Current game minute used to validate intent expiry
+ */
 function syncIntentReasonFromCache(npc: NpcState, roomId: string, gameMinute: number): void {
   const cached = getIntent(roomId, npc.id);
   if (cached && !isIntentExpired(cached.intent, gameMinute, cached.gameMinute)) {
@@ -161,6 +215,22 @@ function syncIntentReasonFromCache(npc: NpcState, roomId: string, gameMinute: nu
   }
 }
 
+/**
+ * Selects the grid cell this NPC should move toward for the current tick, honoring join-vicinity behavior, cached intents, and the NPC's schedule zone.
+ *
+ * Updates the NPC's `intentReasonZh` when a valid cached intent is applied.
+ *
+ * @param npc - The NPC state being resolved (may be mutated to reflect intent reason).
+ * @param segment - The resolved schedule segment used for zone-based targeting.
+ * @param roomId - Room identifier used to look up cached intents.
+ * @param gameMinute - Current game minute used to evaluate intent expiration.
+ * @param grid - Movement grid describing walkability and obstacles for target selection.
+ * @param playerCells - Positions of players in the room used for join-vicinity and target selection.
+ * @param recent - Recent target cells for this NPC used to bias selection to avoid repeats; may be returned unchanged or replaced.
+ * @returns An object with:
+ *  - `targetGx`/`targetGy`: coordinates of the chosen target cell to move toward.
+ *  - `nextRecent`: the updated recent-cells list to store for this NPC.
+ */
 function resolveMovementTarget(
   npc: NpcState,
   segment: ScheduleSegment,
@@ -223,8 +293,10 @@ function resolveMovementTarget(
 }
 
 /**
- * Authoritative ambient simulation tick: game clock, schedule activity, ≤1 grid step per NPC.
- * No LLM or HTTP calls (LIFE-03).
+ * Advance the authoritative ambient simulation by one minute, update each main/background NPC's activity and at most one grid step, and persist map/version changes.
+ *
+ * @param ctx - Ambient tick context containing room, game state, map, loader, active NPC speak jobs, and per-NPC recent target memory
+ * @returns An object with `stateVersion` (new game/map state version) and `delta` describing the applied map changes
  */
 export function runAmbientTick(ctx: AmbientTickContext): {
   stateVersion: number;

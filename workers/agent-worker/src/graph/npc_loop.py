@@ -71,6 +71,15 @@ def _mock_tool_calls() -> list[dict[str, Any]]:
 
 
 def _game_headers(settings: Settings) -> dict[str, str]:
+    """
+    Build HTTP headers for requests to the game server, including an internal-worker Authorization header when configured.
+    
+    Parameters:
+        settings (Settings): Configuration object; if `settings.internal_worker_token` is set, it will be used to populate the `Authorization` header.
+    
+    Returns:
+        dict[str, str]: A mapping of header names to values. Contains `Authorization: Bearer <token>` when an internal worker token is present; otherwise an empty dict.
+    """
     headers: dict[str, str] = {}
     if settings.internal_worker_token:
         headers["Authorization"] = f"Bearer {settings.internal_worker_token}"
@@ -82,6 +91,22 @@ _FETCH_STATE_ATTEMPTS = 2
 
 
 def _neutral_memory_fields() -> dict[str, Any]:
+    """
+    Provide a default set of memory-related fields for a neutral attitude band, used when memory context is skipped.
+    
+    Returns:
+        dict: A dictionary with the following keys:
+            - memory_summary (str): Empty summary text.
+            - memory_count (int): Zero memories recorded.
+            - retrieved_memories (list): Empty list of retrieved memory entries.
+            - latest_bulk (None | Any): Placeholder for the latest bulk-summary object, None when absent.
+            - latest_reflection (None | Any): Placeholder for the latest reflection object, None when absent.
+            - gate_rejected (bool): False when no gate rejection is in effect.
+            - attitude_band (str): The attitude band name, set to "neutral".
+            - effective_score (None | float): Effective attitude score, None when not set.
+            - allowed_tools (list[str]): List of tool names allowed for the neutral band.
+            - collective_summaries (list): Empty list for collective summary entries.
+    """
     band = "neutral"
     return {
         "memory_summary": "",
@@ -104,6 +129,24 @@ def fetch_state(
     client: httpx.Client,
     skip_nearby_lore: bool = False,
 ) -> GraphState:
+    """
+    Fetch the room worker snapshot from the game server and return the state augmented with that snapshot.
+    
+    Builds a request to the server's /internal/rooms/{room_id}/worker-state endpoint (optionally adding ?skipNearbyLore=1 when skip_nearby_lore is True), includes an X-Player-Id header when the state contains a non-legacy player id, and retries on timeouts. On success returns the input state with "room_snapshot" set to the returned room state; if the response contains "nearbyLore" that value is merged into the snapshot.
+    
+    Parameters:
+        state: The current GraphState containing at least "room_id" (and optionally "player_id").
+        settings: Settings providing configuration such as game_server_url.
+        client: HTTP client used to perform the request (omitted from expanded docs as a common utility).
+        skip_nearby_lore (bool): If True, instruct the server to skip including nearby lore.
+    
+    Returns:
+        GraphState: The original state updated with a "room_snapshot" key holding the fetched room state (with "nearbyLore" merged when present).
+    
+    Raises:
+        httpx.TimeoutException: If all retries time out, the last timeout exception is re-raised.
+        RuntimeError: If the retry loop exits without receiving a response and no exception was captured.
+    """
     room_id = state["room_id"]
     headers = _game_headers(settings)
     player_id = _player_id(state)
@@ -152,6 +195,28 @@ def load_memory_context(
     memory_attempts: int = 3,
     skip_embed: bool = False,
 ) -> GraphState:
+    """
+    Load and attach memory context for the current room/player/npc into the GraphState.
+    
+    On success, returns a new state with memory-related fields populated; if fetching memory times out, logs the timeout to stderr and returns the state with empty/default memory fields.
+    
+    Parameters:
+        state (GraphState): Current graph state containing at least `room_id` and optional `npc_id` and `player_message`.
+        settings (Settings): Configuration used for memory fetching.
+        client (httpx.Client): HTTP client used to call the memory service.
+        memory_timeout (float | None): Per-request timeout (seconds) passed to the memory fetch; `None` uses the service default.
+        memory_attempts (int): Number of attempts to try when fetching memory context.
+        skip_embed (bool): If True, instructs the memory service to skip computing or returning embeddings.
+    
+    Returns:
+        GraphState: A copy of `state` extended with:
+          - `memory_summary`: formatted summary of latest bulk/reflection and retrieved memories,
+          - `memory_count` (int): total stored memories for the player/npc,
+          - `retrieved_memories` (list): retrieved memory items (may be empty),
+          - `latest_bulk` and `latest_reflection`: raw latest summaries if present,
+          - `gate_rejected`: set to False,
+          - plus collective-related fields returned by `parse_collective_from_context`.
+    """
     npc_id = state.get("npc_id") or "npc-1"
     try:
         ctx = fetch_memory_context(
@@ -209,7 +274,14 @@ def fetch_state_and_memory(
     settings: Settings,
     client: httpx.Client,
 ) -> GraphState:
-    """Parallel worker-state + memory-context to cut speak pre-LLM latency."""
+    """
+    Fetch room worker-state and player/NPC memory context (in parallel when applicable), set speak intent, record per-phase timings, and return a merged GraphState.
+    
+    If the determined speak intent indicates memory should be skipped, only the room worker-state is fetched (nearby lore skipped) and neutral memory fields are merged. Otherwise, room state and memory context are fetched concurrently; memory-derived keys from _MEMORY_MERGE_KEYS are copied into the returned state. The function records "t_fetch_state_ms" and "t_memory_ms" timings and always adds/updates the "speak_intent" field in the returned state.
+    
+    Returns:
+        GraphState: The input state extended with fetched room snapshot, memory-related fields (when loaded or neutral defaults), timing metrics, and "speak_intent".
+    """
     del client  # each thread uses its own httpx.Client (not thread-safe)
     player_message = state.get("player_message") or ""
     recent_turns = state.get("recent_turns")
@@ -233,6 +305,12 @@ def fetch_state_and_memory(
         return merged
 
     def _fetch() -> GraphState:
+        """
+        Fetches the room worker state using a temporary HTTP client and records the fetch duration.
+        
+        Returns:
+            GraphState: The fetched graph state from the game server. Also records the elapsed fetch time (milliseconds) under the phase key "t_fetch_state_ms".
+        """
         t0 = time.perf_counter()
         with httpx.Client() as thread_client:
             out = fetch_state(state, settings=settings, client=thread_client)
@@ -240,6 +318,12 @@ def fetch_state_and_memory(
         return out
 
     def _memory() -> GraphState:
+        """
+        Load memory context for the current turn using the interactive memory timeout and a single attempt, and record the memory-phase duration.
+        
+        Returns:
+            GraphState: Updated state with loaded memory context; the elapsed time (milliseconds) for this memory fetch is recorded under the phase key "t_memory_ms".
+        """
         t0 = time.perf_counter()
         with httpx.Client() as thread_client:
             out = load_memory_context(
@@ -406,6 +490,17 @@ def llm_turn(state: GraphState, *, settings: Settings) -> GraphState:
 
 
 def apply_tools(state: GraphState, *, settings: Settings, client: httpx.Client) -> GraphState:
+    """
+    Apply planned tool calls as in-game actions and update the state with the result.
+    
+    Converts allowed `tool_calls` into game `actions`, posts them to the game server, and returns an updated state containing the filtered `tool_calls`, `gate_rejected` flag, timing for the apply phase, and—when actions were sent—the updated `room_snapshot` and `pending_actions`. If a movement snap anchor can be derived from the player message and recent turns, it is added to the request body as `moveSnapAnchor`.
+    
+    Returns:
+        GraphState: The updated graph state. Always contains the filtered `tool_calls` and `gate_rejected`. If actions were applied, includes `room_snapshot` (from the server response) and `pending_actions`.
+    
+    Raises:
+        RuntimeError: If the game server responds with an HTTP status code >= 400.
+    """
     t0 = time.perf_counter()
     room = state.get("room_snapshot") or {}
     allowed = _allowed_tool_names(state)
@@ -668,6 +763,24 @@ def _npc_turn_initial(
     player_id: str,
     recent_turns: list[dict[str, str]] | None = None,
 ) -> GraphState:
+    """
+    Create a fresh GraphState initialized for a single NPC turn.
+    
+    Parameters:
+        room_id (str): Identifier of the room where the turn occurs.
+        player_message (str): The most recent message from the player.
+        npc_id (str): Identifier of the NPC taking this turn.
+        player_id (str): Identifier of the player interacting with the NPC.
+        recent_turns (list[dict[str, str]] | None): Optional list of recent dialogue turns (each turn is a mapping of string keys to string values); defaults to an empty list.
+    
+    Returns:
+        GraphState: A dict initialized with turn-scoped fields, including:
+            - room_id, npc_id, player_id, player_message, recent_turns
+            - collective_ambiguous (bool), tool_calls (list), pending_actions (list)
+            - reply, reply_draft (str), social_applied (bool), collective_updated (bool)
+            - just_happened_summary (str), speak_intent (str)
+            - phase_timing_ms (dict) for per-phase durations, and trace_run_id (optional)
+    """
     return {
         "room_id": room_id,
         "npc_id": npc_id,

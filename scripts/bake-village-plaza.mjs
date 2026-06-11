@@ -11,15 +11,22 @@ const MAP_W = 20;
 const MAP_H = 40;
 const TRANSITION_ROWS = [18, 19, 20, 21, 22];
 
-/** @param {number} width @param {number} height */
+/**
+ * Create a flat array representing a width×height grid filled with zeros.
+ *
+ * @param {number} width - Number of columns in the grid.
+ * @param {number} height - Number of rows in the grid.
+ * @returns {number[]} An array of length width * height where every element is 0.
+ */
 function emptyCells(width, height) {
   return Array.from({ length: width * height }, () => 0);
 }
 
 /**
- * Plaza collision: open interior; perimeter blocked except west transition strip (陆桥).
- * @param {number} width
- * @param {number} height
+ * Generate a collision grid for the plaza: interior tiles open; perimeter tiles blocked except the west transition rows.
+ * @param {number} width - Map width in tiles.
+ * @param {number} height - Map height in tiles.
+ * @returns {{width: number, height: number, cells: number[], source: string}} An object containing the grid dimensions, a flat array of cells where `1` indicates a blocked tile and `0` an open tile, and `source` set to `"generated-plaza"`.
  */
 function bakePlazaCollision(width, height) {
   const cells = emptyCells(width, height);
@@ -36,7 +43,13 @@ function bakePlazaCollision(width, height) {
   return { width, height, cells, source: "generated-plaza" };
 }
 
-/** Carve beginning-fields east edge (x=39) for 陆桥 rows. */
+/**
+ * Open the eastmost column of the beginning-fields collision grid for the configured transition rows (陆桥).
+ *
+ * Reads the collision JSON at the given path, sets the east-edge cell (x = grid.width - 1) to 0 for each row in TRANSITION_ROWS, and writes the updated grid back with pretty formatting.
+ *
+ * @param {string} collisionPath - File system path to the collision JSON to modify; no action is taken if the file does not exist.
+ */
 function carveBeginningFieldsEastBridge(collisionPath) {
   if (!existsSync(collisionPath)) return;
   const grid = JSON.parse(readFileSync(collisionPath, "utf8"));
@@ -46,7 +59,17 @@ function carveBeginningFieldsEastBridge(collisionPath) {
   writeFileSync(collisionPath, JSON.stringify(grid, null, 2));
 }
 
-/** @param {number} width @param {number} height @param {number[]} collisionCells */
+/**
+ * Builds a minimal Tiled-format map object containing a visible ground layer and a hidden collision layer.
+ *
+ * The collision layer is derived from `collisionCells`: values equal to `1` are converted to tile ID `2` (blocked),
+ * and other values become `0` (empty).
+ *
+ * @param {number} width - Map width in tiles.
+ * @param {number} height - Map height in tiles.
+ * @param {number[]} collisionCells - Flat array of length `width * height` where `1` marks a blocked cell and `0` marks an open cell.
+ * @returns {Object} A Tiled map JSON object with tileset metadata and two tile layers ("Ground" and "Collision"); the "Ground" layer is filled, and the "Collision" layer encodes blocked cells as tile ID `2`.
+ */
 function buildTiledMap(width, height, collisionCells) {
   const ground = Array.from({ length: width * height }, () => 1);
   const collision = collisionCells.map((c) => (c === 1 ? 2 : 0));
@@ -106,6 +129,11 @@ function buildTiledMap(width, height, collisionCells) {
   };
 }
 
+/**
+ * Generate plaza collision and a minimal Tiled map for village-plaza@v1, update the beginning-fields east-bridge collision, and write outputs to server and public directories.
+ *
+ * Creates the plaza collision grid, writes identical `collision.json` files for the game server and web public folders, builds and writes a Tiled-format `v1.json` map, applies the east-bridge carve to beginning-fields collision files (server and public), and logs the file paths and a blocked-cell summary.
+ */
 function main() {
   const collision = bakePlazaCollision(MAP_W, MAP_H);
   const serverDir = join(root, "apps/game-server/data/world/village-plaza@v1");

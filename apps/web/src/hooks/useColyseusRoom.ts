@@ -29,6 +29,12 @@ export type GameClockState = {
   label: string;
 };
 
+/**
+ * Produce an ambient snapshot from a Colyseus room instance.
+ *
+ * @param room - The Colyseus `Room` whose current state will be captured
+ * @returns An `NpcAmbientSnapshot` representing the room's ambient state (game clock, NPC activity, ambient NPC data, and NPC grid positions)
+ */
 function snapshotAmbientState(room: Room) {
   return snapshotAmbientStateFromSchema(room.state as Parameters<typeof snapshotAmbientStateFromSchema>[0]);
 }
@@ -132,6 +138,13 @@ export type SyncMetrics = {
   pending: number;
 };
 
+/**
+ * Connects to a Colyseus room and exposes synchronized game state, movement controls, and connection status to React components.
+ *
+ * @param roomId - Identifier of the room to join (defaults to `"default"`).
+ * @param map - Optional initial room schema state used for local reads; if provided, it's treated as a Colyseus RoomState snapshot.
+ * @returns An object containing the active `room` and `roomRef`, motion and movement-sync refs, connection flags and diagnostics (`connected`, `error`, `roomFull`, `syncMetrics`, `remoteInterpMs`), session and player data (`sessionId`, `players`), movement commands (`sendMove`, `sendMoveTo`), loaded chunk data (`loadedChunks`) and lore helpers (`loreForChunk`, `consumeDiscoverToast`, `loreToastQueue`), and ambient world state (`gameClock`, `npcActivityById`, `npcAmbientById`, `mainNpcGridById`, `bgNpcGridById`).
+ */
 export function useColyseusRoom(roomId = "default", map: RoomState | null = null) {
   const roomRef = useRef<Room | null>(null);
   const [room, setRoom] = useState<Room | null>(null);

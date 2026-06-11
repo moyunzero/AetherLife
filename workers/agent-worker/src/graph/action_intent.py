@@ -64,6 +64,17 @@ def _player_cell(room: dict[str, Any]) -> tuple[int, int] | None:
 
 
 def _clamp_cell(x: int, y: int, room: dict[str, Any]) -> tuple[int, int]:
+    """
+    Clamp x and y coordinates to valid cell indices within the room bounds.
+    
+    Parameters:
+        x (int): Desired x coordinate.
+        y (int): Desired y coordinate.
+        room (dict): Room metadata; reads "width" and "height" (defaults to 8 each) to determine inclusive bounds.
+    
+    Returns:
+        tuple[int, int]: A pair (clamped_x, clamped_y) where x is clamped to [0, width-1] and y to [0, height-1].
+    """
     width = int(room.get("width") or 8)
     height = int(room.get("height") or 8)
     max_x = max(0, width - 1)
@@ -75,6 +86,16 @@ def build_dialogue_context(
     player_message: str,
     recent_turns: list[dict[str, str]] | None = None,
 ) -> str:
+    """
+    Build a single dialogue context by concatenating non-empty trimmed texts from recent turns and the current player message.
+    
+    Parameters:
+    	player_message (str): Current player's message; trimmed and included if non-empty.
+    	recent_turns (list[dict[str, str]] | None): Sequence of prior turns where each turn may contain a "text" field; each non-empty trimmed "text" is included in order.
+    
+    Returns:
+    	str: Lines joined with "\n" containing the collected recent turn texts followed by the current player message (omits empty or missing texts).
+    """
     parts: list[str] = []
     for turn in recent_turns or []:
         text = (turn.get("text") or "").strip()
@@ -87,7 +108,18 @@ def build_dialogue_context(
 
 
 def _npc_named_in_message(message: str, room: dict[str, Any]) -> dict[str, Any] | None:
-    """Single NPC unambiguously referenced by display name in the player message."""
+    """
+    Finds a single NPC whose display name appears in the player message.
+    
+    Performs a substring search on the trimmed player message against each NPC's `name` (only names with length >= 2 are considered). If exactly one NPC matches, that NPC is returned. If multiple NPCs match, the longest `name` match is returned to break ties. If no match is found or the message is empty, returns `None`.
+    
+    Parameters:
+        message (str): The player's message text.
+        room (dict): Room data containing an `npcs` iterable of NPC objects (each expected to have a `name` field).
+    
+    Returns:
+        dict | None: The matched NPC object when an unambiguous match is found, or `None` otherwise.
+    """
     text = (message or "").strip()
     if not text:
         return None
@@ -109,6 +141,17 @@ def _npc_anchor_from_message(
     room: dict[str, Any],
     dialogue_context: str = "",
 ) -> dict[str, Any] | None:
+    """
+    Resolve an NPC referenced by name in the player message or, when the message uses a pronoun, in the dialogue context.
+    
+    If the message contains an NPC name (length >= 2) that matches an NPC in `room`, that NPC dict is returned. If no name is found but the message contains the pronouns "她", "他", or "它", the function looks for a named NPC in `dialogue_context` and returns that NPC if found. Returns `None` when no unambiguous NPC can be determined.
+    
+    Parameters:
+        dialogue_context (str): Optional recent-dialogue text used to resolve pronoun references when the message itself contains a pronoun.
+    
+    Returns:
+        dict | None: The matched NPC dictionary from `room` when found, otherwise `None`.
+    """
     anchor = _npc_named_in_message(message, room)
     if anchor is not None:
         return anchor
@@ -126,7 +169,12 @@ def resolve_npc_snap_anchor_cell(
     room: dict[str, Any],
     dialogue_context: str = "",
 ) -> tuple[int, int] | None:
-    """NPC cell for server snap when move intent is relative to another NPC."""
+    """
+    Resolve an NPC's cell to serve as a server-side snap anchor when the player's message indicates movement toward another NPC.
+    
+    Returns:
+        (x, y) coordinates of the referenced NPC, or `None` if the message does not express a move intent toward an NPC, if explicit coordinates or player-directed phrases are present, or if the NPC's coordinates cannot be interpreted as integers.
+    """
     text = (message or "").strip()
     if not text or not player_requests_move(text):
         return None
@@ -148,7 +196,21 @@ def resolve_npc_relative_move_cell(
     room: dict[str, Any],
     dialogue_context: str = "",
 ) -> tuple[int, int] | None:
-    """Resolve move target relative to another NPC named in the message (e.g. 费雪下方)."""
+    """
+    Resolve a deterministic target cell located relative to an NPC referenced in the player's message.
+    
+    This examines `message` for a move intent that references another character by name (or via a pronoun resolved through `dialogue_context`), and if found returns the NPC-relative destination cell clamped to the room bounds. The function returns `None` when the message is empty, does not indicate movement, contains explicit coordinates, explicitly targets the player (e.g., "到我"/"来我"), no unambiguous NPC anchor is found, or the NPC's coordinates are invalid.
+    
+    Supported direction mappings (relative to the referenced NPC):
+    - "下方|下面|下边" → (nx, ny + 1)
+    - "上方|上面|上边" → (nx, ny - 1)
+    - "左侧|左边|左方" → (nx - 1, ny)
+    - "右侧|右边|右方" → (nx + 1, ny)
+    - "旁边|附近|旁白|那边|那里|那儿|去找|去找她|去找他" → (nx, ny)
+    
+    Returns:
+        tuple[int, int] | None: The clamped target cell `(x, y)` if a valid NPC-relative direction is detected, otherwise `None`.
+    """
     text = (message or "").strip()
     if not text or not player_requests_move(text):
         return None
@@ -188,7 +250,15 @@ def resolve_injected_move_cell(
     room: dict[str, Any],
     dialogue_context: str = "",
 ) -> tuple[int, int] | None:
-    """Priority: explicit (x,y) → other-NPC-relative → player-relative."""
+    """
+    Selects the target grid cell implied by the player's message, preferring explicit coordinates, then NPC-relative resolution, then player-relative resolution.
+    
+    Parameters:
+        dialogue_context (str): Optional recent dialogue text to help resolve NPC references when the player uses pronouns.
+    
+    Returns:
+        tuple[int, int]: The resolved `(x, y)` target cell, or `None` if no target could be determined.
+    """
     return (
         resolve_explicit_move_cell(message, room)
         or resolve_npc_relative_move_cell(message, room, dialogue_context)
@@ -197,7 +267,16 @@ def resolve_injected_move_cell(
 
 
 def resolve_explicit_move_cell(message: str, room: dict[str, Any]) -> tuple[int, int] | None:
-    """Parse (x,y) from player message — full destination for move tool."""
+    """
+    Extract an explicit `(x,y)` coordinate from the player's message and return it clamped to the room bounds.
+    
+    Parameters:
+        message (str): Player text to scan for an explicit coordinate like "(x,y)".
+        room (dict[str, Any]): Room state used to clamp coordinates (reads `width`/`height`, which default to 8 if absent).
+    
+    Returns:
+        tuple[int, int] | None: A clamped `(x, y)` tuple when a valid explicit coordinate is found and parsed, `None` otherwise.
+    """
     text = (message or "").strip()
     if not text:
         return None
@@ -212,7 +291,19 @@ def resolve_explicit_move_cell(message: str, room: dict[str, Any]) -> tuple[int,
 
 
 def resolve_relative_move_cell(message: str, room: dict[str, Any]) -> tuple[int, int] | None:
-    """Deterministic NL relative move when LLM omits move tool (C-01 anchor = state.player)."""
+    """
+    Resolve a deterministic target cell for a relative move described in natural language, anchored to the player's current position.
+    
+    Checks the message for movement intent and absence of explicit coordinates; if valid, returns the target cell computed by applying the indicated direction to the player's cell and clamping it within room bounds. Direction mappings:
+    - "下方|下面|下边" → one cell down (y + 1)
+    - "上方|上面|上边" → one cell up (y - 1)
+    - "左侧|左边|左方" → one cell left (x - 1)
+    - "右侧|右边|右方" → one cell right (x + 1)
+    - "到我|来我|过来|旁边|我这边|我这边儿" → the player's current cell
+    
+    Returns:
+        tuple[int, int] or None: The clamped target `(x, y)` when a relative direction is detected; `None` if the message is empty, not a move request, contains explicit coordinates, the player's cell is unavailable, or no direction pattern matches.
+    """
     text = (message or "").strip()
     if not text or not player_requests_move(text):
         return None
@@ -246,7 +337,17 @@ def align_move_tool_to_intended_target(
     room: dict[str, Any],
     dialogue_context: str = "",
 ) -> list[dict[str, Any]]:
-    """Override LLM one-step move when player named explicit coords or another NPC-relative target."""
+    """
+    Align any existing `move` tool call to the target implied by the player's message (explicit coordinates or NPC-relative).
+    
+    Parameters:
+        player_message (str): The player's text used to resolve an intended move target.
+        room (dict[str, Any]): Room state (width/height, player and NPC/object positions) used for clamping and anchor resolution.
+        dialogue_context (str): Optional recent dialogue text used to disambiguate NPC references.
+    
+    Returns:
+        list[dict[str, Any]]: A new list of tool call dicts where non-`move` calls are unchanged and each `move` call's `args` include `type: "move"` and the resolved `x` and `y`. If no target can be resolved, returns a shallow copy of the original `tool_calls` (or an empty list if `tool_calls` is None).
+    """
     target = resolve_explicit_move_cell(player_message, room) or resolve_npc_relative_move_cell(
         player_message,
         room,
@@ -271,7 +372,17 @@ def align_move_tool_to_explicit_coords(
     player_message: str,
     room: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """When player names (x,y), override LLM one-step move with full destination."""
+    """
+    Replace any single-step "move" tool call so it targets explicit coordinates mentioned in the player's message.
+    
+    Parameters:
+        tool_calls (list[dict[str, Any]] | None): Existing ordered tool-call objects; non-move calls are preserved.
+        player_message (str): Player text potentially containing explicit coordinates like "(x,y)".
+        room (dict[str, Any]): Room metadata (width/height/object positions) used to validate and clamp coordinates.
+    
+    Returns:
+        list[dict[str, Any]]: A rebuilt list of tool calls where a `move` call, if present and an explicit `(x,y)` is found in `player_message`, has been replaced or updated to include `{"type":"move","x":x,"y":y}`; otherwise returns the input calls unchanged.
+    """
     return align_move_tool_to_intended_target(
         tool_calls,
         player_message=player_message,
@@ -286,6 +397,20 @@ def inject_relative_move_tool(
     room: dict[str, Any],
     dialogue_context: str = "",
 ) -> list[dict[str, Any]]:
+    """
+    Ensure a one-step `move` tool call exists or is aligned with the player's intended target.
+    
+    If `tool_calls` contains no state-changing tool (`move`, `interact`, `wait`), this will attempt to resolve an intended move target from `player_message` (explicit coordinates, NPC-relative, or player-relative). If a target is found, a `move` call with `args` `{"type": "move", "x": x, "y": y}` is prepended to the returned list; if no target is found, the original list is returned unchanged. If a state-changing tool is already present, existing `move` calls are adjusted to match the resolved intended target.
+    
+    Parameters:
+        tool_calls (list[dict[str, Any]] | None): Existing tool call list; may be None.
+        player_message (str): Player's latest message used to resolve an intended move.
+        room (dict[str, Any]): Room state (dimensions, player position, NPCs, objects) used for resolving coordinates.
+        dialogue_context (str): Optional recent dialogue text used for NPC disambiguation.
+    
+    Returns:
+        list[dict[str, Any]]: The tool call list with a prepended or aligned `move` call when appropriate; otherwise the original calls.
+    """
     base = list(tool_calls or [])
     if not has_state_changing_tool(base):
         target = resolve_injected_move_cell(player_message, room, dialogue_context)
@@ -303,6 +428,17 @@ def inject_relative_move_tool(
 
 
 def build_tool_retry_message(room: dict[str, Any]) -> str:
+    """
+    Builds a system-facing retry message instructing the agent which tool call is required and the room bounds.
+    
+    The message lists the room's allowed x/y coordinate range (derived from room['width'] and room['height'], defaulting to 8×8), a formatted table of known interactive objects (id, kind, position, state) or a placeholder if none are known, and a reminder that physical actions must use the `move`, `interact`, or `wait` tools and must be invoked immediately rather than only described in text.
+    
+    Parameters:
+        room (dict[str, Any]): Room state containing optional keys `width`, `height`, and `objects`. Each object is expected to be a dict possibly containing `id`, `kind`, `x`, `y`, and `state`.
+    
+    Returns:
+        str: A system message instructing the model on required tool usage, allowed coordinate bounds, and known interactive objects.
+    """
     width = int(room.get("width") or 8)
     height = int(room.get("height") or 8)
     max_x = max(0, width - 1)

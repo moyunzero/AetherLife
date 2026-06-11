@@ -52,6 +52,12 @@ export function findNpc(room: RoomState, npcId: string): NpcState | undefined {
   return room.npcs.find((npc) => npc.id === npcId);
 }
 
+/**
+ * Create a RoomState initialized for the home map with the default player spawn, default NPCs (including background NPCs), and no objects.
+ *
+ * @param roomId - Room identifier to assign to the created state; defaults to `"default"`.
+ * @returns The initial RoomState for the specified room, with width/height set to the home map tiles, the player at the default spawn, a list of default NPC states, and an empty objects array.
+ */
 export function createDefaultRoom(roomId = "default"): RoomState {
   return {
     roomId,

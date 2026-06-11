@@ -25,12 +25,29 @@ export class ExecutorError extends Error {
   }
 }
 
+/**
+ * Determines whether a terrain cell at the given global grid coordinates is walkable.
+ *
+ * Treats an unknown/undefined terrain value as walkable.
+ *
+ * @param gx - Global grid X coordinate
+ * @param gy - Global grid Y coordinate
+ * @returns `true` if the cell is walkable, `false` otherwise
+ */
 function executorTerrainWalkable(gx: number, gy: number): boolean {
   const terrain = isTerrainWalkableInRegion(gx, gy);
   if (terrain === undefined) return true;
   return terrain;
 }
 
+/**
+ * Create a GlobalMoveGrid configured for executor pathfinding and collision checks.
+ *
+ * @param map - The room state used as the grid's home map
+ * @param otherPlayers - Cells occupied by other players to treat as moving obstacles
+ * @param options.excludeNpcId - NPC id to exclude from blocking (so that the acting NPC is not treated as an obstacle)
+ * @returns A GlobalMoveGrid configured with executor terrain-walkability and the provided player cells
+ */
 function buildExecutorGrid(
   map: RoomState,
   otherPlayers: readonly GridCell[],
@@ -44,6 +61,15 @@ function buildExecutorGrid(
   });
 }
 
+/**
+ * Get the four orthogonal neighbor cells of (cx, cy) that lie inside the map and are not blocked.
+ *
+ * @param map - The room state used for map width/height bounds
+ * @param cx - X coordinate of the central cell
+ * @param cy - Y coordinate of the central cell
+ * @param grid - Movement grid used to determine if a cell is blocked
+ * @returns The subset of up/down/left/right neighbor cells that are within map bounds and where `grid.isBlocked` is false
+ */
 function walkableNeighbors(
   map: RoomState,
   cx: number,
@@ -65,6 +91,14 @@ function walkableNeighbors(
   );
 }
 
+/**
+ * Selects the candidate cell nearest to the target coordinates using Manhattan distance.
+ *
+ * @param cells - Candidate grid cells to consider
+ * @param targetX - Target x coordinate
+ * @param targetY - Target y coordinate
+ * @returns The cell from `cells` with the smallest Manhattan distance to `(targetX, targetY)`
+ */
 function pickClosestCell(cells: GridCell[], targetX: number, targetY: number): GridCell {
   cells.sort((a, b) => {
     const da = Math.abs(a.x - targetX) + Math.abs(a.y - targetY);
@@ -74,6 +108,24 @@ function pickClosestCell(cells: GridCell[], targetX: number, targetY: number): G
   return cells[0]!;
 }
 
+/**
+ * Selects a walkable destination cell for an NPC near a requested coordinate, applying optional snapping anchors.
+ *
+ * Attempts to use the requested cell if it is not blocked. If blocked, tries in order:
+ * 1. The walkable orthogonal neighbors around `moveSnapAnchor` (if provided).
+ * 2. The walkable orthogonal neighbors around `moveAnchor` (if provided).
+ * 3. The nearest global walkable cell according to the executor movement grid.
+ *
+ * @param map - The room state used to build the movement grid and validate bounds.
+ * @param requestedX - The originally requested destination x coordinate.
+ * @param requestedY - The originally requested destination y coordinate.
+ * @param otherPlayers - Additional live player cells to consider as obstacles when building the grid.
+ * @param gridOpts - Options passed to the executor grid builder (e.g., `excludeNpcId` to ignore the acting NPC).
+ * @param moveSnapAnchor - Optional anchor cell whose walkable neighbors are preferred when snapping from a blocked destination.
+ * @param moveAnchor - Optional fallback anchor cell whose orthogonal walkable neighbors are considered if `moveSnapAnchor` yields none.
+ * @returns The chosen walkable destination cell `{ x, y }`.
+ * @throws ExecutorError - Throws `ExecutorError("cell blocked")` if the globally nearest walkable cell is still blocked.
+ */
 function snapNpcMoveDest(
   map: RoomState,
   requestedX: number,
@@ -139,6 +191,26 @@ function resolveActingNpc(room: RoomState, actingNpcId: string) {
   return npc;
 }
 
+/**
+ * Applies a single game action for the specified acting NPC and returns the updated room state with recorded events.
+ *
+ * Processes actions: "move" (validates bounds, snaps destination, updates NPC position), "interact" (toggles doors, picks up items, or records interaction), "speak" (records truncated content), "wait" (records duration), and "transfer" (moves an item between NPC inventories). The function clones the provided room state before modifying it and accumulates human-readable event messages describing state changes.
+ *
+ * @param room - Current room state to apply the action to (will not be mutated; a cloned state is returned)
+ * @param action - Action to apply
+ * @param actingNpcId - ID of the NPC performing the action
+ * @param options - Optional execution options (e.g., movement snapping anchors and other player cells)
+ * @returns An object containing the updated room state and an array of event messages describing what occurred
+ * @throws ExecutorError - When the action is invalid or cannot be completed, for example:
+ *   - "unknown npc <id>" if the acting NPC cannot be found
+ *   - "move out of bounds" when a requested move is outside the map
+ *   - "cell blocked" when a moved-to cell cannot be resolved to a walkable position
+ *   - "unknown object <id>" when an interact target does not exist
+ *   - "cannot transfer item to self" when attempting to transfer to the same NPC
+ *   - "unknown target npc <id>" when a transfer recipient is missing
+ *   - "item <itemId> not in <npcId> inventory" when transferring a non-owned item
+ *   - "unsupported action <type>" for unrecognized action types
+ */
 export function applyGameAction(
   room: RoomState,
   action: GameAction,

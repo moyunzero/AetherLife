@@ -161,14 +161,29 @@ export type WorldRegistry = {
 
 let activeRegistry: WorldRegistry | null = null;
 
+/**
+ * Return the currently active world registry or null when no registry is set.
+ *
+ * @returns `WorldRegistry` if one is active, `null` otherwise.
+ */
 export function getWorldRegistry(): WorldRegistry | null {
   return activeRegistry;
 }
 
+/**
+ * Sets the module's active world registry.
+ *
+ * @param registry - The WorldRegistry to activate, or `null` to clear the active registry
+ */
 export function setWorldRegistry(registry: WorldRegistry | null): void {
   activeRegistry = registry;
 }
 
+/**
+ * Ensure a world registry is loaded, initializing it from the default bundle if absent.
+ *
+ * @returns The active `WorldRegistry`
+ */
 function ensureRegistry(): WorldRegistry {
   if (!activeRegistry) {
     activeRegistry = loadWorldRegistry(defaultWorldRegistryBundle());
@@ -183,7 +198,15 @@ export type WorldRegistryBundle = {
   spawnsByRegionId?: Record<string, unknown>;
 };
 
-/** Parse and activate registry from disk-shaped bundle (game-server boot). */
+/**
+ * Parse the provided disk-shaped bundle, validate its contents, build a WorldRegistry, and activate it as the current registry.
+ *
+ * Validations include region overlap checks, schema conformance for regions/zones/POIs/spawns, spatial bounds for zones/POIs/spawns, NPC spawn key format, and that background NPC wanderZoneId values reference existing zone IDs.
+ *
+ * @param bundle - The raw WorldRegistryBundle read from disk (regions, per-region zones, optional POIs, and optional spawns)
+ * @returns The constructed and activated WorldRegistry
+ * @throws Error if schema validation fails or if the bundle contains inconsistent or out-of-bounds data (e.g., missing zones for a region, overlapping regions, zone/POI/spawn coordinates outside their region, invalid npc spawn keys, or background NPCs referencing unknown zone IDs)
+ */
 export function loadWorldRegistry(bundle: WorldRegistryBundle): WorldRegistry {
   const regionsParsed = RegionsFileSchema.parse(bundle.regions);
   const regions: WorldRegion[] = regionsParsed.regions.map((r) => ({
@@ -278,7 +301,12 @@ export function loadWorldRegistry(bundle: WorldRegistryBundle): WorldRegistry {
   return registry;
 }
 
-/** Boot-time guard: region bounding boxes must not overlap (T-16-11). */
+/**
+ * Ensures no two regions' axis-aligned bounding boxes overlap in the global grid.
+ *
+ * @param regions - The list of regions to validate
+ * @throws Error if any pair of regions overlap (message: `world registry: regions {idA} and {idB} overlap in global grid`)
+ */
 export function assertRegionsNonOverlapping(regions: WorldRegion[]): void {
   for (let i = 0; i < regions.length; i++) {
     const a = regions[i]!;
@@ -302,18 +330,40 @@ export function assertRegionsNonOverlapping(regions: WorldRegion[]): void {
   }
 }
 
+/**
+ * Ensures a zone rectangle fits within a region's size.
+ *
+ * @param region - The region whose bounds are used for validation.
+ * @param rect - The zone rectangle in region-local coordinates.
+ * @throws Error if the rectangle extends beyond the region's width or height.
+ */
 function validateZoneInRegion(region: WorldRegion, rect: ZoneRect): void {
   if (rect.lx + rect.w > region.size.w || rect.ly + rect.h > region.size.h) {
     throw new Error(`world registry: zone rect out of bounds for ${region.id}`);
   }
 }
 
+/**
+ * Validates that a local cell coordinate lies within a region's bounds.
+ *
+ * @param region - The region whose local coordinate space is used for bounds.
+ * @param lx - Local x cell coordinate (0-based).
+ * @param ly - Local y cell coordinate (0-based).
+ * @throws Error if `lx` is < 0 or >= `region.size.w`, or if `ly` is < 0 or >= `region.size.h`.
+ */
 function validateLocalCellInRegion(region: WorldRegion, lx: number, ly: number): void {
   if (lx < 0 || ly < 0 || lx >= region.size.w || ly >= region.size.h) {
     throw new Error(`world registry: local cell out of bounds for ${region.id}`);
   }
 }
 
+/**
+ * Parses a `ZoneId` into its `regionId` and `localId` components.
+ *
+ * @param zoneId - Zone identifier in the form `<regionId>:<localId>`
+ * @returns An object with `regionId` (the `WorldRegionId` prefix) and `localId` (the zone-local identifier)
+ * @throws Error if `zoneId` is missing the separator, has empty segments, or the `regionId` does not contain `@`
+ */
 export function parseZoneId(zoneId: ZoneId): { regionId: WorldRegionId; localId: string } {
   const idx = zoneId.lastIndexOf(":");
   if (idx <= 0 || idx === zoneId.length - 1) {
@@ -327,6 +377,14 @@ export function parseZoneId(zoneId: ZoneId): { regionId: WorldRegionId; localId:
   return { regionId, localId };
 }
 
+/**
+ * Convert region-local cell coordinates to global grid coordinates.
+ *
+ * @param region - The region whose anchor defines the global offset
+ * @param lx - Local x coordinate within the region (zero-based)
+ * @param ly - Local y coordinate within the region (zero-based)
+ * @returns An object with `gx` and `gy` representing the coordinates on the global grid
+ */
 export function toGlobal(
   region: WorldRegion,
   lx: number,
@@ -335,6 +393,14 @@ export function toGlobal(
   return { gx: region.anchor.gx + lx, gy: region.anchor.gy + ly };
 }
 
+/**
+ * Convert global grid coordinates to region-local cell coordinates.
+ *
+ * @param region - The target region whose anchor and size define the local space
+ * @param gx - Global x coordinate
+ * @param gy - Global y coordinate
+ * @returns `{ lx, ly }` representing the local cell coordinates when the global point is inside `region`, `null` otherwise
+ */
 export function fromLocal(
   region: WorldRegion,
   gx: number,
@@ -348,6 +414,13 @@ export function fromLocal(
   return { lx, ly };
 }
 
+/**
+ * Finds the region that contains the given global coordinates.
+ *
+ * @param gx - Global x coordinate in world grid
+ * @param gy - Global y coordinate in world grid
+ * @returns The region whose bounds include (`gx`, `gy`), or `null` if no region contains that point
+ */
 export function regionAt(gx: number, gy: number): WorldRegion | null {
   const registry = ensureRegistry();
   for (const region of registry.regions) {
@@ -360,6 +433,14 @@ export function regionAt(gx: number, gy: number): WorldRegion | null {
   return null;
 }
 
+/**
+ * Finds the zone that contains the given region-local cell coordinates.
+ *
+ * @param regionId - The world region identifier to search within
+ * @param lx - The region-local x (cell) coordinate
+ * @param ly - The region-local y (cell) coordinate
+ * @returns The first `Zone` whose rectangle includes the cell, or `null` if none match
+ */
 export function zoneAtLocal(
   regionId: WorldRegionId,
   lx: number,
@@ -382,11 +463,20 @@ export function zoneAtLocal(
   return null;
 }
 
+/**
+ * Look up a region by its WorldRegionId.
+ *
+ * @returns The matching `WorldRegion` if found, `undefined` otherwise.
+ */
 export function getRegionById(id: WorldRegionId): WorldRegion | undefined {
   return ensureRegistry().regions.find((r) => r.id === id);
 }
 
-/** Default bundle aligned with apps/game-server/data/world/ (tests + lazy init). */
+/**
+ * Provides the default WorldRegistryBundle for the "beginning fields" region used by tests and lazy initialization.
+ *
+ * @returns A WorldRegistryBundle containing the BEGINNING_FIELDS region with its zones, POIs, default player and NPC spawns, and background NPC entries.
+ */
 export function defaultBeginningFieldsBundle(): WorldRegistryBundle {
   return {
     regions: {
@@ -465,7 +555,14 @@ export function defaultBeginningFieldsBundle(): WorldRegistryBundle {
   };
 }
 
-/** Full two-region bundle aligned with apps/game-server/data/world/ (web lazy init + tests). */
+/**
+ * Builds a default WorldRegistryBundle containing two regions (Beginning Fields and Village Plaza)
+ * populated with their zones, POIs, and spawn configurations.
+ *
+ * @returns A WorldRegistryBundle derived from `defaultBeginningFieldsBundle()` extended with
+ * the `VILLAGE_PLAZA_ID` region, its zones (`plaza`, `market`), POIs (`fountain`, `notice-board`),
+ * and spawn entries.
+ */
 export function defaultWorldRegistryBundle(): WorldRegistryBundle {
   const bf = defaultBeginningFieldsBundle();
   return {

@@ -66,6 +66,18 @@ function applyDoneStateToRoom(roomId: string, room: import("colyseus").Room, sta
   return { stateVersion, delta };
 }
 
+/**
+ * Routes a job-level event into Colyseus room/client messages, room state updates, and completed-turn bookkeeping.
+ *
+ * Converts the incoming `data` into a base payload that includes `jobId`, then:
+ * - sends a per-session Colyseus message for `thinking`, `speakPartial`, `error`, and `done` when a sessionId exists;
+ * - for `done` events, records a completed NPC turn when a non-empty reply and required identifiers are present;
+ * - for `done` events with a `state` snapshot, applies the snapshot to the room state and broadcasts the resulting patch (including `npcId` when available).
+ *
+ * @param jobId - Identifier of the job that produced the event
+ * @param type - The job event type (`thinking`, `speakPartial`, `done`, or `error`)
+ * @param data - Event payload (object values are merged into the base payload under their keys; non-objects are provided as `data`)
+ */
 function routeColyseusEvent(jobId: string, type: JobEventType, data: unknown): void {
   const entry = getJobEntry(jobId);
   if (!entry) return;

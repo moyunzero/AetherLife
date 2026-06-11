@@ -15,11 +15,23 @@ const ACTIVITY_FORBIDDEN_SUBSTRINGS: Record<string, string[]> = {
   idle: ["闲着"],
 };
 
+/**
+ * Remove a leading Chinese preposition "在" from an activity label if present.
+ *
+ * @param label - The activity display label to normalize
+ * @returns The input label without a leading "在"; otherwise the original label
+ */
 function stripActivityPrefix(label: string): string {
   return label.startsWith("在") ? label.slice(1) : label;
 }
 
-/** True when reasonZh paraphrases the activity row — hide or replace third line. */
+/**
+ * Determine whether a Chinese reason string duplicates an activity's display text or configured redundant fragments.
+ *
+ * @param activityKey - The activity identifier used to retrieve the Chinese display label and activity-specific forbidden fragments.
+ * @param reasonZh - The Chinese reason text to evaluate for redundancy.
+ * @returns `true` if `reasonZh` contains the activity display label (or the display label with a leading "在" removed) or any configured forbidden substring for the activity, `false` otherwise.
+ */
 export function isReasonZhRedundantWithActivity(activityKey: string, reasonZh: string): boolean {
   const trimmed = reasonZh.trim();
   if (!trimmed) return false;

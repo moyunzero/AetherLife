@@ -13,6 +13,15 @@ import { playerIdFromRequest } from "../http/player-id.js";
 import { getOrCreate } from "../room/store.js";
 import { emitJobEvent, subscribeJobEvents } from "../sse/hub.js";
 
+/**
+ * Create an Express Router that exposes endpoints for submitting player chat messages to an NPC and subscribing to NPC job events.
+ *
+ * The router provides:
+ * - POST /:roomId/chat — accepts a chat message, validates and potentially starts an NPC chat turn, and returns a `jobId`.
+ * - GET /:roomId/events — subscribes to server-sent events for a given `jobId`.
+ *
+ * @returns An Express Router configured with the chat and event endpoints
+ */
 export function createChatRouter(): Router {
   const router = Router();
 

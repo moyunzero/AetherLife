@@ -12,6 +12,16 @@ type Props = {
   regionLabelZh?: string;
 };
 
+/**
+ * Render a compact info strip showing world coordinates, chunk, biome, and optional place/region, game time, and lore status.
+ *
+ * Displays the place name if provided; otherwise shows a Chinese biome label (for `biome === "void"` it displays "生成中"). Renders the grid coordinates `(gx, gy)`, computed chunk `(cx, cy)`, and the biome label; when present, appends `regionLabelZh`, `gameClockLabel` (with an accessible label), and a short pending hint if `lorePending` is true.
+ *
+ * @param biome - A `BiomeId` or `"void"`; `"void"` is displayed as `"生成中"`
+ * @param regionLabelZh - Optional WorldRegion registry `labelZh` for the player cell; when provided it is appended to the metadata line
+ * @param lorePending - When true, a hint indicating lore is being written is rendered
+ * @returns A JSX element containing the place/biome title line, a metadata line with coordinates/chunk/biome (and optional region label), and optional game clock and lore-pending hint
+ */
 export function ExploreCoordsStrip({
   gx,
   gy,

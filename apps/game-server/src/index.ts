@@ -16,6 +16,12 @@ import {
 import { createInternalAmbientIntentRouter } from "./routes/internal-ambient-intent.js";
 import { attachColyseus } from "./colyseus/server.js";
 
+/**
+ * Convert a Zod-style parse error into a simplified array of `{ path, message }` records.
+ *
+ * @param error - Object with an `issues` array; each issue contains a `path` array and a `message` string.
+ * @returns An array of objects `{ path: string, message: string }` where `path` is the issue's path segments joined by dots and `message` is the issue text.
+ */
 function formatZodError(error: { issues: Array<{ path: (string | number)[]; message: string }> }) {
   return error.issues.map((issue) => ({
     path: issue.path.join("."),
@@ -23,6 +29,13 @@ function formatZodError(error: { issues: Array<{ path: (string | number)[]; mess
   }));
 }
 
+/**
+ * Create and configure the Express application used by the game server.
+ *
+ * The returned app includes a health endpoint, an action validation endpoint, multiple room- and internal-related routers mounted under `/rooms` and `/internal/*`, JSON body parsing with a 16kb limit, and error-handling middleware for invalid JSON and oversized payloads.
+ *
+ * @returns The configured Express application instance ready to be mounted or listened on
+ */
 export function createApp(): Express {
   const app = express();
   const json = express.json({ limit: "16kb" });

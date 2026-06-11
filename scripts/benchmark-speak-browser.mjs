@@ -45,12 +45,28 @@ const CASES = [
   { id: "B3", label: "物理快路径", message: "去费雪旁边", expectMove: true },
 ];
 
+/**
+ * Selects the element at the p-th percentile from a sorted numeric array.
+ * @param {number[]} sorted - Array of numbers sorted in ascending order.
+ * @param {number} p - Percentile between 0 and 100 inclusive.
+ * @returns {number|null} The array element at the p-th percentile using the "ceiling" index method, or `null` if the array is empty.
+ */
 function percentile(sorted, p) {
   if (!sorted.length) return null;
   const idx = Math.ceil((p / 100) * sorted.length) - 1;
   return sorted[Math.max(0, idx)];
 }
 
+/**
+ * Produce basic statistics (count, min, median, 95th percentile, max) from an array of values.
+ * 
+ * Filters the input to finite numbers, then computes the number of samples, minimum, 50th
+ * percentile (median), 95th percentile, and maximum.
+ * @param {Array<any>} values - Array containing numeric values (others are ignored).
+ * @returns {{n: number, min: number|null, p50: number|null, p95: number|null, max: number|null}}
+ *          An object where `n` is the count of finite numbers; `min`, `p50`, `p95`, and `max`
+ *          are `null` when no finite numbers are present, otherwise contain the corresponding values.
+ */
 function summarize(values) {
   const nums = values.filter((v) => typeof v === "number" && Number.isFinite(v));
   if (!nums.length) return { n: 0, min: null, p50: null, p95: null, max: null };
@@ -64,6 +80,12 @@ function summarize(values) {
   };
 }
 
+/**
+ * Import Playwright's Chromium launcher from the repository's local scripts/.pw-deps installation.
+ *
+ * @returns {object} The Playwright Chromium launcher (the `chromium` export from the Playwright package).
+ * @throws {Error} If Playwright (and its `chromium` export) cannot be found at scripts/.pw-deps/node_modules/playwright.
+ */
 async function loadPlaywright() {
   const pwEntry = path.join(ROOT, "scripts", ".pw-deps", "node_modules", "playwright", "index.mjs");
   const pw = await import(pathToFileURL(pwEntry).href);
@@ -74,6 +96,16 @@ async function loadPlaywright() {
   return chromium;
 }
 
+/**
+ * Verifies a service health endpoint and throws if the service is unhealthy or unreachable.
+ *
+ * Sends an HTTP GET to `{url}/health` with a 5000ms timeout and expects a JSON body whose
+ * `status` property equals `"ok"`.
+ *
+ * @param {string} url - Base URL of the service (protocol + host[:port]).
+ * @param {string} name - Human-readable service name used in error messages.
+ * @throws {Error} If the HTTP status is not OK or if the returned JSON `status` is not `"ok"`.
+ */
 async function health(url, name) {
   const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(5000) });
   if (!res.ok) throw new Error(`${name} /health → ${res.status}`);
@@ -81,6 +113,12 @@ async function health(url, name) {
   if (body.status !== "ok") throw new Error(`${name} /health invalid`);
 }
 
+/**
+ * Reset the benchmark room on the game server, optionally scoping the request to a specific player.
+ * Sends a POST to the game server reset endpoint and includes `X-Player-Id` when `playerId` is provided.
+ * @param {string} [playerId] - Optional player ID to include in the `X-Player-Id` header.
+ * @throws {Error} If the HTTP response status is not OK.
+ */
 async function resetRoom(playerId) {
   const headers = { "Content-Type": "application/json" };
   if (playerId) headers["X-Player-Id"] = playerId;
@@ -88,6 +126,13 @@ async function resetRoom(playerId) {
   if (!res.ok) throw new Error(`reset → ${res.status}`);
 }
 
+/**
+ * Fetches an NPC's numeric (x, y) position for the current room from the game server.
+ *
+ * @param {string} [playerId] - Optional player identifier to send in the `X-Player-Id` request header.
+ * @param {string} [npcId=NPC_ID] - The NPC identifier to look up.
+ * @returns {{x: number, y: number} | null} The NPC's coordinates when available and both are finite numbers; `null` if the server response is not OK, the NPC is not found, or coordinates are invalid.
+ */
 async function fetchNpcPos(playerId, npcId = NPC_ID) {
   const headers = {};
   if (playerId) headers["X-Player-Id"] = playerId;
@@ -100,6 +145,14 @@ async function fetchNpcPos(playerId, npcId = NPC_ID) {
   return { x: npc.x, y: npc.y };
 }
 
+/**
+ * Waits until the NPC for the given player is observed at the specified target position or the timeout elapses.
+ *
+ * @param {string|undefined} playerId - Optional player identifier used when querying NPC state.
+ * @param {{x:number,y:number}} target - Target grid coordinates to wait for.
+ * @param {number} timeoutMs - Maximum wait time in milliseconds.
+ * @returns {{x:number,y:number}|null} `{x,y}` when the NPC reaches the target before the timeout, `null` if the timeout is reached without a match.
+ */
 async function waitNpcAt(playerId, target, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -110,6 +163,13 @@ async function waitNpcAt(playerId, target, timeoutMs) {
   return null;
 }
 
+/**
+ * Waits until the room UI is ready for interaction.
+ *
+ * Ensures the movement panel is visible and that at least 64 grid cells are rendered in the DOM; each check times out after 30 seconds.
+ *
+ * @param {import('playwright').Page} page - Playwright page instance pointed at the room UI.
+ */
 async function waitRoomReady(page) {
   await page.locator('[data-testid="movement-panel"]').waitFor({ state: "visible", timeout: 30_000 });
   await page.waitForFunction(
@@ -121,6 +181,22 @@ async function waitRoomReady(page) {
   );
 }
 
+/**
+ * Runs a single speak interaction on the page, collects browser timing marks, network timing for `/nl/parse`, and optional NPC sprite arrival timing.
+ * @param {import('playwright').Page} page - Playwright page used to drive the UI and read timing marks.
+ * @param {string} message - Text submitted to the composer for this round.
+ * @param {{ expectMove: boolean }} options - Round options.
+ * @param {boolean} options.expectMove - If true, wait for the NPC sprite to reach the position reported by the page and include arrival timings.
+ * @returns {object} An object with the following properties:
+ *  - message: the submitted message.
+ *  - segmentsMs: timing deltas in milliseconds (total, ttft_partial, nl_parse_network, nl_parse_client, speak_sent, speak_ack, thinking_visible, npc_bubble, composer_idle, sprite_arrived, bubble_to_sprite).
+ *  - llmCallSummary: metadata from the page's `done` mark or `null`.
+ *  - speakIntent: detected speak intent from the `done` mark or `null`.
+ *  - phaseTimingMs: per-phase timings from the `done` mark or `null`.
+ *  - toolNames: tool names reported in the `done` mark or `null`.
+ *  - npcPos: NPC position reported in the `done` mark or `null`.
+ *  - marks: array of raw timing marks read from the page.
+ */
 async function runSpeakRound(page, message, { expectMove }) {
   const nlParseTimes = { start: null, end: null };
   const onResponse = (res) => {
@@ -216,6 +292,11 @@ async function runSpeakRound(page, message, { expectMove }) {
   };
 }
 
+/**
+ * Execute the B4 sequence: run the B1 speak round (no movement) then, after a 2 second pause, run the B3 speak round (movement expected).
+ *
+ * @returns {{id: string, label: string, rounds: Array<Object>}} An object with `id` "B4", `label` "连续 B1→B3", and `rounds` containing the two round results [B1_result, B3_result].
+ */
 async function runCaseB4(page) {
   const r1 = await runSpeakRound(page, CASES[0].message, { expectMove: false });
   await new Promise((r) => setTimeout(r, 2000));
@@ -223,6 +304,16 @@ async function runCaseB4(page) {
   return { id: "B4", label: "连续 B1→B3", rounds: [r1, r2] };
 }
 
+/**
+ * Run the browser-based "speak" latency benchmark end-to-end and write a JSON report.
+ *
+ * Launches Chromium via Playwright, navigates the web UI, validates backend health, and for each configured
+ * benchmark case executes the configured number of rounds (optionally skipping the first warmup round).
+ * For each round it resets the game room, reloads and waits for the UI to be ready, submits the test message,
+ * collects timing marks and network metrics, optionally waits for NPC movement, and aggregates per-round results.
+ * Also runs the B4 two-round sequence multiple times. Closes the browser, writes a timestamped report file
+ * into OUT_DIR, and prints a p50/p95 summary and the JSON output path.
+ */
 async function main() {
   assertE2eRealLlm("benchmark-speak-browser");
   console.log(`Speak browser benchmark — WEB=${WEB_UI} GS=${GS} rounds=${ROUNDS}\n`);

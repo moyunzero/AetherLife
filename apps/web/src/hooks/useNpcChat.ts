@@ -71,6 +71,15 @@ export function enqueueNpcSpeak(queues: NpcSpeakQueue, npcId: string, text: stri
   return q.length;
 }
 
+/**
+ * Remove and return the next pending speak text for an NPC's queue.
+ *
+ * If removing the item makes the queue empty, the NPC entry is removed from the map.
+ *
+ * @param queues - Map of per-NPC pending speak texts
+ * @param npcId - Identifier of the NPC whose queue to dequeue
+ * @returns The next queued text for `npcId`, or `undefined` if no queued text exists
+ */
 export function dequeueNpcSpeak(queues: NpcSpeakQueue, npcId: string): string | undefined {
   const q = queues.get(npcId);
   if (!q?.length) return undefined;
@@ -80,7 +89,17 @@ export function dequeueNpcSpeak(queues: NpcSpeakQueue, npcId: string): string | 
   return next;
 }
 
-/** Drop queued speaks identical to a turn that just finished (duplicate speakBusy retry). */
+/**
+ * Remove queued speak entries for an NPC that exactly match the provided text.
+ *
+ * Comparison is performed on trimmed text; if `text` is empty, no entries are removed.
+ * If all entries for `npcId` are removed, the NPC's queue is deleted from `queues`.
+ *
+ * @param queues - Map of per-NPC speak queues
+ * @param npcId - The NPC identifier whose queue will be scanned
+ * @param text - The text to match against queued entries (whitespace is trimmed before comparison)
+ * @returns The number of removed queue entries
+ */
 export function discardQueuedSpeakMatching(
   queues: NpcSpeakQueue,
   npcId: string,
@@ -97,6 +116,11 @@ export function discardQueuedSpeakMatching(
   return removed;
 }
 
+/**
+ * Get the number of pending speak entries for an NPC.
+ *
+ * @returns The number of queued speak texts for `npcId`, or `0` if none.
+ */
 export function npcSpeakQueueDepth(queues: NpcSpeakQueue, npcId: string): number {
   return queues.get(npcId)?.length ?? 0;
 }
@@ -129,6 +153,18 @@ export type UseNpcChatOptions = {
   onCollectiveUpdated?: () => void;
 };
 
+/**
+ * Manage NPC chat state and Colyseus room interactions for sending player speaks, receiving streaming NPC replies, queuing/retrying speaks, and synchronizing room state and memory counts.
+ *
+ * @param colyseusRoom - The connected Colyseus `Room` instance or `null` when not connected.
+ * @param mapRoomId - Identifier for the map room used by server endpoints (defaults to `"default"`).
+ * @param options - Optional settings.
+ * @param options.onCollectiveUpdated - Callback invoked when a done event indicates the collective was updated and a refetch is advisable.
+ * @returns An object exposing UI state, derived busy flags, and control actions:
+ *  - State: `messages`, `status`, `roomState`, `memoryCounts`, `activeNpcId`, `jobId`, `error`, `lastParsedIntent`, `parseError`, `thinkingNpcId`, `speakBusyNpcId`, `sendingNpcId`, `speakQueueDepth`, `attitudeGateCue`, `streamingReply`
+ *  - Derived flags: `speakQueueBusy`, `composerBusyForActiveNpc`
+ *  - Actions: `setActiveNpcId`, `clearAttitudeGateCue`, `attitudeGateHintCopy`, `sendMessage`, `resetGame`, `refetchState`
+ */
 export function useNpcChat(
   colyseusRoom: Room | null,
   mapRoomId = "default",
