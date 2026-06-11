@@ -1,3 +1,8 @@
+"""Ambient NPC intent graph — LLM-driven background behavior between speak turns.
+
+join_vicinity daily cap (JOIN_VICINITY_DAILY_CAP) is process-local in _join_vicinity_counts;
+worker restart resets counts (no Redis persistence yet).
+"""
 import json
 import os
 import sys
@@ -10,7 +15,6 @@ from src.graph.lore_loop import _extract_json_object, _invoke_lore_llm
 from src.llm.errors import is_rate_limit_error, is_retryable_llm_error, should_try_lore_provider_fallback
 
 JOIN_VICINITY_DAILY_CAP = 2
-# Process-local join_vicinity cap (resets on worker restart; Redis persistence deferred — IN-02).
 _join_vicinity_counts: dict[str, dict[str, int]] = {}
 
 NPC_DISPLAY_NAMES = {

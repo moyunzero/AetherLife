@@ -517,6 +517,17 @@ def llm_social_turn(state: GraphState, *, settings: Settings | None = None) -> G
     else:
         turn = run_social_turn_llm(state, settings=cfg)
 
+    player_msg = player_message.strip()
+    reconciled = reconcile_social_perception(player_msg, turn.social)
+    if reconciled.kind != turn.social.kind:
+        print(
+            "social reconcile (llm_social_turn): "
+            f"{turn.social.kind} -> {reconciled.kind} "
+            f"player={player_msg[:40]!r}",
+            file=sys.stderr,
+        )
+        turn = turn.model_copy(update={"social": reconciled})
+
     return {
         **state,
         "social_perception": turn.social.model_dump(),

@@ -1,5 +1,6 @@
 import { EMBED_DIMENSIONS } from "@aetherlife/npc-memory";
 import { openRouterKeys } from "./openRouterKeys.js";
+import { runWithEmbedConcurrencyLimit } from "../util/concurrencyGate.js";
 
 const DEFAULT_MODEL = "nvidia/llama-nemotron-embed-vl-1b-v2:free";
 const DEFAULT_BASE = "https://openrouter.ai/api/v1";
@@ -47,31 +48,33 @@ function mockEmbed(text: string): number[] {
   return vec.map((v) => v / norm);
 }
 
-export async function embedText(text: string): Promise<number[]> {
+export async function embedText(text: string, options?: { priority?: boolean }): Promise<number[]> {
   if (process.env.LLM_MOCK === "1" || process.env.VITEST === "true") {
     return mockEmbed(text);
   }
 
-  const apiKeys = openRouterKeys();
-  if (apiKeys.length === 0) {
-    throw new Error("OPENROUTER_API_KEY required for embeddings");
-  }
-
-  const baseUrl = (process.env.EMBED_BASE_URL ?? DEFAULT_BASE).replace(/\/$/, "");
-  const model = process.env.EMBED_MODEL ?? DEFAULT_MODEL;
-
-  let lastError: unknown;
-  for (let i = 0; i < apiKeys.length; i += 1) {
-    try {
-      return await embedWithKey(text, apiKeys[i]!, baseUrl, model);
-    } catch (err) {
-      lastError = err;
-      const status = (err as { status?: number }).status;
-      if (status === 429 && i + 1 < apiKeys.length) {
-        continue;
-      }
-      throw err;
+  return runWithEmbedConcurrencyLimit(async () => {
+    const apiKeys = openRouterKeys();
+    if (apiKeys.length === 0) {
+      throw new Error("OPENROUTER_API_KEY required for embeddings");
     }
-  }
-  throw lastError;
+
+    const baseUrl = (process.env.EMBED_BASE_URL ?? DEFAULT_BASE).replace(/\/$/, "");
+    const model = process.env.EMBED_MODEL ?? DEFAULT_MODEL;
+
+    let lastError: unknown;
+    for (let i = 0; i < apiKeys.length; i += 1) {
+      try {
+        return await embedWithKey(text, apiKeys[i]!, baseUrl, model);
+      } catch (err) {
+        lastError = err;
+        const status = (err as { status?: number }).status;
+        if (status === 429 && i + 1 < apiKeys.length) {
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw lastError;
+  }, { priority: options?.priority });
 }

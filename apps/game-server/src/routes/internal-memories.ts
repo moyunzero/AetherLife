@@ -2,6 +2,12 @@ import { Router, type Request, type Response } from "express";
 import { resolvePlayerId } from "@aetherlife/shared";
 import { requireWorkerAuth } from "./internal.js";
 import { MemoryService } from "../memory/service.js";
+import {
+  getCachedMemoryContext,
+  memoryContextCacheKey,
+  setCachedMemoryContext,
+} from "../memory/memoryContextCache.js";
+import { logInternalLatency } from "../observability/internalLatency.js";
 
 function playerIdFromInternal(req: Request): string {
   const body = req.body as { playerId?: unknown } | undefined;
@@ -56,6 +62,22 @@ export function createInternalMemoriesRouter(): Router {
     }
 
     const skipEmbed = req.query.skipEmbed === "1" || req.query.skipEmbed === "true";
+    const speakHotPath = req.header("x-speak-hot-path") === "1";
+
+    const cacheKey = memoryContextCacheKey(roomId, playerId, npcId, playerMessage, skipEmbed);
+    const started = Date.now();
+    const cached = getCachedMemoryContext(cacheKey);
+    if (cached) {
+      logInternalLatency({
+        route: "memory-context",
+        ms: Date.now() - started,
+        roomId,
+        cacheHit: true,
+        skipEmbed,
+      });
+      res.json({ ok: true, ...cached });
+      return;
+    }
 
     try {
       const service = MemoryService.getInstance();
@@ -64,8 +86,16 @@ export function createInternalMemoriesRouter(): Router {
         playerMessage,
         npcId,
         playerId,
-        { skipEmbed },
+        { skipEmbed, embedPriority: speakHotPath },
       );
+      setCachedMemoryContext(cacheKey, context);
+      logInternalLatency({
+        route: "memory-context",
+        ms: Date.now() - started,
+        roomId,
+        cacheHit: false,
+        skipEmbed,
+      });
       res.json({ ok: true, ...context });
     } catch (err) {
       const message = err instanceof Error ? err.message : "context failed";

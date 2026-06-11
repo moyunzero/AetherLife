@@ -239,6 +239,20 @@ export class CollectiveRepository {
     await this.db!.delete(npcAttitudes).where(eq(npcAttitudes.roomId, roomId));
   }
 
+  /** Reset one player: clear attitudes only; room-level events TTL out naturally. */
+  async deleteForPlayer(roomId: string, playerId: string): Promise<void> {
+    if (this.store) {
+      this.store.attitudes = this.store.attitudes.filter(
+        (a) => !(a.roomId === roomId && a.playerId === playerId),
+      );
+      return;
+    }
+
+    await this.db!
+      .delete(npcAttitudes)
+      .where(and(eq(npcAttitudes.roomId, roomId), eq(npcAttitudes.playerId, playerId)));
+  }
+
   async pruneExpired(now = new Date()): Promise<number> {
     const cutoff = new Date(now.getTime() - COLLECTIVE_EVENT_TTL_MS);
     if (this.store) {

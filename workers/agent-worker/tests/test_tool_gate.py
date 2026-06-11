@@ -1,3 +1,5 @@
+from unittest.mock import MagicMock
+
 from src.config import Settings
 from src.graph.npc_loop import (
     _filter_tool_calls,
@@ -89,3 +91,33 @@ def test_compose_reply_recall_merges_fact_when_llm_refuses():
     assert "7" in out["reply"]
     assert "请自重" not in out["reply"]
     assert "你上次说过" not in out["reply"]
+
+
+def test_apply_tools_hostile_gate_does_not_raise():
+    from src.graph.npc_loop import apply_tools
+
+    settings = Settings(game_server_url="http://127.0.0.1:2567")
+    state = {
+        "room_id": "default",
+        "npc_id": "npc-1",
+        "player_id": "p1",
+        "room_snapshot": {"npcs": [{"id": "npc-1", "x": 2, "y": 2}]},
+        "tool_calls": [{"name": "move", "args": {"type": "move", "x": 3, "y": 3}}],
+        "allowed_tools": ["speak", "wait", "move"],
+    }
+    gate_response = MagicMock()
+    gate_response.status_code = 403
+    gate_response.text = '{"ok":false,"code":"hostile_gate","actionType":"move"}'
+    gate_response.json.return_value = {
+        "ok": False,
+        "code": "hostile_gate",
+        "actionType": "move",
+    }
+
+    client = MagicMock()
+    client.post.return_value = gate_response
+
+    out = apply_tools(state, settings=settings, client=client)
+    assert out.get("gate_rejected") is True
+    assert out.get("gate_kind") == "move"
+    assert out.get("tool_calls") == []

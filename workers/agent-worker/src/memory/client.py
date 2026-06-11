@@ -62,11 +62,13 @@ def fetch_memory_context(
     }
     if skip_embed:
         params["skipEmbed"] = "1"
+    headers = _game_headers(settings)
+    headers["X-Speak-Hot-Path"] = "1"
     res = _get_with_retry(
         client,
         f"{settings.game_server_url}/internal/rooms/{room_id}/memory-context",
         params=params,
-        headers=_game_headers(settings),
+        headers=headers,
         timeout=timeout if timeout is not None else _MEMORY_CONTEXT_TIMEOUT_S,
         attempts=attempts,
     )

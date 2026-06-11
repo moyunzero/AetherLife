@@ -22,6 +22,7 @@ import { syncColyseusFromMap, syncMapPlayerPosition } from "./bridge.js";
 import { registerJob, unregisterJob } from "./job-registry.js";
 import { applyPlayerMove, applyPlayerMoveTo, buildMoveGrid, findNearestWalkableCell } from "./move-handler.js";
 import { getChunkLoader } from "../world/chunk-loader.js";
+import { invalidateWorkerStateForPlayer } from "./workerStateCache.js";
 import { chunkCrossed, onPlayerEnterChunk } from "../world/lore-orchestrator.js";
 import {
   getContentBlockedResponse,
@@ -121,6 +122,8 @@ export class GameRoom extends Room {
     if (result.ok) {
       syncMapPlayerPosition(this.mapRoomId, result.x, result.y);
       bumpStateVersion(this.gameState);
+      const playerId = mover?.playerId?.trim() || client.sessionId;
+      invalidateWorkerStateForPlayer(this.mapRoomId, playerId);
       const after = [{ gx: result.x, gy: result.y }];
       this.gameState.players.forEach((p, sid) => {
         if (sid !== client.sessionId) after.push({ gx: p.x, gy: p.y });
@@ -395,12 +398,14 @@ export class GameRoom extends Room {
   }
 
   /** Release per-NPC speak slot when job completes (called from hub after terminal emit). */
-  clearSpeakInFlight(jobId: string): void {
+  clearSpeakInFlight(jobId: string, options?: { enqueueAmbient?: boolean }): void {
     for (const [npcId, id] of this.npcSpeakJobs.entries()) {
       if (id === jobId) {
         this.npcSpeakJobs.delete(npcId);
         this.broadcast(COLYSEUS_SERVER_MESSAGES.speakIdle, { npcId });
-        this.enqueueAmbientIntentIfIdle(npcId, "speak_end");
+        if (options?.enqueueAmbient !== false) {
+          this.enqueueAmbientIntentIfIdle(npcId, "speak_end");
+        }
         break;
       }
     }

@@ -121,8 +121,14 @@ async function main() {
   await pollDone(chat.jobId, e2eSpeakTimeoutMs());
   console.log(`turn completed in ${Date.now() - chatStart}ms`);
 
-  const move = await requestOk(`${baseUrl}/rooms/${roomId}/apply-actions`, {
+  const move = await requestOk(`${baseUrl}/internal/rooms/${roomId}/apply-actions`, {
     method: "POST",
+    headers: (() => {
+      const h = { "Content-Type": "application/json" };
+      const token = process.env.INTERNAL_WORKER_TOKEN;
+      if (token) h.Authorization = `Bearer ${token}`;
+      return h;
+    })(),
     body: JSON.stringify({
       actingNpcId: "npc-1",
       actions: [{ type: "move", x: 2, y: 2 }],

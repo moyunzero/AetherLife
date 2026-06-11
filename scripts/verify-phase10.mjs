@@ -157,8 +157,14 @@ async function main() {
   }
   console.log("verify:phase10: cross-chunk move (7,0)→(8,0) OK");
 
-  const afterInteract = await request(`/rooms/${roomId}/apply-actions`, {
+  const afterInteract = await request(`/internal/rooms/${roomId}/apply-actions`, {
     method: "POST",
+    headers: (() => {
+      const h = { "Content-Type": "application/json" };
+      const token = process.env.INTERNAL_WORKER_TOKEN;
+      if (token) h.Authorization = `Bearer ${token}`;
+      return h;
+    })(),
     body: JSON.stringify({
       actingNpcId: "npc-1",
       actions: [{ type: "interact", objectId: "door-1" }],

@@ -157,6 +157,26 @@ function internalHeaders(playerId) {
   return headers;
 }
 
+async function preflightWorkerStateHotPath() {
+  const probeRoom = process.env.VERIFY_PREFLIGHT_ROOM_ID || "default";
+  for (let i = 0; i < 3; i += 1) {
+    const started = Date.now();
+    const res = await fetch(
+      `${httpBase}/internal/rooms/${encodeURIComponent(probeRoom)}/worker-state?skipNearbyLore=1`,
+      { headers: internalHeaders(PLAYER_A) },
+    );
+    const ms = Date.now() - started;
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(`worker-state preflight → ${res.status}: ${JSON.stringify(body)}`);
+    }
+    if (ms >= 500) {
+      throw new Error(`worker-state preflight slow: ${ms}ms (attempt ${i + 1}/3)`);
+    }
+  }
+  console.log("verify:phase12: worker-state preflight OK (<500ms ×3)");
+}
+
 async function healthOk() {
   const { res } = await request("/health");
   if (!res.ok) throw new Error(`health ${res.status}`);
@@ -205,9 +225,12 @@ function attitudeFor(stateBody, npcId = NPC_ID) {
 }
 
 async function applyActions(actingNpcId, initiatorPlayerId, actions) {
-  return request(`/rooms/${encodeURIComponent(roomId)}/apply-actions`, {
+  const headers = { "Content-Type": "application/json", "X-Player-Id": initiatorPlayerId };
+  const token = process.env.INTERNAL_WORKER_TOKEN;
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return request(`/internal/rooms/${encodeURIComponent(roomId)}/apply-actions`, {
     method: "POST",
-    headers: { "X-Player-Id": initiatorPlayerId },
+    headers,
     body: JSON.stringify({ actingNpcId, initiatorPlayerId, actions }),
   });
 }
@@ -243,19 +266,20 @@ function npcPosition(state, npcId = NPC_ID) {
 
 /** D-04: seed ≥2 distinct players in collective window before speak-only events. */
 async function seedTwoPlayerWindow() {
-  const first = await applyActions(NPC_ID, PLAYER_A, [
-    { type: "interact", objectId: "door-1" },
+  // Default room no longer ships door-1 (Phase 16 map); use collaborate transfer instead.
+  const first = await applyActions("npc-1", PLAYER_A, [
+    { type: "transfer", itemId: "key-1", toNpcId: "npc-2" },
   ]);
   if (!first.res.ok) {
-    throw new Error(`seed interact A failed: ${first.res.status} ${JSON.stringify(first.body)}`);
+    throw new Error(`seed transfer A failed: ${first.res.status} ${JSON.stringify(first.body)}`);
   }
-  const second = await applyActions(NPC_ID, PLAYER_B, [
-    { type: "interact", objectId: "door-1" },
+  const second = await applyActions("npc-3", PLAYER_B, [
+    { type: "transfer", itemId: "note-1", toNpcId: "npc-2" },
   ]);
   if (!second.res.ok) {
-    throw new Error(`seed interact B failed: ${second.res.status} ${JSON.stringify(second.body)}`);
+    throw new Error(`seed transfer B failed: ${second.res.status} ${JSON.stringify(second.body)}`);
   }
-  console.log("verify:phase12: D-04 window seeded (compete_object)");
+  console.log("verify:phase12: D-04 window seeded (collaborate transfer)");
 }
 
 async function driveHostileFast() {
@@ -300,7 +324,8 @@ async function driveHostileFast() {
 }
 
 async function driveHostileSpeak(roomA, speakTimeoutMs) {
-  for (let i = 0; i < 5; i++) {
+  const maxRudeSpeaks = 7;
+  for (let i = 0; i < maxRudeSpeaks; i++) {
     const st = await getCollectiveState(PLAYER_A);
     const att = attitudeFor(st);
     if (att.band === "hostile") {
@@ -376,6 +401,8 @@ async function main() {
     r.onMessage(COLYSEUS_SERVER_MESSAGES.thinking, () => {});
     r.onMessage(COLYSEUS_SERVER_MESSAGES.speakIdle, () => {});
   }
+
+  await preflightWorkerStateHotPath();
 
   const speakTimeoutMs = e2eSpeakTimeoutMs();
   const speakStart = Date.now();

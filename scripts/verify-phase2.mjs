@@ -15,6 +15,13 @@ async function request(path, options = {}) {
   return body;
 }
 
+function internalHeaders(extra = {}) {
+  const headers = { "Content-Type": "application/json", ...extra };
+  const token = process.env.INTERNAL_WORKER_TOKEN;
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
+}
+
 function findNpc(state, id) {
   return state?.npcs?.find((npc) => npc.id === id);
 }
@@ -29,8 +36,9 @@ async function main() {
     await request(`/rooms/${roomId}/reset`, { method: "POST" });
   }
 
-  const afterMove = await request(`/rooms/${roomId}/apply-actions`, {
+  const afterMove = await request(`/internal/rooms/${roomId}/apply-actions`, {
     method: "POST",
+    headers: internalHeaders(),
     body: JSON.stringify({
       actingNpcId: "npc-1",
       actions: [{ type: "move", x: 5, y: 5 }],
@@ -41,8 +49,9 @@ async function main() {
     throw new Error("move did not update npc-1 coordinates");
   }
 
-  const afterInteract = await request(`/rooms/${roomId}/apply-actions`, {
+  const afterInteract = await request(`/internal/rooms/${roomId}/apply-actions`, {
     method: "POST",
+    headers: internalHeaders(),
     body: JSON.stringify({
       actingNpcId: "npc-1",
       actions: [{ type: "interact", objectId: "door-1" }],

@@ -188,6 +188,10 @@ export class CollectiveService {
     await this.repo.deleteForRoom(roomId);
   }
 
+  async deleteForPlayer(roomId: string, playerId: string): Promise<void> {
+    await this.repo.deleteForPlayer(roomId, playerId);
+  }
+
   async getCollectiveContext(
     roomId: string,
     npcId: string,

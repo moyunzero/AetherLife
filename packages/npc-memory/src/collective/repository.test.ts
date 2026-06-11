@@ -61,6 +61,24 @@ describe("CollectiveRepository (in-memory)", () => {
     expect(rep).toBe(-13);
   });
 
+  it("deleteForPlayer clears attitudes but keeps room events", async () => {
+    const repo = new CollectiveRepository(null);
+    await repo.insertEvent({
+      roomId: "r3",
+      npcId: "npc-1",
+      kind: "rude",
+      summary: "x",
+      playerIds: ["p-a", "p-b"],
+      deltaScore: -8,
+    });
+    await repo.applyReputationDelta("r3", "npc-1", "p-a", 1);
+    await repo.applyReputationDelta("r3", "npc-1", "p-b", 2);
+    await repo.deleteForPlayer("r3", "p-a");
+    expect(await repo.getAttitude("r3", "npc-1", "p-a")).toBeNull();
+    expect(await repo.getAttitude("r3", "npc-1", "p-b")).not.toBeNull();
+    expect(await repo.listEventsInWindow("r3", "npc-1", DEFAULT_COLLECTIVE_WINDOW_MS)).toHaveLength(1);
+  });
+
   it("deleteForRoom clears events and attitudes", async () => {
     const repo = new CollectiveRepository(null);
     await repo.insertEvent({

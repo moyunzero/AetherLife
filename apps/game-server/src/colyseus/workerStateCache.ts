@@ -1,6 +1,7 @@
 import type { RoomState } from "@aetherlife/shared";
 
-const TTL_MS = 2500;
+const TTL_MS_SKIP_LORE = 8000;
+const TTL_MS_WITH_LORE = 2500;
 
 type WorkerStatePayload = {
   state: RoomState;
@@ -32,8 +33,22 @@ export function getCachedWorkerState(key: string): WorkerStatePayload | null {
   return entry.payload;
 }
 
-export function setCachedWorkerState(key: string, payload: WorkerStatePayload): void {
-  cache.set(key, { expiresAt: Date.now() + TTL_MS, payload });
+export function setCachedWorkerState(
+  key: string,
+  payload: WorkerStatePayload,
+  skipNearbyLore: boolean,
+): void {
+  const ttl = skipNearbyLore ? TTL_MS_SKIP_LORE : TTL_MS_WITH_LORE;
+  cache.set(key, { expiresAt: Date.now() + ttl, payload });
+}
+
+/** Drop cached worker-state for one player after Colyseus move (WR-02). */
+export function invalidateWorkerStateForPlayer(roomId: string, playerId: string): void {
+  for (const key of cache.keys()) {
+    if (key.startsWith(`${roomId}:${playerId}:`)) {
+      cache.delete(key);
+    }
+  }
 }
 
 /** Test helper */

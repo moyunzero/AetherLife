@@ -107,8 +107,14 @@ async function main() {
     await gs(`/rooms/${ROOM}/reset`, { method: "POST" });
   }
 
-  await gs(`/rooms/${ROOM}/apply-actions`, {
+  await gs(`/internal/rooms/${ROOM}/apply-actions`, {
     method: "POST",
+    headers: (() => {
+      const h = { "Content-Type": "application/json" };
+      const token = process.env.INTERNAL_WORKER_TOKEN;
+      if (token) h.Authorization = `Bearer ${token}`;
+      return h;
+    })(),
     body: JSON.stringify({
       actingNpcId: NPC_ID,
       actions: [{ type: "move", x: FAR.x, y: FAR.y }],
