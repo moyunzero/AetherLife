@@ -36,7 +36,7 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 | **入口** | Colyseus `onMessage("speak")` 不阻塞；`startNpcChatTurn` → Redis job |
 | **内容安全** | speak 与 `POST /chat` 在入队前经 `@aetherlife/shared` `checkContentBlocked`（与 gateway blocklist 同规则）；拒绝 `{ code: "content_blocked" }`。**不**替代 gateway Moderation API |
 | **队列** | 按 `npcId` 互斥（`npcSpeakJobs`），不同 NPC 可并行 |
-| **事件** | worker → `POST /internal/jobs/:id/events` → SSE / `speakAck` / `speakIdle` / `speakPartial`（流式 reply 增量，非 terminal） |
+| **事件** | worker → `POST /internal/jobs/:id/events` → SSE / `speakAck`（`{ jobId, npcId }`）/ `speakIdle` / `speakPartial`（流式 reply 增量，非 terminal） |
 | **done 安全** | worker `audit_reply` 为 speak 回复唯一 guard；**禁止** game-server `done` emit 同步调用 gateway `check-reply`（ISSUE-045 提速） |
 | **可观测（可选）** | job `done` 可含 `llmCallSummary: { calls[], total }`（Phase 12.2；客户端可忽略）；`speakIntent`、`phaseTimingMs`（Speak 提速 Slice 0/3） |
 | **记忆回调（可选）** | job `done` 可含 `memoryQuote?: string` — worker 从 `retrieved_memories` 最高分条目选取（PLAY-03）；无检索命中时不传 |
@@ -52,6 +52,7 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 | 层 | 契约 |
 |----|------|
 | **唯一写入口** | `applyGameAction` / `POST /internal/rooms/:id/apply-actions`（worker + Bearer；禁止公开路由） |
+| **Body（可选）** | `jobId?` — worker 审计 `recordSuccessfulMutation` 关联 speak job |
 | **校验** | `GameActionSchema` Zod **strict** — 未知键 → 400 |
 | **Worker** | 必须 `action_sanitize` 后再 POST；无效 `interact.objectId` **跳过**而非整批失败 |
 | **审计** | 成功 mutation → `recordSuccessfulMutation` |

@@ -10,6 +10,7 @@ type CacheEntry = {
 };
 
 const cache = new Map<string, CacheEntry>();
+const inFlight = new Map<string, Promise<ChunkLoreRow | null>>();
 
 function cacheKey(worldId: string, cx: number, cy: number): string {
   return `${worldId}:${cx}:${cy}`;
@@ -26,12 +27,29 @@ export async function getChunkLoreCached(
   if (hit && Date.now() <= hit.expiresAt) {
     return hit.row;
   }
-  const row = await runWithLoreConcurrencyLimit(() => getChunkLore(worldId, cx, cy));
-  cache.set(key, { expiresAt: Date.now() + TTL_MS, row });
-  return row;
+
+  const pending = inFlight.get(key);
+  if (pending) {
+    return pending;
+  }
+
+  const fetchPromise = runWithLoreConcurrencyLimit(() => getChunkLore(worldId, cx, cy)).then(
+    (row) => {
+      cache.set(key, { expiresAt: Date.now() + TTL_MS, row });
+      return row;
+    },
+  );
+
+  inFlight.set(key, fetchPromise);
+  try {
+    return await fetchPromise;
+  } finally {
+    inFlight.delete(key);
+  }
 }
 
 /** Test helper */
 export function clearChunkLoreCache(): void {
   cache.clear();
+  inFlight.clear();
 }

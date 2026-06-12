@@ -96,6 +96,7 @@ export function ChatPage() {
     parseError,
     speakBusyNpcId,
     thinkingNpcId,
+    thinkingNpcIds,
     sendingNpcId,
     composerBusyForActiveNpc,
     attitudeGateCue,
@@ -495,6 +496,7 @@ export function ChatPage() {
             animating={animating}
             moveHint={sceneHint}
             thinkingNpcId={thinkingNpcId}
+            thinkingNpcIds={thinkingNpcIds}
             activeNpcId={activeNpcId}
             npcAnimateMoves={npcWorldLive}
             npcResetEpoch={npcResetEpoch}

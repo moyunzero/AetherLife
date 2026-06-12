@@ -11,10 +11,12 @@ _MEMORY_CONTEXT_TIMEOUT_S = 45.0
 _MEMORY_CONTEXT_INTERACTIVE_TIMEOUT_S = 8.0
 
 
-def _game_headers(settings: Settings) -> dict[str, str]:
+def _game_headers(settings: Settings, *, player_id: str | None = None) -> dict[str, str]:
     headers: dict[str, str] = {}
     if settings.internal_worker_token:
         headers["Authorization"] = f"Bearer {settings.internal_worker_token}"
+    if player_id and player_id != "__legacy__":
+        headers["X-Player-Id"] = player_id
     return headers
 
 
@@ -63,7 +65,7 @@ def fetch_memory_context(
     }
     if skip_embed:
         params["skipEmbed"] = "1"
-    headers = _game_headers(settings)
+    headers = _game_headers(settings, player_id=player_id)
     headers["X-Speak-Hot-Path"] = "1"
     res = _get_with_retry(
         client,
@@ -107,7 +109,7 @@ def fetch_recent_memories(
     res = client.get(
         f"{settings.game_server_url}/internal/rooms/{room_id}/recent-memories",
         params={"limit": limit, "npcId": npc_id, "playerId": player_id},
-        headers=_game_headers(settings),
+        headers=_game_headers(settings, player_id=player_id),
         timeout=30.0,
     )
     res.raise_for_status()
@@ -128,7 +130,7 @@ def fetch_oldest_memories(
     res = client.get(
         f"{settings.game_server_url}/internal/rooms/{room_id}/oldest-memories",
         params={"limit": limit, "npcId": npc_id, "playerId": player_id},
-        headers=_game_headers(settings),
+        headers=_game_headers(settings, player_id=player_id),
         timeout=30.0,
     )
     res.raise_for_status()
@@ -153,7 +155,7 @@ def append_npc_memory(
     res = client.post(
         f"{settings.game_server_url}/internal/rooms/{room_id}/memories",
         json=body,
-        headers=_game_headers(settings),
+        headers=_game_headers(settings, player_id=player_id),
         timeout=30.0,
     )
     res.raise_for_status()
@@ -180,7 +182,7 @@ def append_player_memory(
     res = client.post(
         f"{settings.game_server_url}/internal/rooms/{room_id}/memories",
         json=body,
-        headers=_game_headers(settings),
+        headers=_game_headers(settings, player_id=player_id),
         timeout=30.0,
     )
     res.raise_for_status()
@@ -198,7 +200,7 @@ def store_reflection(
     res = client.post(
         f"{settings.game_server_url}/internal/rooms/{room_id}/reflect",
         json={"text": text, "npcId": npc_id, "playerId": player_id},
-        headers=_game_headers(settings),
+        headers=_game_headers(settings, player_id=player_id),
         timeout=30.0,
     )
     res.raise_for_status()
@@ -224,7 +226,7 @@ def store_bulk_summary(
             "markIds": mark_ids,
             "sourceCount": source_count or len(mark_ids),
         },
-        headers=_game_headers(settings),
+        headers=_game_headers(settings, player_id=player_id),
         timeout=60.0,
     )
     res.raise_for_status()

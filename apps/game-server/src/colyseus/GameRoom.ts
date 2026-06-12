@@ -244,7 +244,7 @@ export class GameRoom extends Room {
           playerMessage: text,
         });
         // speakAck before Redis enqueue — fast-lane worker can finish before LPUSH returns otherwise.
-        client.send("speakAck", { jobId });
+        client.send("speakAck", { jobId, npcId });
         const casualStub = previewCasualSpeakStub(text);
         if (casualStub) {
           emitJobEvent(jobId, "speakPartial", { text: casualStub, npcId });

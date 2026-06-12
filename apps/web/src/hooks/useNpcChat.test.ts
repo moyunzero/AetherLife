@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   clearInFlightRefsForDrain,
+  clearNpcJob,
+  createNpcJobRegistry,
   dequeueNpcSpeak,
   discardQueuedSpeakMatching,
   enqueueNpcSpeak,
   isNpcSpeakInFlight,
+  isTrackedSpeakJob,
   npcSpeakQueueDepth,
+  registerNpcJob,
+  resolveNpcForJob,
   type NpcSpeakQueue,
 } from "./useNpcChat.js";
 
@@ -46,7 +51,7 @@ describe("isNpcSpeakInFlight", () => {
         npcId: "npc-1",
         speakBusyNpcId: "npc-2",
         sendingNpcId: null,
-        thinkingNpcId: null,
+        pendingJobNpcIds: [],
       }),
     ).toBe(false);
     expect(
@@ -54,7 +59,7 @@ describe("isNpcSpeakInFlight", () => {
         npcId: "npc-1",
         speakBusyNpcId: null,
         sendingNpcId: "npc-1",
-        thinkingNpcId: null,
+        pendingJobNpcIds: [],
       }),
     ).toBe(true);
     expect(
@@ -62,9 +67,32 @@ describe("isNpcSpeakInFlight", () => {
         npcId: "npc-1",
         speakBusyNpcId: null,
         sendingNpcId: null,
-        thinkingNpcId: "npc-1",
+        pendingJobNpcIds: ["npc-1"],
       }),
     ).toBe(true);
+    expect(
+      isNpcSpeakInFlight({
+        npcId: "npc-1",
+        speakBusyNpcId: null,
+        sendingNpcId: "npc-2",
+        pendingJobNpcIds: ["npc-1"],
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("NpcJobRegistry", () => {
+  it("tracks parallel jobs per npc without overwriting the other", () => {
+    const reg = createNpcJobRegistry();
+    registerNpcJob(reg, "npc-1", "job-a");
+    registerNpcJob(reg, "npc-3", "job-b");
+    expect(isTrackedSpeakJob(reg, "job-a")).toBe(true);
+    expect(isTrackedSpeakJob(reg, "job-b")).toBe(true);
+    expect(resolveNpcForJob(reg, "job-a")).toBe("npc-1");
+    expect(resolveNpcForJob(reg, "job-b")).toBe("npc-3");
+    clearNpcJob(reg, "job-a");
+    expect(isTrackedSpeakJob(reg, "job-a")).toBe(false);
+    expect(isTrackedSpeakJob(reg, "job-b")).toBe(true);
   });
 });
 

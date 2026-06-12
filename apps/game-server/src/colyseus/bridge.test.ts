@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { createDefaultRoom } from "@aetherlife/shared";
+import { createDefaultRoom, HOME_DEFAULT_PLAYER_SPAWN } from "@aetherlife/shared";
 import { runAmbientTick } from "../ambient/tick.js";
 import { clearChunkDeltaMemory } from "../world/chunk-repository.js";
 import { ChunkLoader } from "../world/chunk-loader.js";
@@ -9,6 +9,7 @@ import {
 } from "./room-registry.js";
 import {
   findPlayerCellByPlayerId,
+  resetColyseusFromMap,
   roomStateForInitiator,
   syncColyseusFromMap,
 } from "./bridge.js";
@@ -62,6 +63,26 @@ describe("initiator player view", () => {
     const view = roomStateForInitiator(map, "default", "player-bravo001");
     expect(view.player).toEqual({ x: 1, y: 7 });
     expect(map.player).toEqual({ x: 34, y: 13 });
+  });
+
+  it("legacy reset snaps all players to home spawn, not map.player anchor", () => {
+    const map = createDefaultRoom("legacy-reset");
+    map.player = { x: 50, y: 50 };
+
+    const state = new GameRoomState();
+    const player = new PlayerSchema();
+    player.playerId = "player-legacy01";
+    player.x = 10;
+    player.y = 10;
+    state.players.set("sess-legacy", player);
+    registerColyseusRoom("legacy-reset", { state } as never);
+
+    resetColyseusFromMap("legacy-reset", map);
+
+    const snapped = state.players.get("sess-legacy")!;
+    expect(Math.abs(snapped.x - HOME_DEFAULT_PLAYER_SPAWN.x)).toBeLessThanOrEqual(2);
+    expect(Math.abs(snapped.y - HOME_DEFAULT_PLAYER_SPAWN.y)).toBeLessThanOrEqual(2);
+    expect(snapped.x).not.toBe(50);
   });
 });
 

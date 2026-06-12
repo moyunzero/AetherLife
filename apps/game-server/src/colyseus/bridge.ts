@@ -197,10 +197,13 @@ export function resetColyseusFromMap(
       player.y = spawn.y;
     });
   } else {
-    const anchor = map.player;
     state.players.forEach((player, sessionId) => {
       const grid = buildMoveGrid(map, state, sessionId, loader);
-      const spawn = findNearestWalkableCell(anchor.x, anchor.y, grid);
+      const spawn = findNearestWalkableCell(
+        HOME_DEFAULT_PLAYER_SPAWN.x,
+        HOME_DEFAULT_PLAYER_SPAWN.y,
+        grid,
+      );
       player.x = spawn.x;
       player.y = spawn.y;
     });

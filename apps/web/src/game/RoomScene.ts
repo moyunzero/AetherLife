@@ -346,6 +346,8 @@ export class RoomScene extends Phaser.Scene {
         : null;
     const activeNpcId = (this.registry.get("activeNpcId") as string | null) ?? null;
     const thinkingNpcId = (this.registry.get("thinkingNpcId") as string | null) ?? null;
+    const thinkingNpcIds =
+      (this.registry.get("thinkingNpcIds") as string[] | undefined) ?? [];
     const targets: NameplateTarget[] = [];
     for (const ent of this.playerSprites.values()) {
       if (ent.playerSessionId === sessionId) {
@@ -357,7 +359,7 @@ export class RoomScene extends Phaser.Scene {
     for (const ent of this.npcSprites.values()) {
       targets.push(ent);
     }
-    updateNameplates(this, targets, localCell, activeNpcId, thinkingNpcId);
+    updateNameplates(this, targets, localCell, activeNpcId, thinkingNpcId, thinkingNpcIds);
   }
 
   private getNpcAmbientById(): Record<string, NpcAmbientUiState> {
@@ -905,6 +907,10 @@ export class RoomScene extends Phaser.Scene {
     const mapNpcs = (this.registry.get("mapNpcs") as MapNpcView[]) ?? [];
     const mapObjects = (this.registry.get("mapObjects") as MapObjectView[]) ?? [];
     const thinkingNpcId = this.registry.get("thinkingNpcId") as string | null;
+    const thinkingNpcIds =
+      (this.registry.get("thinkingNpcIds") as string[] | undefined) ?? [];
+    const isNpcThinking = (npcId: string) =>
+      thinkingNpcIds.includes(npcId) || thinkingNpcId === npcId;
     const animating = this.registry.get("animating") as boolean;
     const pendingMoves = this.getMovementSync()?.getPendingCount() ?? 0;
     const reduced = this.registry.get("reducedMotion") as boolean;
@@ -1026,13 +1032,13 @@ export class RoomScene extends Phaser.Scene {
       } else {
         ent.body.setVisible(false);
         ent.ring.setVisible(false);
-        setThinkingBubble(ent, thinkingNpcId === npc.id);
+        setThinkingBubble(ent, isNpcThinking(npc.id));
       }
 
       if (!ent.moveTween?.isPlaying()) {
-        this.startNpcBob(ent, ent.gridX, ent.gridY, reduced, thinkingNpcId === npc.id);
+        this.startNpcBob(ent, ent.gridX, ent.gridY, reduced, isNpcThinking(npc.id));
       }
-      if (thinkingNpcId === npc.id && !reduced && !ent.spriteMode) {
+      if (isNpcThinking(npc.id) && !reduced && !ent.spriteMode) {
         ent.pulseTween?.stop();
         ent.pulseTween = this.tweens.add({
           targets: [ent.body, ent.ring],

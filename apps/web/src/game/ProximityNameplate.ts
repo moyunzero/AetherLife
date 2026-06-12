@@ -41,8 +41,9 @@ export function shouldShowNameplate(
   npcId: string | undefined,
   _activeNpcId: string | null,
   thinkingNpcId: string | null,
+  thinkingNpcIds: string[] = [],
 ): boolean {
-  if (npcId && npcId === thinkingNpcId) return true;
+  if (npcId && (npcId === thinkingNpcId || thinkingNpcIds.includes(npcId))) return true;
   return chebyshevDistance(gx, gy, localGx, localGy) <= PROXIMITY_CELLS;
 }
 
@@ -80,6 +81,7 @@ export function updateNameplates(
   localCell: { x: number; y: number } | null,
   activeNpcId: string | null,
   thinkingNpcId: string | null,
+  thinkingNpcIds: string[] = [],
 ): void {
   for (const t of targets) {
     const { x: gx, y: gy } = targetCell(t);
@@ -93,6 +95,7 @@ export function updateNameplates(
         t.npcId,
         activeNpcId,
         thinkingNpcId,
+        thinkingNpcIds,
       );
 
     if (t.nameplateWantShow !== show) {

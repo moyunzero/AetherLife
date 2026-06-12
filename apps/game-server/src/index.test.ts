@@ -283,32 +283,40 @@ describe("game-server", () => {
   });
 
   it("POST reset clears only requesting player collective attitudes", async () => {
+    const playerA = "player-aaaa01";
+    const playerB = "player-bbbb02";
     const repo = CollectiveService.getInstance().repoRef();
     await repo.insertEvent({
       roomId: "default",
       npcId: "npc-1",
       kind: "help",
       summary: "协助",
-      playerIds: ["p-a", "p-b"],
+      playerIds: [playerA, playerB],
       deltaScore: 6,
     });
-    await repo.applyReputationDelta("default", "npc-1", "p-a", 5);
+    await repo.applyReputationDelta("default", "npc-1", playerA, 5);
+    await repo.applyReputationDelta("default", "npc-1", playerB, 3);
 
     const resetRes = await request(app)
       .post("/rooms/default/reset")
-      .set("X-Player-Id", "p-a");
+      .set("X-Player-Id", playerA);
     expect(resetRes.status).toBe(200);
 
     const stateRes = await request(app)
       .get("/rooms/default/collective-state")
       .query({ npcId: "npc-1" })
-      .set("X-Player-Id", "p-b");
+      .set("X-Player-Id", playerB);
     expect(stateRes.status).toBe(200);
     expect(stateRes.body.recentEvents).toHaveLength(1);
     const attitudeA = stateRes.body.attitudes?.find(
-      (a: { playerId: string }) => a.playerId === "p-a",
+      (a: { playerId: string }) => a.playerId === playerA,
     );
     expect(attitudeA).toBeUndefined();
+    const attitudeB = stateRes.body.attitudes?.find(
+      (a: { playerId: string }) => a.playerId === playerB,
+    );
+    expect(attitudeB).toBeDefined();
+    expect(attitudeB!.playerId).toBe(playerB);
   });
 
   it("POST /rooms/default/chat returns jobId with npcId in payload", async () => {
@@ -377,6 +385,28 @@ describe("game-server", () => {
 
     expect(stateA.body.memoryCounts["npc-1"]).toBe(1);
     expect(stateB.body.memoryCounts["npc-1"]).toBe(0);
+  });
+
+  it("internal memories resolve playerId from JSON body when header absent (worker path)", async () => {
+    const workerPlayer = "worker-body001";
+
+    await request(app).post("/rooms/default/reset").set("X-Player-Id", workerPlayer);
+
+    const append = await request(app)
+      .post("/internal/rooms/default/memories")
+      .send({
+        text: "npc: worker body identity",
+        npcId: "npc-1",
+        role: "npc",
+        playerId: workerPlayer,
+      });
+    expect(append.status).toBe(200);
+
+    const state = await request(app).get("/rooms/default/state").set("X-Player-Id", workerPlayer);
+    expect(state.body.memoryCounts["npc-1"]).toBe(1);
+
+    const legacy = await request(app).get("/rooms/default/state").set("X-Player-Id", "__legacy__");
+    expect(legacy.body.memoryCounts["npc-1"]).toBe(0);
   });
 
   it("POST /rooms/default/chat does not buffer server-side thinking (worker emits planning)", async () => {

@@ -1,9 +1,10 @@
 import { Router, type Request, type Response } from "express";
-import { resolvePlayerId } from "@aetherlife/shared";
 import { requireWorkerAuth } from "./internal.js";
+import { playerIdFromRequest } from "../http/player-id.js";
 import { MemoryService } from "../memory/service.js";
 import {
   getCachedMemoryContext,
+  invalidateMemoryContextForPlayer,
   memoryContextCacheKey,
   setCachedMemoryContext,
 } from "../memory/memoryContextCache.js";
@@ -11,10 +12,13 @@ import { logInternalLatency } from "../observability/internalLatency.js";
 
 function playerIdFromInternal(req: Request): string {
   const body = req.body as { playerId?: unknown } | undefined;
-  return resolvePlayerId(
-    typeof req.query.playerId === "string" ? req.query.playerId : undefined,
-    body?.playerId,
-  );
+  const queryPlayerId =
+    typeof req.query.playerId === "string" ? req.query.playerId : undefined;
+  const bodyWithQuery =
+    queryPlayerId && body?.playerId == null
+      ? { ...body, playerId: queryPlayerId }
+      : body;
+  return playerIdFromRequest(req, bodyWithQuery);
 }
 
 export function createInternalMemoriesRouter(): Router {
@@ -42,6 +46,7 @@ export function createInternalMemoriesRouter(): Router {
       } else {
         await service.appendNpcMemory(roomId, text, npcId, playerId, importance);
       }
+      invalidateMemoryContextForPlayer(roomId, playerId, npcId);
       res.json({ ok: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : "append failed";
@@ -162,6 +167,7 @@ export function createInternalMemoriesRouter(): Router {
 
     try {
       await MemoryService.getInstance().storeReflection(roomId, text, npcId, playerId);
+      invalidateMemoryContextForPlayer(roomId, playerId, npcId);
       res.json({ ok: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : "reflect failed";
@@ -194,6 +200,7 @@ export function createInternalMemoriesRouter(): Router {
         npcId,
         playerId,
       );
+      invalidateMemoryContextForPlayer(roomId, playerId, npcId);
       res.json({ ok: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : "summarize failed";
@@ -210,8 +217,10 @@ export function createInternalMemoriesRouter(): Router {
       const service = MemoryService.getInstance();
       if (npcId) {
         await service.deleteForPlayerNpc(roomId, playerId, npcId);
+        invalidateMemoryContextForPlayer(roomId, playerId, npcId);
       } else {
         await service.deleteForPlayer(roomId, playerId);
+        invalidateMemoryContextForPlayer(roomId, playerId);
       }
       res.json({ ok: true });
     } catch (err) {

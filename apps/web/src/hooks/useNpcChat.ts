@@ -101,14 +101,80 @@ export function npcSpeakQueueDepth(queues: NpcSpeakQueue, npcId: string): number
   return queues.get(npcId)?.length ?? 0;
 }
 
+/** Maps npcId ↔ jobId so parallel speaks (A thinking, tab B) each accept their own events. */
+export type NpcJobRegistry = {
+  byNpc: Map<string, string>;
+  byJob: Map<string, string>;
+};
+
+export function createNpcJobRegistry(): NpcJobRegistry {
+  return { byNpc: new Map(), byJob: new Map() };
+}
+
+export function registerNpcJob(registry: NpcJobRegistry, npcId: string, jobId: string): void {
+  const prevJob = registry.byNpc.get(npcId);
+  if (prevJob) registry.byJob.delete(prevJob);
+  registry.byNpc.set(npcId, jobId);
+  registry.byJob.set(jobId, npcId);
+}
+
+export function clearNpcJob(registry: NpcJobRegistry, jobId: string): string | undefined {
+  const npcId = registry.byJob.get(jobId);
+  if (npcId !== undefined && registry.byNpc.get(npcId) === jobId) {
+    registry.byNpc.delete(npcId);
+  }
+  registry.byJob.delete(jobId);
+  return npcId;
+}
+
+export function resolveNpcForJob(
+  registry: NpcJobRegistry,
+  jobId: string | undefined,
+): string | undefined {
+  if (typeof jobId !== "string") return undefined;
+  return registry.byJob.get(jobId);
+}
+
+export function isTrackedSpeakJob(registry: NpcJobRegistry, jobId: string | undefined): boolean {
+  return typeof jobId === "string" && registry.byJob.has(jobId);
+}
+
+export function pendingJobNpcIds(registry: NpcJobRegistry): Set<string> {
+  return new Set(registry.byNpc.keys());
+}
+
+export function collectThinkingNpcIds(
+  registry: NpcJobRegistry,
+  sendingNpcId: string | null,
+): string[] {
+  const ids = new Set(registry.byNpc.keys());
+  if (sendingNpcId) ids.add(sendingNpcId);
+  return [...ids];
+}
+
+export function registryToRecord(registry: NpcJobRegistry): Record<string, string> {
+  const rec: Record<string, string> = {};
+  for (const [npcId, jobId] of registry.byNpc) rec[npcId] = jobId;
+  return rec;
+}
+
 export function isNpcSpeakInFlight(params: {
   npcId: string;
   speakBusyNpcId: string | null;
   sendingNpcId: string | null;
-  thinkingNpcId: string | null;
+  pendingJobNpcIds?: Iterable<string>;
+  /** @deprecated use pendingJobNpcIds — kept for tests */
+  thinkingNpcId?: string | null;
 }): boolean {
-  const { npcId, speakBusyNpcId, sendingNpcId, thinkingNpcId } = params;
-  return speakBusyNpcId === npcId || sendingNpcId === npcId || thinkingNpcId === npcId;
+  const { npcId, speakBusyNpcId, sendingNpcId, pendingJobNpcIds, thinkingNpcId } = params;
+  if (speakBusyNpcId === npcId || sendingNpcId === npcId) return true;
+  if (thinkingNpcId === npcId) return true;
+  if (pendingJobNpcIds) {
+    for (const id of pendingJobNpcIds) {
+      if (id === npcId) return true;
+    }
+  }
+  return false;
 }
 
 /** Sync in-flight refs before queueMicrotask drain — setState lags; refs still block drain. */
@@ -142,7 +208,8 @@ export function useNpcChat(
   const [memoryCounts, setMemoryCounts] = useState<Record<string, number>>({});
   const [activeNpcId, setActiveNpcId] = useState(DEFAULT_NPC_ID);
   const [jobId, setJobId] = useState<string | null>(null);
-  const pendingJobIdRef = useRef<string | null>(null);
+  const npcJobRegistryRef = useRef(createNpcJobRegistry());
+  const [pendingJobsByNpc, setPendingJobsByNpc] = useState<Record<string, string>>({});
   const sendingNpcIdRef = useRef<string | null>(null);
   const activeNpcIdRef = useRef(activeNpcId);
   activeNpcIdRef.current = activeNpcId;
@@ -150,15 +217,12 @@ export function useNpcChat(
   const [lastParsedIntent, setLastParsedIntent] = useState<ParsedIntent>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const [speakBusyNpcId, setSpeakBusyNpcId] = useState<string | null>(null);
-  const [thinkingNpcId, setThinkingNpcId] = useState<string | null>(null);
   const [sendingNpcId, setSendingNpcId] = useState<string | null>(null);
   const [attitudeGateCue, setAttitudeGateCue] = useState<AttitudeGateCue | null>(null);
-  const [streamingReply, setStreamingReply] = useState<string | null>(null);
+  const [streamingByNpc, setStreamingByNpc] = useState<Record<string, string>>({});
   const [speakQueueDepthByNpc, setSpeakQueueDepthByNpc] = useState<Record<string, number>>({});
-  const partialSeenRef = useRef(false);
+  const partialSeenByJobRef = useRef(new Map<string, boolean>());
   const stateVersionRef = useRef(0);
-  const thinkingNpcIdRef = useRef<string | null>(null);
-  thinkingNpcIdRef.current = thinkingNpcId;
   const speakBusyNpcIdRef = useRef<string | null>(null);
   speakBusyNpcIdRef.current = speakBusyNpcId;
   const speakQueuesRef = useRef<NpcSpeakQueue>(new Map());
@@ -168,6 +232,10 @@ export function useNpcChat(
     ((text: string, npcId: string, opts?: { skipPlayerBubble?: boolean }) => Promise<void>) | null
   >(null);
   const drainSpeakQueueRef = useRef<((npcId: string) => void) | null>(null);
+
+  const syncPendingJobsState = useCallback(() => {
+    setPendingJobsByNpc(registryToRecord(npcJobRegistryRef.current));
+  }, []);
 
   const syncQueueDepth = useCallback((npcId: string) => {
     const depth = npcSpeakQueueDepth(speakQueuesRef.current, npcId);
@@ -193,8 +261,14 @@ export function useNpcChat(
       npcId,
       speakBusyNpcId: speakBusyNpcIdRef.current,
       sendingNpcId: sendingNpcIdRef.current,
-      thinkingNpcId: thinkingNpcIdRef.current,
+      pendingJobNpcIds: pendingJobNpcIds(npcJobRegistryRef.current),
     });
+  }, []);
+
+  const anySpeakInFlight = useCallback(() => {
+    return (
+      npcJobRegistryRef.current.byNpc.size > 0 || sendingNpcIdRef.current !== null
+    );
   }, []);
 
   const drainSpeakQueue = useCallback(
@@ -213,15 +287,7 @@ export function useNpcChat(
   const clearSendingState = useCallback((npcId: string | null) => {
     if (!npcId) return;
     setSendingNpcId((prev) => (prev === npcId ? null : prev));
-    setThinkingNpcId((prev) => (prev === npcId ? null : prev));
-    clearInFlightRefsForDrain(
-      {
-        thinkingNpcId: thinkingNpcIdRef,
-        speakBusyNpcId: speakBusyNpcIdRef,
-        sendingNpcId: sendingNpcIdRef,
-      },
-      npcId,
-    );
+    if (sendingNpcIdRef.current === npcId) sendingNpcIdRef.current = null;
   }, []);
 
   const releaseNpcBusy = useCallback((npcId: string) => {
@@ -259,69 +325,80 @@ export function useNpcChat(
     const room = colyseusRoom;
     if (!room) return;
 
-    const matchesJob = (eventJobId: unknown) => {
-      const pending = pendingJobIdRef.current;
-      if (!pending) return false;
-      return typeof eventJobId === "string" && eventJobId === pending;
-    };
-
-    const onSpeakAck = (data: { jobId?: string }) => {
+    const onSpeakAck = (data: { jobId?: string; npcId?: string }) => {
       if (typeof data?.jobId !== "string") return;
-      const npcId = sendingNpcIdRef.current ?? thinkingNpcIdRef.current;
-      pendingJobIdRef.current = data.jobId;
-      setJobId(data.jobId);
-      setSendingNpcId(null);
-      sendingNpcIdRef.current = null;
-      setSpeakBusyNpcId(null);
-      recordSpeakLatencyMark("speak_ack", { jobId: data.jobId, npcId });
-      if (npcId) {
-        const turnText = inFlightTextRef.current.get(npcId) ?? "";
-        activeTurnPlayerTextRef.current.set(npcId, turnText);
-        inFlightTextRef.current.delete(npcId);
-        thinkingNpcIdRef.current = npcId;
-        speakBusyNpcIdRef.current = null;
-        setThinkingNpcId(npcId);
-        setStatus("thinking");
+      const npcId =
+        typeof data.npcId === "string"
+          ? data.npcId
+          : sendingNpcIdRef.current ?? undefined;
+      if (!npcId) return;
+      registerNpcJob(npcJobRegistryRef.current, npcId, data.jobId);
+      syncPendingJobsState();
+      if (activeNpcIdRef.current === npcId) {
+        setJobId(data.jobId);
       }
+      if (sendingNpcIdRef.current === npcId) {
+        setSendingNpcId(null);
+        sendingNpcIdRef.current = null;
+      }
+      setSpeakBusyNpcId(null);
+      speakBusyNpcIdRef.current = null;
+      recordSpeakLatencyMark("speak_ack", { jobId: data.jobId, npcId });
+      const turnText = inFlightTextRef.current.get(npcId) ?? "";
+      activeTurnPlayerTextRef.current.set(npcId, turnText);
+      inFlightTextRef.current.delete(npcId);
+      setStatus("thinking");
     };
     const onThinking = (data: { jobId?: string }) => {
-      if (!pendingJobIdRef.current) return;
-      if (typeof data.jobId === "string" && data.jobId !== pendingJobIdRef.current) return;
+      if (typeof data.jobId === "string" && !isTrackedSpeakJob(npcJobRegistryRef.current, data.jobId)) {
+        return;
+      }
       setStatus("thinking");
     };
     const onSpeakPartial = (data: ColyseusSpeakPartialPayload & { jobId?: string }) => {
-      if (data?.jobId && pendingJobIdRef.current && data.jobId !== pendingJobIdRef.current) {
+      const replyNpcId =
+        (typeof data.npcId === "string" ? data.npcId : undefined) ??
+        resolveNpcForJob(npcJobRegistryRef.current, data.jobId);
+      if (!replyNpcId) return;
+      if (data?.jobId && !isTrackedSpeakJob(npcJobRegistryRef.current, data.jobId)) {
         return;
       }
       const text = typeof data.text === "string" ? data.text : "";
       if (!text.trim()) return;
-      const replyNpcId =
-        typeof data.npcId === "string" ? data.npcId : thinkingNpcIdRef.current;
-      if (!replyNpcId || replyNpcId !== activeNpcIdRef.current) return;
-      if (!partialSeenRef.current) {
-        partialSeenRef.current = true;
+      const jobKey = data.jobId ?? npcJobRegistryRef.current.byNpc.get(replyNpcId) ?? replyNpcId;
+      if (!partialSeenByJobRef.current.get(jobKey)) {
+        partialSeenByJobRef.current.set(jobKey, true);
         recordSpeakLatencyMark("speak_partial", {
-          jobId: data.jobId ?? pendingJobIdRef.current,
+          jobId: data.jobId,
           npcId: replyNpcId,
           textLen: text.length,
         });
       }
-      setStreamingReply(sanitizeNpcReplyText(text));
+      setStreamingByNpc((prev) => ({
+        ...prev,
+        [replyNpcId]: sanitizeNpcReplyText(text),
+      }));
     };
     const onDone = (data: ColyseusNpcJobDonePayload & { jobId?: string }) => {
-      // Fast-lane race: worker may emit done before speakAck sets pendingJobIdRef.
+      const replyNpcIdFromPayload =
+        typeof data.npcId === "string" ? data.npcId : undefined;
+      const replyNpcIdFromJob = resolveNpcForJob(npcJobRegistryRef.current, data?.jobId);
+      // Fast-lane race: worker may emit done before speakAck registers the job.
       if (
         typeof data?.jobId === "string" &&
-        !pendingJobIdRef.current &&
-        thinkingNpcIdRef.current
+        !isTrackedSpeakJob(npcJobRegistryRef.current, data.jobId) &&
+        replyNpcIdFromPayload
       ) {
-        pendingJobIdRef.current = data.jobId;
-        setJobId(data.jobId);
+        registerNpcJob(npcJobRegistryRef.current, replyNpcIdFromPayload, data.jobId);
+        syncPendingJobsState();
+        if (activeNpcIdRef.current === replyNpcIdFromPayload) {
+          setJobId(data.jobId);
+        }
       }
-      const matched = matchesJob(data?.jobId);
-      if (!matched) return;
-      const replyNpcId =
-        typeof data.npcId === "string" ? data.npcId : activeNpcIdRef.current;
+      if (typeof data?.jobId === "string" && !isTrackedSpeakJob(npcJobRegistryRef.current, data.jobId)) {
+        return;
+      }
+      const replyNpcId = replyNpcIdFromPayload ?? replyNpcIdFromJob ?? activeNpcIdRef.current;
       const npcName = typeof data.npcName === "string" ? data.npcName : "";
       if (data.gateRejected) {
         setAttitudeGateCue({
@@ -356,16 +433,32 @@ export function useNpcChat(
         speakIntent: data.speakIntent,
         phaseTimingMs: data.phaseTimingMs,
       });
-      setStreamingReply(null);
-      partialSeenRef.current = false;
+      if (typeof data.jobId === "string") {
+        partialSeenByJobRef.current.delete(data.jobId);
+      }
+      setStreamingByNpc((prev) => {
+        if (!replyNpcId || !(replyNpcId in prev)) return prev;
+        const next = { ...prev };
+        delete next[replyNpcId];
+        return next;
+      });
       if (shouldRefetchCollectiveOnJobDone(data.collectiveUpdated)) {
         onCollectiveUpdatedRef.current?.();
       }
-      setStatus("idle");
-      setThinkingNpcId(null);
+      if (typeof data.jobId === "string") {
+        clearNpcJob(npcJobRegistryRef.current, data.jobId);
+      }
+      syncPendingJobsState();
+      if (activeNpcIdRef.current === replyNpcId) {
+        setJobId(null);
+      }
+      setStatus(anySpeakInFlight() ? "thinking" : "idle");
       setSpeakBusyNpcId(null);
-      setSendingNpcId(null);
-      pendingJobIdRef.current = null;
+      speakBusyNpcIdRef.current = null;
+      if (sendingNpcIdRef.current === replyNpcId) {
+        setSendingNpcId(null);
+        sendingNpcIdRef.current = null;
+      }
       const completedPlayerText = activeTurnPlayerTextRef.current.get(replyNpcId) ?? "";
       activeTurnPlayerTextRef.current.delete(replyNpcId);
       const dedupedQueued = discardQueuedSpeakMatching(
@@ -374,26 +467,36 @@ export function useNpcChat(
         completedPlayerText,
       );
       if (dedupedQueued > 0) syncQueueDepth(replyNpcId);
-      clearInFlightRefsForDrain(
-        {
-          thinkingNpcId: thinkingNpcIdRef,
-          speakBusyNpcId: speakBusyNpcIdRef,
-          sendingNpcId: sendingNpcIdRef,
-        },
-        replyNpcId,
-      );
       void refetchState(data.state ? { memoryOnly: true } : undefined);
       queueMicrotask(() => drainSpeakQueueRef.current?.(replyNpcId));
     };
-    const onError = (data: { jobId?: string; message?: string }) => {
-      if (data?.jobId && !matchesJob(data.jobId)) return;
-      setStreamingReply(null);
-      partialSeenRef.current = false;
+    const onError = (data: { jobId?: string; message?: string; npcId?: string }) => {
+      const npcId =
+        (typeof data.npcId === "string" ? data.npcId : undefined) ??
+        resolveNpcForJob(npcJobRegistryRef.current, data.jobId) ??
+        sendingNpcIdRef.current;
+      if (data?.jobId && !isTrackedSpeakJob(npcJobRegistryRef.current, data.jobId)) {
+        return;
+      }
+      if (npcId) {
+        setStreamingByNpc((prev) => {
+          if (!(npcId in prev)) return prev;
+          const next = { ...prev };
+          delete next[npcId];
+          return next;
+        });
+      }
+      if (typeof data.jobId === "string") {
+        partialSeenByJobRef.current.delete(data.jobId);
+        clearNpcJob(npcJobRegistryRef.current, data.jobId);
+        syncPendingJobsState();
+      }
       setError(data.message ?? "NPC 回合出错");
-      setStatus("error");
-      const npcId = sendingNpcIdRef.current ?? thinkingNpcIdRef.current;
+      setStatus(anySpeakInFlight() ? "thinking" : "error");
       clearSendingState(npcId);
-      pendingJobIdRef.current = null;
+      if (activeNpcIdRef.current === npcId) {
+        setJobId(null);
+      }
       if (npcId) {
         queueMicrotask(() => drainSpeakQueueRef.current?.(npcId));
       }
@@ -402,14 +505,15 @@ export function useNpcChat(
       const busyNpc = typeof data.npcId === "string" ? data.npcId : sendingNpcIdRef.current;
       if (!busyNpc) return;
       const inflight = inFlightTextRef.current.get(busyNpc);
+      const hasPendingJob = npcJobRegistryRef.current.byNpc.has(busyNpc);
       // Duplicate client send while our job is already in flight — drop, keep waiting for onDone.
-      if (pendingJobIdRef.current && thinkingNpcIdRef.current === busyNpc) {
+      if (hasPendingJob) {
         inFlightTextRef.current.delete(busyNpc);
         setSendingNpcId((prev) => (prev === busyNpc ? null : prev));
         if (sendingNpcIdRef.current === busyNpc) sendingNpcIdRef.current = null;
         return;
       }
-      if (thinkingNpcIdRef.current === busyNpc && inflight) {
+      if (sendingNpcIdRef.current === busyNpc && inflight) {
         inFlightTextRef.current.delete(busyNpc);
         setSendingNpcId((prev) => (prev === busyNpc ? null : prev));
         if (sendingNpcIdRef.current === busyNpc) sendingNpcIdRef.current = null;
@@ -418,7 +522,6 @@ export function useNpcChat(
       if (inflight) {
         inFlightTextRef.current.delete(busyNpc);
         enqueueSpeak(busyNpc, inflight, { showPlayerBubble: false });
-        // Clear sending so composerSpeakBusyOtherPlayer → banner / status (not "正在思考…")
         setSendingNpcId((prev) => (prev === busyNpc ? null : prev));
         if (sendingNpcIdRef.current === busyNpc) {
           sendingNpcIdRef.current = null;
@@ -428,8 +531,14 @@ export function useNpcChat(
       }
       setSpeakBusyNpcId(busyNpc);
       setStatus("idle");
-      pendingJobIdRef.current = null;
-      setJobId(null);
+      const jobIdForNpc = npcJobRegistryRef.current.byNpc.get(busyNpc);
+      if (jobIdForNpc) {
+        clearNpcJob(npcJobRegistryRef.current, jobIdForNpc);
+        syncPendingJobsState();
+      }
+      if (activeNpcIdRef.current === busyNpc) {
+        setJobId(null);
+      }
     };
     const onSpeakIdle = (data: ColyseusSpeakIdlePayload) => {
       if (typeof data.npcId === "string") {
@@ -469,7 +578,7 @@ export function useNpcChat(
       offSpeakIdle();
       offPatch();
     };
-  }, [colyseusRoom, refetchState, clearSendingState, releaseNpcBusy, enqueueSpeak, syncQueueDepth]);
+  }, [colyseusRoom, refetchState, clearSendingState, releaseNpcBusy, enqueueSpeak, syncQueueDepth, syncPendingJobsState, anySpeakInFlight]);
 
   const dispatchSpeak = useCallback(
     async (text: string, npcId: string, opts?: { skipPlayerBubble?: boolean }) => {
@@ -487,7 +596,7 @@ export function useNpcChat(
           npcId,
           speakBusyNpcId: speakBusyNpcIdRef.current,
           sendingNpcId: sendingNpcIdRef.current,
-          thinkingNpcId: thinkingNpcIdRef.current,
+          pendingJobNpcIds: pendingJobNpcIds(npcJobRegistryRef.current),
         })
       ) {
         return;
@@ -504,17 +613,15 @@ export function useNpcChat(
       inFlightTextRef.current.set(npcId, trimmed);
       setSendingNpcId(npcId);
       sendingNpcIdRef.current = npcId;
-      thinkingNpcIdRef.current = npcId;
-      setThinkingNpcId(npcId);
       setStatus("thinking");
-      const keepPendingJob =
-        thinkingNpcIdRef.current === npcId && Boolean(pendingJobIdRef.current);
-      if (!keepPendingJob) {
-        pendingJobIdRef.current = null;
-        setJobId(null);
-      }
-      setStreamingReply(null);
-      partialSeenRef.current = false;
+      setStreamingByNpc((prev) => {
+        if (!(npcId in prev)) return prev;
+        const next = { ...prev };
+        delete next[npcId];
+        return next;
+      });
+      const jobKey = npcJobRegistryRef.current.byNpc.get(npcId);
+      if (jobKey) partialSeenByJobRef.current.delete(jobKey);
 
       recordSpeakLatencyMark("dispatch_start", { npcId, textLen: trimmed.length });
       if (typeof window !== "undefined") {
@@ -522,10 +629,13 @@ export function useNpcChat(
       }
 
       const clientStub = previewCasualSpeakStub(trimmed);
-      if (clientStub && npcId === activeNpcIdRef.current) {
-        setStreamingReply(sanitizeNpcReplyText(clientStub));
-        if (!partialSeenRef.current) {
-          partialSeenRef.current = true;
+      if (clientStub) {
+        setStreamingByNpc((prev) => ({
+          ...prev,
+          [npcId]: sanitizeNpcReplyText(clientStub),
+        }));
+        if (!partialSeenByJobRef.current.get(`client:${npcId}`)) {
+          partialSeenByJobRef.current.set(`client:${npcId}`, true);
           recordSpeakLatencyMark("speak_partial", {
             source: "client_mirror",
             npcId,
@@ -567,7 +677,6 @@ export function useNpcChat(
         setStatus("error");
         inFlightTextRef.current.delete(npcId);
         clearSendingState(npcId);
-        pendingJobIdRef.current = null;
       }
     },
     [colyseusRoom, mapRoomId, clearSendingState],
@@ -599,12 +708,11 @@ export function useNpcChat(
       setError(null);
       setJobId(null);
       setSpeakBusyNpcId(null);
-      setThinkingNpcId(null);
       setSendingNpcId(null);
-      thinkingNpcIdRef.current = null;
       speakBusyNpcIdRef.current = null;
       sendingNpcIdRef.current = null;
-      pendingJobIdRef.current = null;
+      npcJobRegistryRef.current = createNpcJobRegistry();
+      setPendingJobsByNpc({});
       stateVersionRef.current = 0;
       setLastParsedIntent(null);
       setParseError(null);
@@ -613,8 +721,8 @@ export function useNpcChat(
       setSpeakQueueDepthByNpc({});
       inFlightTextRef.current = new Map();
       activeTurnPlayerTextRef.current = new Map();
-      setStreamingReply(null);
-      partialSeenRef.current = false;
+      setStreamingByNpc({});
+      partialSeenByJobRef.current = new Map();
       return body.state as RoomState;
     } catch {
       setError("重置房间失败");
@@ -637,7 +745,7 @@ export function useNpcChat(
           npcId,
           speakBusyNpcId: speakBusyNpcIdRef.current,
           sendingNpcId: sendingNpcIdRef.current,
-          thinkingNpcId: thinkingNpcIdRef.current,
+          pendingJobNpcIds: pendingJobNpcIds(npcJobRegistryRef.current),
         })
       ) {
         // Option A: no client-side "type while thinking" queue — composer stays disabled.
@@ -649,6 +757,20 @@ export function useNpcChat(
   );
 
   const speakQueueDepth = speakQueueDepthByNpc[activeNpcId] ?? 0;
+  const thinkingNpcIds = (() => {
+    const ids = new Set(Object.keys(pendingJobsByNpc));
+    if (sendingNpcId) ids.add(sendingNpcId);
+    return [...ids];
+  })();
+  const activeNpcInFlight = isNpcSpeakInFlight({
+    npcId: activeNpcId,
+    speakBusyNpcId,
+    sendingNpcId,
+    pendingJobNpcIds: Object.keys(pendingJobsByNpc),
+  });
+  const thinkingNpcId = activeNpcInFlight ? activeNpcId : null;
+  const streamingReply = streamingByNpc[activeNpcId] ?? null;
+  const activeJobId = pendingJobsByNpc[activeNpcId] ?? null;
 
   return {
     messages,
@@ -657,22 +779,20 @@ export function useNpcChat(
     memoryCounts,
     activeNpcId,
     setActiveNpcId,
-    jobId,
+    jobId: activeJobId ?? jobId,
     error,
     lastParsedIntent,
     parseError,
     thinkingNpcId,
+    thinkingNpcIds,
     speakBusyNpcId,
     sendingNpcId,
     speakQueueDepth,
     speakQueueBusy:
       speakBusyNpcId === activeNpcId ||
       speakQueueDepth > 0 ||
-      (status === "thinking" && thinkingNpcId === activeNpcId),
-    composerBusyForActiveNpc:
-      sendingNpcId === activeNpcId ||
-      (status === "thinking" && thinkingNpcId === activeNpcId) ||
-      speakBusyNpcId === activeNpcId,
+      activeNpcInFlight,
+    composerBusyForActiveNpc: activeNpcInFlight,
     attitudeGateCue,
     clearAttitudeGateCue: () => setAttitudeGateCue(null),
     attitudeGateHintCopy,

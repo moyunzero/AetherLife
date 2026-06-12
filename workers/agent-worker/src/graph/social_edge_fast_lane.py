@@ -49,23 +49,21 @@ def run_social_edge_fast_lane(
     with httpx.Client() as client:
         state = fetch_state_and_memory(state, settings=cfg, client=client)
 
-    player_msg = player_message.strip()
-    reconciled = reconcile_social_perception(player_msg, preview.social)
-    turn = preview.model_copy(update={"social": reconciled})
+        player_msg = player_message.strip()
+        reconciled = reconcile_social_perception(player_msg, preview.social)
+        turn = preview.model_copy(update={"social": reconciled})
 
-    state = {
-        **state,
-        "social_perception": turn.social.model_dump(),
-        "reply_draft": turn.reply,
-        "tool_calls": [],
-        "social_applied": False,
-        "collective_updated": False,
-    }
+        state = {
+            **state,
+            "social_perception": turn.social.model_dump(),
+            "reply_draft": turn.reply,
+            "tool_calls": [],
+            "social_applied": False,
+            "collective_updated": False,
+        }
 
-    state = apply_social_event(state)
-    state = refresh_collective_in_state(state)
-
-    with httpx.Client() as client:
+        state = apply_social_event(state)
+        state = refresh_collective_in_state(state)
         state = apply_tools(state, settings=cfg, client=client)
 
     t_compose = time.perf_counter()
