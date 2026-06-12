@@ -1,6 +1,6 @@
 import { previewCasualSpeakStub } from "@aetherlife/shared";
 import { Router, type Request, type Response } from "express";
-import { registerJob } from "../colyseus/job-registry.js";
+import { registerJob, unregisterJob, getJobEntry } from "../colyseus/job-registry.js";
 import {
   getContentBlockedResponse,
   startNpcChatTurn,
@@ -45,13 +45,16 @@ export function createChatRouter(): Router {
       return;
     }
 
+    let jobId: string | undefined;
+    let speakAcquired = false;
     try {
       const casualStub = previewCasualSpeakStub(message);
-      const jobId = await startNpcChatTurn(roomId, message, npcId, playerId, undefined, {
+      jobId = await startNpcChatTurn(roomId, message, npcId, playerId, undefined, {
         casualPreviewEmitted: Boolean(casualStub),
       });
       if (colyseusRoom) {
         colyseusRoom.acquireNpcSpeakJob(npcId, jobId);
+        speakAcquired = true;
         registerJob(jobId, colyseusRoom, roomId, undefined, {
           npcId,
           playerId,
@@ -63,6 +66,10 @@ export function createChatRouter(): Router {
       }
       res.json({ jobId });
     } catch (err) {
+      if (colyseusRoom && jobId && speakAcquired) {
+        colyseusRoom.clearSpeakInFlight(jobId, { enqueueAmbient: false });
+        unregisterJob(jobId);
+      }
       const error = err instanceof Error ? err.message : "chat failed";
       res.status(500).json({ ok: false, error });
     }
@@ -72,6 +79,16 @@ export function createChatRouter(): Router {
     const jobId = req.query.jobId;
     if (typeof jobId !== "string" || !jobId) {
       res.status(400).json({ ok: false, error: "jobId query required" });
+      return;
+    }
+    const entry = getJobEntry(jobId);
+    if (!entry) {
+      res.status(404).json({ ok: false, error: "unknown job" });
+      return;
+    }
+    const requester = playerIdFromRequest(req);
+    if (!entry.playerId || entry.playerId !== requester) {
+      res.status(403).json({ ok: false, error: "forbidden" });
       return;
     }
     subscribeJobEvents(req, res, jobId);

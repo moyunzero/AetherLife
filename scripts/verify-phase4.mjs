@@ -85,8 +85,9 @@ async function main() {
     throw new Error("npc-2 memory-context leaked npc-1 secret");
   }
 
-  const transfer = await requestOk(`/rooms/${roomId}/apply-actions`, {
+  const transfer = await requestOk(`/internal/rooms/${roomId}/apply-actions`, {
     method: "POST",
+    headers: internalHeaders(),
     body: JSON.stringify({
       actingNpcId: "npc-1",
       actions: [{ type: "transfer", itemId: "key-1", toNpcId: "npc-2" }],

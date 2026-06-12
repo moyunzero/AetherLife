@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Client } from "@colyseus/sdk";
 import { assertE2eRealLlm, e2eSpeakTimeoutMs } from "./lib/e2e-policy.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -21,12 +22,22 @@ if (existsSync(envPath)) {
 const baseUrl =
   process.env.GAME_SERVER_URL ||
   `http://127.0.0.1:${process.env.GAME_SERVER_PORT || "2567"}`;
+const wsUrl = process.env.GAME_SERVER_WS || "ws://127.0.0.1:2567";
 const roomId = "default";
+const VERIFY_PLAYER_ID = "verifyph3test00001";
 const FACT = "FACT-XYZ-42";
 const seedBulk = Number.parseInt(process.argv.find((a) => a.startsWith("--seed-bulk="))?.split("=")[1] ?? "0", 10);
 
+function playerHeaders(extra = {}) {
+  return {
+    "Content-Type": "application/json",
+    "X-Player-Id": VERIFY_PLAYER_ID,
+    ...extra,
+  };
+}
+
 function internalHeaders() {
-  const headers = { "Content-Type": "application/json" };
+  const headers = playerHeaders();
   const token = process.env.INTERNAL_WORKER_TOKEN;
   if (token) headers.Authorization = `Bearer ${token}`;
   return headers;
@@ -52,6 +63,7 @@ async function seedMemories(count) {
       body: JSON.stringify({
         text: `player: filler memory ${i} about room exploration`,
         npcId: "npc-1",
+        playerId: VERIFY_PLAYER_ID,
         importance: 3,
       }),
     });
@@ -61,7 +73,9 @@ async function seedMemories(count) {
 async function pollJobDone(jobId, timeoutMs = 120_000) {
   const started = Date.now();
   const url = `${baseUrl}/rooms/${roomId}/events?jobId=${encodeURIComponent(jobId)}`;
-  const res = await fetch(url, { headers: { Accept: "text/event-stream" } });
+  const res = await fetch(url, {
+    headers: { Accept: "text/event-stream", "X-Player-Id": VERIFY_PLAYER_ID },
+  });
   if (!res.ok || !res.body) throw new Error(`SSE subscribe failed ${res.status}`);
 
   const reader = res.body.getReader();
@@ -106,7 +120,7 @@ async function waitForMemoryCounts(
 ) {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
-    const state = await request(`/rooms/${roomId}/state`);
+    const state = await request(`/rooms/${roomId}/state`, { headers: playerHeaders() });
     const counts = state.memoryCounts ?? {};
     if (predicate(counts)) return counts;
     await sleep(1000);
@@ -124,13 +138,26 @@ async function main() {
 
   console.log(`verify:phase3 → ${baseUrl}`);
 
-  await request(`/rooms/${roomId}/reset`, { method: "POST" });
+  const client = new Client(wsUrl);
+  const colyseusRoom = await client.joinOrCreate("game_room", {
+    mapRoomId: roomId,
+    playerId: VERIFY_PLAYER_ID,
+  });
+  console.log(`verify:phase3: joined Colyseus room ${colyseusRoom.roomId} as ${VERIFY_PLAYER_ID}`);
+
+  await request(`/rooms/${roomId}/reset`, {
+    method: "POST",
+    headers: playerHeaders(),
+    body: JSON.stringify({ playerId: VERIFY_PLAYER_ID }),
+  });
 
   const chatRes = await request(`/rooms/${roomId}/chat`, {
     method: "POST",
+    headers: playerHeaders(),
     body: JSON.stringify({
       message: `Remember ${FACT} the door code is 7`,
       npcId: "npc-1",
+      playerId: VERIFY_PLAYER_ID,
     }),
   });
   if (!chatRes.jobId) {
@@ -152,7 +179,7 @@ async function main() {
 
   const start = Date.now();
   const ctx = await request(
-    `/internal/rooms/${roomId}/memory-context?playerMessage=${encodeURIComponent("what is the door code")}&npcId=npc-1`,
+    `/internal/rooms/${roomId}/memory-context?playerMessage=${encodeURIComponent("what is the door code")}&npcId=npc-1&playerId=${encodeURIComponent(VERIFY_PLAYER_ID)}`,
     { headers: internalHeaders() },
   );
   const elapsed = Date.now() - start;
@@ -177,13 +204,18 @@ async function main() {
     console.warn(`WARN: memory-context took ${elapsed}ms (>500ms target in dev)`);
   }
 
-  await request(`/rooms/${roomId}/reset`, { method: "POST" });
+  await request(`/rooms/${roomId}/reset`, {
+    method: "POST",
+    headers: playerHeaders(),
+    body: JSON.stringify({ playerId: VERIFY_PLAYER_ID }),
+  });
   await waitForMemoryCounts(
     (counts) => ["npc-1", "npc-2", "npc-3"].every((id) => (counts[id] ?? 0) === 0),
     30_000,
     "reset clears all memoryCounts",
   );
 
+  await colyseusRoom.leave();
   console.log("verify:phase3 OK — FACT recall, latency logged, reset clears DB memory");
 }
 

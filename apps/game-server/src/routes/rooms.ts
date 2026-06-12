@@ -4,6 +4,8 @@ import {
   findNpc,
   HOME_CHUNK_LORE,
   chunkOf,
+  normalizePlayerId,
+  PLAYER_ID_HEADER,
   toChunkLorePublic,
   type CollectivePosition,
 } from "@aetherlife/shared";
@@ -31,6 +33,8 @@ import { playerIdFromRequest } from "../http/player-id.js";
 import { getOrCreate, reset, setState } from "../room/store.js";
 import { getChunkLoader } from "../world/chunk-loader.js";
 import { getChunkLore } from "../world/lore-repository.js";
+import { getChunkLoreCached } from "../world/lore-chunk-cache.js";
+import { logInternalLatency } from "../observability/internalLatency.js";
 import { clearDialogueForPlayer } from "../npc/dialogue-session.js";
 import {
   getCachedWorkerState,
@@ -132,12 +136,21 @@ async function recordActionCollectiveRules(
   }
 }
 
+function initiatorPlayerIdFromRequest(req: Request): string | undefined {
+  const fromHeader = normalizePlayerId(req.get(PLAYER_ID_HEADER));
+  if (fromHeader) return fromHeader;
+  const bodyInitiator =
+    typeof req.body?.initiatorPlayerId === "string"
+      ? normalizePlayerId(req.body.initiatorPlayerId)
+      : null;
+  return bodyInitiator ?? undefined;
+}
+
 async function applyActionsHandler(req: Request, res: Response): Promise<void> {
   const { roomId } = req.params;
   const actions = req.body?.actions;
   const actingNpcId = req.body?.actingNpcId;
-  const initiatorPlayerId =
-    typeof req.body?.initiatorPlayerId === "string" ? req.body.initiatorPlayerId : undefined;
+  const initiatorPlayerId = initiatorPlayerIdFromRequest(req);
   const jobId = typeof req.body?.jobId === "string" ? req.body.jobId : undefined;
 
   if (typeof actingNpcId !== "string" || !actingNpcId.trim()) {
@@ -272,23 +285,25 @@ async function buildNearbyLore(
   gy: number,
 ): Promise<Array<{ cx: number; cy: number; nameZh: string; flavorOneLine: string }>> {
   const { cx, cy } = chunkOf(gx, gy);
-  const out: Array<{ cx: number; cy: number; nameZh: string; flavorOneLine: string }> = [];
+  const cells: Array<{ ncx: number; ncy: number }> = [];
   for (let dx = -1; dx <= 1; dx++) {
     for (let dy = -1; dy <= 1; dy++) {
-      const ncx = cx + dx;
-      const ncy = cy + dy;
-      if (ncx === 0 && ncy === 0) {
-        const pub = toChunkLorePublic(HOME_CHUNK_LORE);
-        out.push({ cx: ncx, cy: ncy, nameZh: pub.nameZh, flavorOneLine: pub.flavorOneLine });
-        continue;
-      }
-      const row = await getChunkLore(roomId, ncx, ncy);
-      if (!row) continue;
-      const pub = toChunkLorePublic(row.lore);
-      out.push({ cx: ncx, cy: ncy, nameZh: pub.nameZh, flavorOneLine: pub.flavorOneLine });
+      cells.push({ ncx: cx + dx, ncy: cy + dy });
     }
   }
-  return out;
+  const rows = await Promise.all(
+    cells.map(async ({ ncx, ncy }) => {
+      if (ncx === 0 && ncy === 0) {
+        const pub = toChunkLorePublic(HOME_CHUNK_LORE);
+        return { cx: ncx, cy: ncy, nameZh: pub.nameZh, flavorOneLine: pub.flavorOneLine };
+      }
+      const row = await getChunkLoreCached(roomId, ncx, ncy);
+      if (!row) return null;
+      const pub = toChunkLorePublic(row.lore);
+      return { cx: ncx, cy: ncy, nameZh: pub.nameZh, flavorOneLine: pub.flavorOneLine };
+    }),
+  );
+  return rows.filter((row): row is NonNullable<typeof row> => row !== null);
 }
 
 export function createRoomsRouter(): Router {
@@ -317,10 +332,10 @@ export function createRoomsRouter(): Router {
     const playerId = playerIdFromRequest(req, req.body);
     try {
       const record = reset(roomId);
-      resetColyseusFromMap(roomId, record.state);
+      resetColyseusFromMap(roomId, record.state, playerId);
       const service = MemoryService.getInstance();
       await service.deleteForPlayer(roomId, playerId);
-      await CollectiveService.getInstance().deleteForRoom(roomId);
+      await CollectiveService.getInstance().deleteForPlayer(roomId, playerId);
       clearDialogueForPlayer(roomId, playerId);
       clearActionTrackersForRoom(roomId);
       moveIntentTracker.clearRoom(roomId);
@@ -335,8 +350,6 @@ export function createRoomsRouter(): Router {
       res.status(500).json({ ok: false, error: message });
     }
   });
-
-  router.post("/:roomId/apply-actions", applyActionsHandler);
 
   router.get("/:roomId/chunks/:cx/:cy/lore", async (req, res) => {
     const { roomId } = req.params;
@@ -364,17 +377,7 @@ export function createRoomsRouter(): Router {
 export function createInternalRoomsRouter(): Router {
   const router = Router();
 
-  router.post("/:roomId/apply-actions", (req, res, next) => {
-    const token = process.env.INTERNAL_WORKER_TOKEN;
-    if (token) {
-      const auth = req.headers.authorization;
-      if (auth !== `Bearer ${token}`) {
-        res.status(401).json({ ok: false, error: "unauthorized" });
-        return;
-      }
-    }
-    next();
-  }, applyActionsHandler);
+  router.post("/:roomId/apply-actions", requireWorkerAuth, applyActionsHandler);
 
   router.get("/:roomId/worker-state", requireWorkerAuth, async (req, res) => {
     const { roomId } = req.params;
@@ -382,8 +385,16 @@ export function createInternalRoomsRouter(): Router {
     const skipNearbyLore =
       req.query.skipNearbyLore === "1" || req.query.skipNearbyLore === "true";
     const cacheKey = workerStateCacheKey(roomId, playerId, skipNearbyLore);
+    const started = Date.now();
     const cached = getCachedWorkerState(cacheKey);
     if (cached) {
+      logInternalLatency({
+        route: "worker-state",
+        ms: Date.now() - started,
+        roomId,
+        cacheHit: true,
+        skipNearbyLore,
+      });
       res.json(cached);
       return;
     }
@@ -391,7 +402,14 @@ export function createInternalRoomsRouter(): Router {
       const payload = await buildWorkerStatePayload(roomId, playerId, {
         skipNearbyLore,
       });
-      setCachedWorkerState(cacheKey, payload);
+      setCachedWorkerState(cacheKey, payload, skipNearbyLore);
+      logInternalLatency({
+        route: "worker-state",
+        ms: Date.now() - started,
+        roomId,
+        cacheHit: false,
+        skipNearbyLore,
+      });
       res.json(payload);
     } catch (err) {
       const message = err instanceof Error ? err.message : "worker-state failed";

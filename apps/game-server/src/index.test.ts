@@ -15,9 +15,14 @@ import { clearJobSubscribers, peekBufferedJobEvents } from "./sse/hub.js";
 describe("game-server", () => {
   const app = createApp();
 
+  function internalApplyActions() {
+    return request(app).post("/internal/rooms/default/apply-actions");
+  }
+
   beforeEach(() => {
     delete process.env.DATABASE_URL;
     delete process.env.REDIS_URL;
+    delete process.env.INTERNAL_WORKER_TOKEN;
     clearAllRooms();
     clearMockJobs();
     clearJobSubscribers();
@@ -110,34 +115,58 @@ describe("game-server", () => {
 
   it("POST apply-actions with valid move updates acting npc coordinates", async () => {
     await request(app).post("/rooms/default/reset");
-    const res = await request(app)
-      .post("/rooms/default/apply-actions")
-      .send({
-        actingNpcId: "npc-1",
-        actions: [{ type: "move", x: 5, y: 5 }],
-      });
+    const res = await internalApplyActions().send({
+      actingNpcId: "npc-1",
+      actions: [{ type: "move", x: 5, y: 5 }],
+    });
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
     expect(res.body.applied).toBe(1);
     expect(res.body.state.npcs[0]).toEqual(expect.objectContaining({ id: "npc-1", x: 5, y: 5 }));
   });
 
-  it("POST apply-actions rejects missing actingNpcId", async () => {
+  it("POST /rooms/default/apply-actions returns 404 (removed public route)", async () => {
     const res = await request(app)
       .post("/rooms/default/apply-actions")
-      .send({ actions: [{ type: "move", x: 5, y: 5 }] });
+      .send({
+        actingNpcId: "npc-1",
+        actions: [{ type: "move", x: 5, y: 5 }],
+      });
+    expect(res.status).toBe(404);
+  });
+
+  it("GET /internal/rooms/default/worker-state returns 503 when token missing in production", async () => {
+    const prevNode = process.env.NODE_ENV;
+    const prevToken = process.env.INTERNAL_WORKER_TOKEN;
+    const prevAllow = process.env.ALLOW_OPEN_INTERNAL;
+    delete process.env.INTERNAL_WORKER_TOKEN;
+    delete process.env.ALLOW_OPEN_INTERNAL;
+    process.env.NODE_ENV = "production";
+    try {
+      const res = await request(app).get("/internal/rooms/default/worker-state");
+      expect(res.status).toBe(503);
+      expect(res.body.error).toMatch(/INTERNAL_WORKER_TOKEN/);
+    } finally {
+      process.env.NODE_ENV = prevNode;
+      if (prevToken !== undefined) process.env.INTERNAL_WORKER_TOKEN = prevToken;
+      else delete process.env.INTERNAL_WORKER_TOKEN;
+      if (prevAllow !== undefined) process.env.ALLOW_OPEN_INTERNAL = prevAllow;
+      else delete process.env.ALLOW_OPEN_INTERNAL;
+    }
+  });
+
+  it("POST apply-actions rejects missing actingNpcId", async () => {
+    const res = await internalApplyActions().send({ actions: [{ type: "move", x: 5, y: 5 }] });
     expect(res.status).toBe(400);
   });
 
   it("POST apply-actions rejects invalid action without mutating state", async () => {
     await request(app).post("/rooms/default/reset");
     const before = await request(app).get("/rooms/default/state");
-    const res = await request(app)
-      .post("/rooms/default/apply-actions")
-      .send({
-        actingNpcId: "npc-1",
-        actions: [{ type: "fly", x: 0, y: 0 }],
-      });
+    const res = await internalApplyActions().send({
+      actingNpcId: "npc-1",
+      actions: [{ type: "fly", x: 0, y: 0 }],
+    });
     expect(res.status).toBe(400);
     const after = await request(app).get("/rooms/default/state");
     expect(after.body.state.npcs).toEqual(before.body.state.npcs);
@@ -233,8 +262,8 @@ describe("game-server", () => {
     const repo = CollectiveService.getInstance().repoRef();
     await repo.applyReputationDelta("default", "npc-1", playerId, -35);
 
-    const res = await request(app)
-      .post("/rooms/default/apply-actions")
+    const res = await internalApplyActions()
+      .set("X-Player-Id", playerId)
       .send({
         actingNpcId: "npc-1",
         initiatorPlayerId: playerId,
@@ -253,7 +282,7 @@ describe("game-server", () => {
     );
   });
 
-  it("POST reset clears collective events for room", async () => {
+  it("POST reset clears only requesting player collective attitudes", async () => {
     const repo = CollectiveService.getInstance().repoRef();
     await repo.insertEvent({
       roomId: "default",
@@ -263,15 +292,23 @@ describe("game-server", () => {
       playerIds: ["p-a", "p-b"],
       deltaScore: 6,
     });
+    await repo.applyReputationDelta("default", "npc-1", "p-a", 5);
 
-    const resetRes = await request(app).post("/rooms/default/reset");
+    const resetRes = await request(app)
+      .post("/rooms/default/reset")
+      .set("X-Player-Id", "p-a");
     expect(resetRes.status).toBe(200);
 
     const stateRes = await request(app)
       .get("/rooms/default/collective-state")
-      .query({ npcId: "npc-1" });
+      .query({ npcId: "npc-1" })
+      .set("X-Player-Id", "p-b");
     expect(stateRes.status).toBe(200);
-    expect(stateRes.body.recentEvents).toEqual([]);
+    expect(stateRes.body.recentEvents).toHaveLength(1);
+    const attitudeA = stateRes.body.attitudes?.find(
+      (a: { playerId: string }) => a.playerId === "p-a",
+    );
+    expect(attitudeA).toBeUndefined();
   });
 
   it("POST /rooms/default/chat returns jobId with npcId in payload", async () => {
@@ -378,12 +415,10 @@ describe("game-server", () => {
 
   it("GET /rooms/default/audit-log lists mutations after apply-actions (SAFE-03)", async () => {
     await request(app).post("/rooms/default/reset");
-    const apply = await request(app)
-      .post("/rooms/default/apply-actions")
-      .send({
-        actingNpcId: "npc-1",
-        actions: [{ type: "move", x: 5, y: 5 }],
-      });
+    const apply = await internalApplyActions().send({
+      actingNpcId: "npc-1",
+      actions: [{ type: "move", x: 5, y: 5 }],
+    });
     expect(apply.status).toBe(200);
 
     const res = await request(app).get("/rooms/default/audit-log?limit=10");

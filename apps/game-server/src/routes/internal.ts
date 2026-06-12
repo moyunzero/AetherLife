@@ -4,12 +4,20 @@ import { emitJobEvent } from "../sse/hub.js";
 
 function requireWorkerAuth(req: Request, res: Response, next: NextFunction): void {
   const token = process.env.INTERNAL_WORKER_TOKEN;
-  if (token) {
-    const auth = req.headers.authorization;
-    if (auth !== `Bearer ${token}`) {
-      res.status(401).json({ ok: false, error: "unauthorized" });
+  const allowOpen =
+    process.env.NODE_ENV === "test" || process.env.ALLOW_OPEN_INTERNAL === "1";
+  if (!token) {
+    if (allowOpen) {
+      next();
       return;
     }
+    res.status(503).json({ ok: false, error: "INTERNAL_WORKER_TOKEN not configured" });
+    return;
+  }
+  const auth = req.headers.authorization;
+  if (auth !== `Bearer ${token}`) {
+    res.status(401).json({ ok: false, error: "unauthorized" });
+    return;
   }
   next();
 }

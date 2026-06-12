@@ -13,9 +13,11 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 | 层 | 契约 |
 |----|------|
 | **身份来源** | Colyseus `speak` → `playerId` → job payload `playerId` |
-| **状态读取** | speak 热路径：`GET /internal/rooms/:id/worker-state` + header `X-Player-Id` → `roomStateForInitiator` → `state.player` = 发起者实时格（无 memoryCounts）；legacy/debug：`GET /rooms/:id/state` 仍可用 |
+| **状态读取** | speak 热路径：`GET /internal/rooms/:id/worker-state?skipNearbyLore=1`（默认）+ header `X-Player-Id` → `roomStateForInitiator` → `state.player` = 发起者实时格（无 memoryCounts）；NARRATIVE + lore markers 可 lazy `skipNearbyLore=0`；legacy/debug：`GET /rooms/:id/state` 仍可用 |
+| **Pre-LLM 降级** | worker `fetch_state` 超时后返回进程内 stale snapshot（`_stale` / `_stale_age_ms`），**不得** hard-fail job；move 仍 `invalidateWorkerStateForPlayer` |
+| **Memory 热路径** | `GET .../memory-context`：`skipEmbed=1` 用于 CASUAL/SOCIAL_EDGE/NARRATIVE；RECALL 须 full embed；5s 进程内 cache；header `X-Speak-Hot-Path: 1` 优先 embed 队列 |
 | **Prompt** | 「我 / 下方 / 旁边」仅相对 **本次** `state.player`（见 `workers/.../prompt.py`） |
-| **执行** | `POST .../apply-actions` body: `actingNpcId`, `actions[]`, `initiatorPlayerId` |
+| **执行** | 唯一 HTTP 写入口：`POST /internal/rooms/:id/apply-actions`（Bearer `INTERNAL_WORKER_TOKEN` + header `X-Player-Id`；body `initiatorPlayerId` 仅 header 缺失时 fallback）。公开 `/rooms/.../apply-actions` 已移除。body: `actingNpcId`, `actions[]` |
 | **碰撞** | `collectPlayerCells`（所有 Colyseus 玩家 + map 快照） |
 | **吸附** | `moveAnchorCell` = `findPlayerCellByPlayerId(initiatorPlayerId)`；`snapNpcMoveDest` 优先四邻 |
 | **LLM 出口** | `tool_calls` → `tool_calls_to_actions()` → 仅 `{type,x,y}` 等 strict 字段 |
@@ -49,7 +51,7 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 
 | 层 | 契约 |
 |----|------|
-| **唯一写入口** | `applyGameAction` / `POST apply-actions`（worker 或内部路由） |
+| **唯一写入口** | `applyGameAction` / `POST /internal/rooms/:id/apply-actions`（worker + Bearer；禁止公开路由） |
 | **校验** | `GameActionSchema` Zod **strict** — 未知键 → 400 |
 | **Worker** | 必须 `action_sanitize` 后再 POST；无效 `interact.objectId` **跳过**而非整批失败 |
 | **审计** | 成功 mutation → `recordSuccessfulMutation` |

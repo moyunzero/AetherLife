@@ -71,12 +71,19 @@ def classify_speak_intent(
     return SpeakIntent.NARRATIVE
 
 
+def message_needs_nearby_lore(message: str) -> bool:
+    msg = (message or "").strip()
+    if not msg:
+        return False
+    return any(marker in msg for marker in _NARRATIVE_MARKERS)
+
+
 def should_skip_memory_context(intent: SpeakIntent) -> bool:
     return intent in (SpeakIntent.PHYSICAL, SpeakIntent.CASUAL)
 
 
 def should_skip_memory_embed(intent: SpeakIntent) -> bool:
-    return intent == SpeakIntent.CASUAL
+    return intent in (SpeakIntent.CASUAL, SpeakIntent.SOCIAL_EDGE, SpeakIntent.NARRATIVE)
 
 
 def can_use_casual_fast_lane(
@@ -94,5 +101,24 @@ def can_use_casual_fast_lane(
         speak_intent=intent.value,
     )
     if turn is None:
+        return intent, None
+    return intent, turn
+
+
+def can_use_social_edge_fast_lane(
+    player_message: str,
+    recent_turns: list | None = None,
+) -> tuple[SpeakIntent, Any | None]:
+    """SOCIAL_EDGE + rule-based social (rude/help) — bypass LangGraph for verify latency."""
+    from src.graph.nodes.llm_social_turn import _deterministic_social_turn
+
+    intent = classify_speak_intent(player_message, recent_turns)
+    if intent != SpeakIntent.SOCIAL_EDGE:
+        return intent, None
+    turn: SocialTurnOut | None = _deterministic_social_turn(
+        player_message,
+        speak_intent=intent.value,
+    )
+    if turn is None or turn.social.kind == "ignore":
         return intent, None
     return intent, turn

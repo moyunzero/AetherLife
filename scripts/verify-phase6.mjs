@@ -9,6 +9,11 @@ import {
   e2eSpeakTimeoutMs,
 } from "./lib/e2e-policy.mjs";
 
+/** Keep in sync with packages/shared/src/homeMap.ts (Beginning Fields). */
+const HOME_MAP_TILE_W = 40;
+const HOME_MAP_TILE_H = 40;
+const HOME_DEFAULT_PLAYER_SPAWN = { x: 34, y: 13 };
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const envPath = resolve(root, ".env");
 if (existsSync(envPath)) {
@@ -86,7 +91,7 @@ async function moveOneStep(roomA, roomB, sessionA) {
   for (const [dx, dy] of STEP_DIRS) {
     const nx = start.x + dx;
     const ny = start.y + dy;
-    if (nx < 0 || ny < 0 || nx >= 8 || ny >= 8) continue;
+    if (nx < 0 || ny < 0 || nx >= HOME_MAP_TILE_W || ny >= HOME_MAP_TILE_H) continue;
 
     roomA.send("move", { dx, dy });
     try {
@@ -198,18 +203,27 @@ async function main() {
   console.log(`verify:phase6: step sync OK → (${afterStep.x},${afterStep.y})`);
 
   const sessionB = roomB.sessionId;
-  await moveToTarget(roomB, sessionB, 4, 3);
+  const targetB = {
+    x: HOME_DEFAULT_PLAYER_SPAWN.x - 1,
+    y: HOME_DEFAULT_PLAYER_SPAWN.y,
+  };
+  const targetA = {
+    x: HOME_DEFAULT_PLAYER_SPAWN.x - 2,
+    y: HOME_DEFAULT_PLAYER_SPAWN.y,
+  };
+
+  await moveToTarget(roomB, sessionB, targetB.x, targetB.y);
   await waitFor(() => {
     const peerB = roomA.state.players.get(sessionB);
-    return peerB?.x === 4 && peerB?.y === 3;
+    return peerB?.x === targetB.x && peerB?.y === targetB.y;
   }, 5000);
 
-  await moveToTarget(roomA, sessionA, 4, 4);
+  await moveToTarget(roomA, sessionA, targetA.x, targetA.y);
   await waitFor(() => {
     const peer = roomB.state.players.get(sessionA);
-    return peer?.x === 4 && peer?.y === 4;
+    return peer?.x === targetA.x && peer?.y === targetA.y;
   }, 5000);
-  console.log("verify:phase6: target move sync OK → (4,4)");
+  console.log(`verify:phase6: target move sync OK → (${targetA.x},${targetA.y})`);
 
   if (!skipSpeak) {
     const speakTimeoutMs = e2eSpeakTimeoutMs();

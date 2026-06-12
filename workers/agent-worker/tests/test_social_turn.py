@@ -101,11 +101,24 @@ def test_infer_insult_from_message():
     assert inferred.kind == "rude"
 
 
+def test_infer_rude_from_ru_cu():
+    """verify:phase12 player A speak — must backstop when LLM returns ignore."""
+    inferred = infer_social_from_message("你真粗鲁")
+    assert inferred is not None
+    assert inferred.kind == "rude"
+
+
 def test_reconcile_upgrades_llm_ignore_on_insult():
     perception = SocialPerception(kind="ignore", summary="", delta=0)
     reconciled = reconcile_social_perception("你好丑啊，活该被打", perception)
     assert reconciled.kind == "rude"
     assert reconciled.summary == "玩家言语不敬"
+
+
+def test_reconcile_upgrades_llm_ignore_on_ru_cu():
+    perception = SocialPerception(kind="ignore", summary="", delta=0)
+    reconciled = reconcile_social_perception("你真粗鲁", perception)
+    assert reconciled.kind == "rude"
 
 
 def test_reconcile_keeps_llm_ignore_on_neutral():

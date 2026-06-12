@@ -7,8 +7,24 @@ from .constants import KIND_FIXED_DELTA, NPC_PERSONALITY_SEED
 from .repository import CollectiveRepository
 from .schemas import SOCIAL_SKIP_KIND, SocialPerception, is_social_skip
 
-# Worker-side perception backstop (Phase 12.1 — not server speak lexicon).
-INSULT_MARKERS = ("丑", "滚", "蠢", "有病", "变态", "活该", "什么玩意", "傻", "废物", "去死")
+# Worker-side perception backstop (Phase 12.1 — align with rule-detector RUDE_PATTERN).
+INSULT_MARKERS = (
+    "粗鲁",
+    "丑",
+    "滚",
+    "蠢",
+    "有病",
+    "变态",
+    "活该",
+    "什么玩意",
+    "傻",
+    "废物",
+    "去死",
+    "讨厌",
+    "笨蛋",
+    "侮辱",
+    "辱骂",
+)
 from .scoring import (
     allowed_tools_for_band,
     band_from_effective_score,

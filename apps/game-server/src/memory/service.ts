@@ -339,10 +339,11 @@ export class MemoryService {
     playerMessage: string,
     npcId: string,
     playerId: string,
-    options?: { skipEmbed?: boolean },
+    options?: { skipEmbed?: boolean; embedPriority?: boolean },
   ): Promise<MemoryContext> {
     const start = Date.now();
     const skipEmbed = options?.skipEmbed === true;
+    const embedPriority = options?.embedPriority === true;
     const collectivePromise = CollectiveService.getInstance().getCollectiveContext(
       roomId,
       npcId,
@@ -361,7 +362,7 @@ export class MemoryService {
           collective,
         };
       }
-      const queryEmbedding = await embedText(playerMessage);
+      const queryEmbedding = await embedText(playerMessage, { priority: embedPriority });
       const retrieved = await this.test.searchSimilar({
         roomId,
         playerId,
@@ -398,7 +399,7 @@ export class MemoryService {
       };
     }
 
-    const queryEmbedding = await embedText(playerMessage);
+    const queryEmbedding = await embedText(playerMessage, { priority: embedPriority });
     const [retrieved, memoryCount, latestBulkSummary, latestReflection, collective] =
       await Promise.all([
         repo.searchSimilar({ roomId, playerId, npcId, queryEmbedding, k: 5 }),

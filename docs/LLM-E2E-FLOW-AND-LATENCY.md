@@ -159,7 +159,9 @@ node scripts/benchmark-llm-e2e-latency.mjs # 同会话 SDK 对照
 | B3 快路径 | ≤5s | N/A（零 social LLM） |
 | B2 物理 | 8–12s | 可选 stub 首句 partial |
 
-JSON 报告字段：`segmentsMs.ttft_partial`、`speakIntent`、`phaseTimingMs`（来自 job `done`；fast lane 含 `t_fast_lane_ms`、`t_fetch_state_ms`、`t_compose_ms`）。
+JSON 报告字段：`segmentsMs.ttft_partial`、`speakIntent`、`phaseTimingMs`（来自 job `done`；含 `t_fetch_state_ms`、`t_memory_ms`、`t_lazy_lore_ms`、`t_worker_state_stale_ms`；fast lane 含 `t_fast_lane_ms`、`t_compose_ms`）。
+
+**Phase 17 pre-LLM 目标：** `t_fetch_state_ms` + `t_memory_ms` p95 **<2s**（hard 3s）；`skipNearbyLore=1` 默认；worker-state stale fallback 时 `room_snapshot._stale=true`。
 
 **B1 CASUAL Fast Lane（P3）：** `can_use_casual_fast_lane` 命中时 `process_job` 在 graph 前 `speakPartial`（`preview_casual_stub`），再 `run_casual_fast_lane`：`fetch_state?skipNearbyLore=1` → `apply_social_event` → `compose_reply`；**无** Postgres checkpoint / 6 节点 LangGraph / memory HTTP。RECALL/NARRATIVE/PHYSICAL 及 non-deterministic CASUAL 仍走 `run_npc_turn_interactive`。
 

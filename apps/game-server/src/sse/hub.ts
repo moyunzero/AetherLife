@@ -151,7 +151,14 @@ export function emitJobEvent(jobId: string, type: JobEventType, data: unknown): 
   if (TERMINAL_EVENTS.has(type)) {
     const entry = getJobEntry(jobId);
     if (entry?.room) {
-      (entry.room as unknown as GameRoom).clearSpeakInFlight?.(jobId);
+      const gateRejected =
+        type === "done" &&
+        typeof data === "object" &&
+        data !== null &&
+        (data as Record<string, unknown>).gateRejected === true;
+      (entry.room as unknown as GameRoom).clearSpeakInFlight?.(jobId, {
+        enqueueAmbient: type === "done" && !gateRejected,
+      });
     }
     scheduleBufferCleanup(jobId);
     unregisterJob(jobId);

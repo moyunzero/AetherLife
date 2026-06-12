@@ -14,7 +14,8 @@ from src.graph.memory_quote import pick_memory_quote
 from src.graph.casual_fast_lane import run_casual_fast_lane
 from src.graph.npc_loop import run_npc_memory_tail, run_npc_turn_interactive
 from src.graph.nodes.llm_social_turn import preview_casual_stub
-from src.graph.speak_intent import can_use_casual_fast_lane
+from src.graph.speak_intent import can_use_casual_fast_lane, can_use_social_edge_fast_lane
+from src.graph.social_edge_fast_lane import run_social_edge_fast_lane
 from src.graph.job_context import reset_job_context, set_job_context
 from src.llm.call_budget import (
     get_recorder,
@@ -32,6 +33,7 @@ AMBIENT_INTENT_BRIDGE_LIST_KEY = "aetherlife:npc-ambient-intent:jobs"
 BLPOP_TIMEOUT_S = 5
 LORE_BLPOP_TIMEOUT_S = 1
 AMBIENT_BLPOP_TIMEOUT_S = 1
+_speak_in_progress = False
 
 
 def create_redis_client(redis_url: str) -> redis.Redis:
@@ -101,6 +103,8 @@ def process_ambient_intent_job(client: httpx.Client, settings: Settings, payload
 
 
 def drain_one_ambient_intent_job(r: redis.Redis, client: httpx.Client, settings: Settings) -> bool:
+    if _speak_in_progress or r.llen(BRIDGE_LIST_KEY) > 0:
+        return False
     raw = r.rpop(AMBIENT_INTENT_BRIDGE_LIST_KEY)
     if not raw:
         return False
@@ -114,6 +118,8 @@ def drain_one_ambient_intent_job(r: redis.Redis, client: httpx.Client, settings:
 
 def drain_one_lore_job(r: redis.Redis, client: httpx.Client, settings: Settings) -> bool:
     """Process at most one pending chunk-lore job (non-blocking). Returns True if handled."""
+    if _speak_in_progress or r.llen(BRIDGE_LIST_KEY) > 0:
+        return False
     # game-server LPUSH → RPOP oldest first (FIFO), same as main-loop BRPOP
     raw = r.rpop(LORE_BRIDGE_LIST_KEY)
     if not raw:
@@ -127,6 +133,7 @@ def drain_one_lore_job(r: redis.Redis, client: httpx.Client, settings: Settings)
 
 
 def process_job(client: httpx.Client, settings: Settings, payload: dict) -> None:
+    global _speak_in_progress
     job_id = payload["jobId"]
     room_id = payload.get("roomId", "default")
     npc_id = payload.get("npcId", "npc-1")
@@ -149,10 +156,15 @@ def process_job(client: httpx.Client, settings: Settings, payload: dict) -> None
 
     ctx_tokens = set_job_context(partial_emit=partial_emit, phase_timing=phase_timing)
     start_recorder()
+    _speak_in_progress = True
     try:
         recent = recent_turns if isinstance(recent_turns, list) else []
         preview_already_emitted = bool(payload.get("casualPreviewEmitted"))
         _intent, fast_preview = can_use_casual_fast_lane(player_message, recent)
+        _social_intent, social_preview = can_use_social_edge_fast_lane(
+            player_message,
+            recent,
+        )
         if fast_preview is not None:
             if not preview_already_emitted:
                 stub = preview_casual_stub(player_message, speak_intent=_intent.value)
@@ -167,6 +179,17 @@ def process_job(client: httpx.Client, settings: Settings, payload: dict) -> None
                 preview=fast_preview,
                 settings=settings,
             )
+        elif social_preview is not None:
+            partial_emit(social_preview.reply)
+            result = run_social_edge_fast_lane(
+                room_id=room_id,
+                player_message=player_message,
+                npc_id=npc_id,
+                player_id=player_id,
+                recent_turns=recent,
+                preview=social_preview,
+                settings=settings,
+            )
         else:
             result = run_npc_turn_interactive(
                 room_id=room_id,
@@ -177,6 +200,7 @@ def process_job(client: httpx.Client, settings: Settings, payload: dict) -> None
                 settings=settings,
             )
     finally:
+        _speak_in_progress = False
         reset_job_context(ctx_tokens)
     perception = result.get("social_perception")
     if isinstance(perception, dict) and result.get("social_applied"):

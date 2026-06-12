@@ -1,4 +1,5 @@
 import {
+  HOME_DEFAULT_PLAYER_SPAWN,
   LEGACY_PLAYER_ID,
   normalizePlayerId,
   type GridCell,
@@ -168,19 +169,42 @@ export function syncColyseusFromMap(colyseus: GameRoomState, map: RoomState): vo
   }
 }
 
-/** After map reset: snap connected clients to default spawn and NPC slots. */
-export function resetColyseusFromMap(roomId: string, map: RoomState): void {
+/** After map reset: snap requesting player to home spawn; sync NPC/object slots for all clients. */
+export function resetColyseusFromMap(
+  roomId: string,
+  map: RoomState,
+  requestingPlayerId?: string,
+): void {
   const colyseus = getColyseusRoom(roomId);
   if (!colyseus) return;
   const loader = getChunkLoader(roomId);
-  const anchor = map.player;
   const state = colyseus.state as GameRoomState;
-  state.players.forEach((player, sessionId) => {
-    const grid = buildMoveGrid(map, state, sessionId, loader);
-    const spawn = findNearestWalkableCell(anchor.x, anchor.y, grid);
-    player.x = spawn.x;
-    player.y = spawn.y;
-  });
+  const scoped =
+    requestingPlayerId &&
+    requestingPlayerId !== LEGACY_PLAYER_ID &&
+    normalizePlayerId(requestingPlayerId);
+
+  if (scoped) {
+    state.players.forEach((player, sessionId) => {
+      if (player.playerId !== scoped) return;
+      const grid = buildMoveGrid(map, state, sessionId, loader);
+      const spawn = findNearestWalkableCell(
+        HOME_DEFAULT_PLAYER_SPAWN.x,
+        HOME_DEFAULT_PLAYER_SPAWN.y,
+        grid,
+      );
+      player.x = spawn.x;
+      player.y = spawn.y;
+    });
+  } else {
+    const anchor = map.player;
+    state.players.forEach((player, sessionId) => {
+      const grid = buildMoveGrid(map, state, sessionId, loader);
+      const spawn = findNearestWalkableCell(anchor.x, anchor.y, grid);
+      player.x = spawn.x;
+      player.y = spawn.y;
+    });
+  }
   syncColyseusFromMap(state, map);
   bumpStateVersion(state);
 }

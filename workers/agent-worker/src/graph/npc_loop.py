@@ -25,6 +25,7 @@ from src.graph.summarize import maybe_bulk_summarize
 from src.graph.recall_merge import merge_recall_into_reply
 from src.graph.reply_sanitize import sanitize_npc_reply
 from src.graph.tools import load_tools_for_binding, parse_tool_calls, reply_from_turn
+from src.http_json import safe_response_json
 from src.llm.errors import (
     LlmCallError,
     is_auth_error,
@@ -41,6 +42,7 @@ from src.collective.schemas import SocialPerception
 from src.collective.social_turn import (
     apply_social_from_llm,
     npc_positions_from_room,
+    reconcile_social_perception,
     refresh_collective_snapshot,
 )
 from src.graph.nodes.llm_social_turn import llm_social_turn
@@ -48,6 +50,7 @@ from src.graph.job_context import record_phase_ms
 from src.graph.speak_intent import (
     SpeakIntent,
     classify_speak_intent,
+    message_needs_nearby_lore,
     should_skip_memory_context,
     should_skip_memory_embed,
 )
@@ -79,6 +82,31 @@ def _game_headers(settings: Settings) -> dict[str, str]:
 
 _FETCH_STATE_TIMEOUT_S = 6.0
 _FETCH_STATE_ATTEMPTS = 2
+_STALE_SNAPSHOT_TTL_S = 300.0
+_stale_worker_snapshots: dict[str, tuple[dict[str, Any], float]] = {}
+
+
+def _worker_state_stale_key(room_id: str, player_id: str) -> str:
+    return f"{room_id}:{player_id}"
+
+
+def _remember_worker_snapshot(room_id: str, player_id: str, snapshot: dict[str, Any]) -> None:
+    clean = {k: v for k, v in snapshot.items() if not str(k).startswith("_")}
+    _stale_worker_snapshots[_worker_state_stale_key(room_id, player_id)] = (
+        clean,
+        time.time(),
+    )
+
+
+def _stale_worker_snapshot(room_id: str, player_id: str) -> dict[str, Any] | None:
+    entry = _stale_worker_snapshots.get(_worker_state_stale_key(room_id, player_id))
+    if not entry:
+        return None
+    snap, ts = entry
+    if time.time() - ts > _STALE_SNAPSHOT_TTL_S:
+        return None
+    age_ms = int((time.time() - ts) * 1000)
+    return {**snap, "_stale": True, "_stale_age_ms": age_ms}
 
 
 def _neutral_memory_fields() -> dict[str, Any]:
@@ -94,6 +122,44 @@ def _neutral_memory_fields() -> dict[str, Any]:
         "effective_score": None,
         "allowed_tools": list(allowed_tools_for_band(band)),
         "collective_summaries": [],
+    }
+
+
+def _load_collective_gate_fields(
+    state: GraphState,
+    *,
+    settings: Settings,
+    client: httpx.Client,
+) -> dict[str, Any]:
+    """Hostile gate needs band/allowed_tools even when full memory-context is skipped."""
+    try:
+        ctx = fetch_memory_context(
+            client,
+            settings,
+            state["room_id"],
+            (state.get("player_message") or "").strip() or " ",
+            npc_id=state.get("npc_id") or "npc-1",
+            player_id=_player_id(state),
+            timeout=_MEMORY_CONTEXT_INTERACTIVE_TIMEOUT_S,
+            attempts=1,
+            skip_embed=True,
+        )
+    except Exception as exc:
+        print(
+            f"collective gate load failed room={state['room_id']}: {exc}",
+            file=sys.stderr,
+        )
+        return {}
+    parsed = parse_collective_from_context(ctx)
+    return {
+        key: parsed[key]
+        for key in (
+            "attitude_band",
+            "effective_score",
+            "allowed_tools",
+            "collective_summaries",
+        )
+        if key in parsed
     }
 
 
@@ -117,11 +183,12 @@ def fetch_state(
         try:
             res = client.get(url, headers=headers, timeout=_FETCH_STATE_TIMEOUT_S)
             res.raise_for_status()
-            body = res.json()
+            body = safe_response_json(res)
             snapshot = body.get("state", {}) or {}
             nearby = body.get("nearbyLore")
             if nearby is not None:
                 snapshot = {**snapshot, "nearbyLore": nearby}
+            _remember_worker_snapshot(room_id, player_id, snapshot)
             return {**state, "room_snapshot": snapshot}
         except httpx.TimeoutException as exc:
             last_exc = exc
@@ -132,10 +199,43 @@ def fetch_state(
             if attempt + 1 < _FETCH_STATE_ATTEMPTS:
                 time.sleep(0.5 + attempt)
                 continue
+            stale = _stale_worker_snapshot(room_id, player_id)
+            if stale is not None:
+                age_ms = int(stale.get("_stale_age_ms") or 0)
+                print(
+                    f"worker-state stale-fallback room={room_id} age_ms={age_ms}",
+                    file=sys.stderr,
+                )
+                record_phase_ms("t_worker_state_stale_ms", age_ms)
+                return {**state, "room_snapshot": stale}
             raise
     if last_exc is not None:
         raise last_exc
     raise RuntimeError("fetch_state retry loop exited without response")
+
+
+def fetch_nearby_lore_into_snapshot(
+    state: GraphState,
+    *,
+    settings: Settings,
+    client: httpx.Client,
+) -> GraphState:
+    """Lazy lore: full worker-state without skipNearbyLore (NARRATIVE + lore markers only)."""
+    room_id = state["room_id"]
+    headers = _game_headers(settings)
+    player_id = _player_id(state)
+    if player_id and player_id != "__legacy__":
+        headers["X-Player-Id"] = player_id
+    url = f"{settings.game_server_url}/internal/rooms/{room_id}/worker-state"
+    try:
+        res = client.get(url, headers=headers, timeout=_FETCH_STATE_TIMEOUT_S)
+        res.raise_for_status()
+        nearby = safe_response_json(res).get("nearbyLore") or []
+        snapshot = {**(state.get("room_snapshot") or {}), "nearbyLore": nearby}
+        return {**state, "room_snapshot": snapshot}
+    except Exception as exc:
+        print(f"lazy nearby-lore failed room={room_id}: {exc}", file=sys.stderr)
+        return state
 
 
 
@@ -228,14 +328,32 @@ def fetch_state_and_memory(
                 skip_nearby_lore=True,
             )
         record_phase_ms("t_fetch_state_ms", int((time.perf_counter() - t0) * 1000))
-        record_phase_ms("t_memory_ms", 0)
         merged = {**state_with_room, **_neutral_memory_fields()}
+        if intent == SpeakIntent.PHYSICAL:
+            t_mem = time.perf_counter()
+            with httpx.Client() as thread_client:
+                merged.update(
+                    _load_collective_gate_fields(
+                        merged,
+                        settings=settings,
+                        client=thread_client,
+                    ),
+                )
+            record_phase_ms("t_memory_ms", int((time.perf_counter() - t_mem) * 1000))
+        else:
+            record_phase_ms("t_memory_ms", 0)
+        merged["speak_intent"] = intent.value
         return merged
 
     def _fetch() -> GraphState:
         t0 = time.perf_counter()
         with httpx.Client() as thread_client:
-            out = fetch_state(state, settings=settings, client=thread_client)
+            out = fetch_state(
+                state,
+                settings=settings,
+                client=thread_client,
+                skip_nearby_lore=True,
+            )
         record_phase_ms("t_fetch_state_ms", int((time.perf_counter() - t0) * 1000))
         return out
 
@@ -265,6 +383,16 @@ def fetch_state_and_memory(
             merged[key] = state_with_memory[key]
     merged["speak_intent"] = intent.value
 
+    if intent == SpeakIntent.NARRATIVE and message_needs_nearby_lore(player_message):
+        t0 = time.perf_counter()
+        with httpx.Client() as thread_client:
+            merged = fetch_nearby_lore_into_snapshot(
+                merged,
+                settings=settings,
+                client=thread_client,
+            )
+        record_phase_ms("t_lazy_lore_ms", int((time.perf_counter() - t0) * 1000))
+
     return merged
 
 
@@ -277,7 +405,9 @@ def _invoke_llm_turn(
     provider: str,
     model: str,
 ) -> tuple[list[dict[str, Any]], str]:
-    response = llm.invoke(messages)
+    from src.llm.invoke_tools import invoke_tool_bound_llm
+
+    response = invoke_tool_bound_llm(llm, messages)
     record_llm_call("main", provider, model)
     tool_calls = parse_tool_calls(response)
     reply = reply_from_turn(response, tool_calls)
@@ -288,7 +418,7 @@ def _invoke_llm_turn(
             *messages,
             HumanMessage(content=build_tool_retry_message(room_snapshot)),
         ]
-        response = llm.invoke(retry_messages)
+        response = invoke_tool_bound_llm(llm, retry_messages)
         record_llm_call("main", provider, model)
         tool_calls = parse_tool_calls(response)
         reply = reply_from_turn(response, tool_calls)
@@ -423,7 +553,9 @@ def apply_tools(state: GraphState, *, settings: Settings, client: httpx.Client) 
     npc_id = state.get("npc_id") or "npc-1"
     body: dict[str, Any] = {"actions": actions, "actingNpcId": npc_id}
     player_id = _player_id(state)
+    headers = _game_headers(settings)
     if player_id and player_id != "__legacy__":
+        headers["X-Player-Id"] = player_id
         body["initiatorPlayerId"] = player_id
     from src.graph.action_intent import build_dialogue_context, resolve_npc_snap_anchor_cell
 
@@ -435,15 +567,28 @@ def apply_tools(state: GraphState, *, settings: Settings, client: httpx.Client) 
     res = client.post(
         f"{settings.game_server_url}/internal/rooms/{room_id}/apply-actions",
         json=body,
-        headers=_game_headers(settings),
+        headers=headers,
         timeout=20.0,
     )
     if res.status_code >= 400:
         detail = res.text.strip()
+        payload = safe_response_json(res)
+        if res.status_code == 403 and payload.get("code") == "hostile_gate":
+            action_type = payload.get("actionType")
+            record_phase_ms("t_apply_ms", int((time.perf_counter() - t0) * 1000))
+            out: GraphState = {
+                **state,
+                "gate_rejected": True,
+                "tool_calls": [],
+                "pending_actions": [],
+            }
+            if isinstance(action_type, str) and action_type.strip():
+                out["gate_kind"] = action_type.strip()
+            return out
         raise RuntimeError(
             f"apply-actions failed ({res.status_code}): {detail[:500]}",
         )
-    body = res.json()
+    body = safe_response_json(res)
     record_phase_ms("t_apply_ms", int((time.perf_counter() - t0) * 1000))
     return {
         **state,
@@ -487,6 +632,9 @@ def apply_social_event(state: GraphState) -> GraphState:
         perception = SocialPerception.model_validate(raw)
     except ValueError:
         return state
+
+    player_msg = (state.get("player_message") or "").strip()
+    perception = reconcile_social_perception(player_msg, perception)
 
     room = state.get("room_snapshot") or {}
     result = apply_social_from_llm(
@@ -699,7 +847,6 @@ def _with_client_node(cfg: Settings, node_fn):
 def build_npc_interactive_graph(settings: Settings | None = None):
     """Player-visible path: social perceive → apply → refresh → tools → reply."""
     cfg = settings or get_settings()
-    checkpointer = get_checkpointer(allow_memory_fallback=True)
 
     graph = StateGraph(GraphState)
     graph.add_node("fetch_state_and_memory", _with_client_node(cfg, fetch_state_and_memory))
@@ -717,7 +864,8 @@ def build_npc_interactive_graph(settings: Settings | None = None):
     graph.add_edge("apply_tools", "compose_reply")
     graph.add_edge("compose_reply", END)
 
-    return graph.compile(checkpointer=checkpointer)
+    # Single-shot invoke — no Postgres checkpoint (6× writes/speak; Supabase flake → E2E timeout).
+    return graph.compile()
 
 
 def build_npc_graph(settings: Settings | None = None):

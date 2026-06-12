@@ -4,6 +4,10 @@ import { fileURLToPath } from "node:url";
 import { Client } from "@colyseus/sdk";
 import { assertE2eNoMock } from "./lib/e2e-policy.mjs";
 
+/** Keep in sync with packages/shared/src/homeMap.ts (Beginning Fields). */
+const HOME_MAP_TILE_W = 40;
+const HOME_MAP_TILE_H = 40;
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const envPath = resolve(root, ".env");
 if (existsSync(envPath)) {
@@ -70,7 +74,7 @@ async function moveOneStep(roomA, roomB, sessionA) {
   for (const [dx, dy] of STEP_DIRS) {
     const nx = start.x + dx;
     const ny = start.y + dy;
-    if (nx < 0 || ny < 0 || nx >= 8 || ny >= 8) continue;
+    if (nx < 0 || ny < 0 || nx >= HOME_MAP_TILE_W || ny >= HOME_MAP_TILE_H) continue;
 
     roomA.send("move", { dx, dy });
     try {

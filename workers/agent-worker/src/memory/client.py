@@ -4,6 +4,7 @@ from typing import Any
 import httpx
 
 from src.config import Settings
+from src.http_json import safe_response_json
 
 _RETRYABLE_HTTP = frozenset({502, 503, 504})
 _MEMORY_CONTEXT_TIMEOUT_S = 45.0
@@ -62,15 +63,17 @@ def fetch_memory_context(
     }
     if skip_embed:
         params["skipEmbed"] = "1"
+    headers = _game_headers(settings)
+    headers["X-Speak-Hot-Path"] = "1"
     res = _get_with_retry(
         client,
         f"{settings.game_server_url}/internal/rooms/{room_id}/memory-context",
         params=params,
-        headers=_game_headers(settings),
+        headers=headers,
         timeout=timeout if timeout is not None else _MEMORY_CONTEXT_TIMEOUT_S,
         attempts=attempts,
     )
-    return res.json()
+    return safe_response_json(res)
 
 
 def parse_collective_from_context(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -108,7 +111,7 @@ def fetch_recent_memories(
         timeout=30.0,
     )
     res.raise_for_status()
-    body = res.json()
+    body = safe_response_json(res)
     rows = body.get("memories")
     return rows if isinstance(rows, list) else []
 
@@ -129,7 +132,7 @@ def fetch_oldest_memories(
         timeout=30.0,
     )
     res.raise_for_status()
-    body = res.json()
+    body = safe_response_json(res)
     rows = body.get("memories")
     return rows if isinstance(rows, list) else []
 
