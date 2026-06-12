@@ -7,6 +7,19 @@ export function scriptsRepoRoot(fromMetaUrl) {
   return resolve(dirname(fileURLToPath(fromMetaUrl)), "..");
 }
 
+/** Strip matching outer quotes from `.env` values (`"x"` / `'x'`). */
+export function unquoteEnvValue(raw) {
+  const trimmed = raw.trim();
+  if (
+    trimmed.length >= 2 &&
+    ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+      (trimmed.startsWith("'") && trimmed.endsWith("'")))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
 /**
  * Load root `.env` into `process.env` without overriding existing vars.
  * @param {string} [rootDir] - defaults to repo root (parent of `scripts/`)
@@ -24,7 +37,7 @@ export function loadRootEnv(rootDir) {
     if (eq === -1) continue;
     const key = trimmed.slice(0, eq).trim();
     if (!(key in process.env)) {
-      process.env[key] = trimmed.slice(eq + 1).trim();
+      process.env[key] = unquoteEnvValue(trimmed.slice(eq + 1));
     }
   }
 }
@@ -37,7 +50,19 @@ export function gameServerHttpBase() {
   );
 }
 
-/** Colyseus WebSocket URL. */
+/** Colyseus WebSocket URL — derives from HTTP base when unset. */
 export function gameServerWsUrl() {
-  return process.env.GAME_SERVER_WS || "ws://127.0.0.1:2567";
+  if (process.env.GAME_SERVER_WS) {
+    return process.env.GAME_SERVER_WS;
+  }
+  try {
+    const url = new URL(gameServerHttpBase());
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    url.pathname = "";
+    url.search = "";
+    url.hash = "";
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return "ws://127.0.0.1:2567";
+  }
 }

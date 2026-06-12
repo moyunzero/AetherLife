@@ -99,21 +99,20 @@ export function clearPathPreview(ctx: RoomSceneInputCtx): void {
 }
 
 export function setupRoomSceneInput(ctx: RoomSceneInputCtx): void {
-  ctx.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
+  let pendingTap: { x: number; y: number } | null = null;
+
+  const activePointerCount = (): number =>
+    [ctx.input.pointer1, ctx.input.pointer2].filter((p) => p.isDown).length;
+
+  ctx.input.on("pointerdown", () => {
     if (ctx.movementDisabled()) return;
-    const world = ctx.cameras.main.getWorldPoint(pointer.x, pointer.y);
-    const { x, y } = worldToGrid(world.x, world.y);
-    const map = ctx.getMoveMap();
-    const chunks = ctx.getLoadedChunks();
-    if (isGlobalFloorBlocked(map, chunks, x, y)) {
-      flashBlockedCell(ctx, x, y);
+    if (activePointerCount() > 1) {
+      pendingTap = null;
       return;
     }
-
-    const sync = ctx.getMovementSync();
-    void sync?.sendMoveTo(x, y);
-    ctx.setPathTarget({ x, y });
-    drawPathPreview(ctx, x, y);
+    const world = ctx.cameras.main.getWorldPoint(ctx.input.pointer1.x, ctx.input.pointer1.y);
+    const { x, y } = worldToGrid(world.x, world.y);
+    pendingTap = { x, y };
   });
 
   ctx.input.on(
@@ -131,8 +130,9 @@ export function setupRoomSceneInput(ctx: RoomSceneInputCtx): void {
     },
   );
 
-  ctx.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
+  ctx.input.on("pointerdown", () => {
     if (ctx.input.pointer1.isDown && ctx.input.pointer2.isDown) {
+      pendingTap = null;
       const dist = Phaser.Math.Distance.Between(
         ctx.input.pointer1.x,
         ctx.input.pointer1.y,
@@ -161,6 +161,31 @@ export function setupRoomSceneInput(ctx: RoomSceneInputCtx): void {
 
   ctx.input.on("pointerup", () => {
     ctx.setPinchState(0, ctx.cameras.main.zoom);
+
+    if (activePointerCount() > 0) {
+      pendingTap = null;
+      return;
+    }
+
+    if (!pendingTap || ctx.movementDisabled()) {
+      pendingTap = null;
+      return;
+    }
+
+    const { x, y } = pendingTap;
+    pendingTap = null;
+
+    const map = ctx.getMoveMap();
+    const chunks = ctx.getLoadedChunks();
+    if (isGlobalFloorBlocked(map, chunks, x, y)) {
+      flashBlockedCell(ctx, x, y);
+      return;
+    }
+
+    const sync = ctx.getMovementSync();
+    void sync?.sendMoveTo(x, y);
+    ctx.setPathTarget({ x, y });
+    drawPathPreview(ctx, x, y);
   });
 
   const handle = attachGridMovementKeys({

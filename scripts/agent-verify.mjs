@@ -24,6 +24,7 @@ import {
 import { gameServerHttpBase, loadRootEnv } from "./lib/env.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+loadRootEnv(root);
 
 const args = process.argv.slice(2);
 const planOnly = args.includes("--plan");
@@ -85,7 +86,6 @@ function runCmd(label, cmd) {
 }
 
 function main() {
-  loadRootEnv(root);
   const files = changedFiles();
 
   console.log("=== Agent Verify Harness ===");

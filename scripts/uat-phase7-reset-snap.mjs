@@ -10,6 +10,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+loadRootEnv(root);
 const WEB = process.env.WEB_URL || "http://localhost:5173";
 const GS = process.env.GAME_SERVER_URL || "http://127.0.0.1:2567";
 const ROOM = "default";
@@ -101,7 +102,6 @@ async function assertNoResetWalkBack(page) {
 }
 
 async function main() {
-  loadRootEnv(root);
   assertE2eNoMock("uat:phase7:reset-snap");
   await health(GS, "game-server");
   await mkdir(outDir, { recursive: true });

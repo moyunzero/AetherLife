@@ -151,5 +151,5 @@ async def parse_intent_json(message: str, *, golden_expected: dict | None = None
                     continue
                 break
     if last_error:
-        raise last_error
+        return _heuristic_parse(message)
     return _heuristic_parse(message)

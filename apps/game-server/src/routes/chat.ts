@@ -56,9 +56,6 @@ export function createChatRouter(): Router {
     let speakAcquired = Boolean(colyseusRoom);
     try {
       const casualStub = previewCasualSpeakStub(message);
-      await startNpcChatTurn(roomId, message, npcId, playerId, jobId, {
-        casualPreviewEmitted: Boolean(casualStub),
-      });
       if (colyseusRoom) {
         registerJob(jobId, colyseusRoom, roomId, undefined, {
           npcId,
@@ -69,6 +66,9 @@ export function createChatRouter(): Router {
       if (casualStub) {
         emitJobEvent(jobId, "speakPartial", { text: casualStub, npcId });
       }
+      await startNpcChatTurn(roomId, message, npcId, playerId, jobId, {
+        casualPreviewEmitted: Boolean(casualStub),
+      });
       res.json({ jobId });
     } catch (err) {
       if (colyseusRoom && speakAcquired) {

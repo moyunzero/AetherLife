@@ -30,8 +30,34 @@ export async function pollJobDone({
   const decoder = new TextDecoder();
   let buffer = "";
 
+  /** @param {number} ms */
+  async function readWithTimeout(ms) {
+    let timer;
+    try {
+      return await Promise.race([
+        reader.read(),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error("SSE read timeout")), ms);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   while (Date.now() - started < timeoutMs) {
-    const { value, done } = await reader.read();
+    const remaining = timeoutMs - (Date.now() - started);
+    if (remaining <= 0) break;
+
+    let chunk;
+    try {
+      chunk = await readWithTimeout(remaining);
+    } catch (err) {
+      await reader.cancel().catch(() => {});
+      throw err;
+    }
+
+    const { value, done } = chunk;
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     const parts = buffer.split("\n\n");
@@ -54,6 +80,7 @@ export async function pollJobDone({
       }
     }
   }
+  await reader.cancel().catch(() => {});
   throw new Error(`job ${jobId} did not complete within ${timeoutMs}ms`);
 }
 
