@@ -70,11 +70,14 @@
     "agent:verify:e2e": "node scripts/agent-verify.mjs --fail --e2e",
     "agent:verify:scope": "node scripts/agent-verify.mjs --scope-check --fail",
     "agent:verify:test": "node --test scripts/agent-verify-map.test.mjs",
+    "lint": "eslint scripts/lib scripts/agent-verify.mjs",
     "hooks:install": "bash scripts/install-git-hooks.sh"
   },
   "devDependencies": {
     "@colyseus/sdk": "0.17.8",
+    "@eslint/js": "^9.39.1",
     "concurrently": "^9.1.2",
+    "eslint": "^9.39.1",
     "pngjs": "^7.0.0",
     "postgres": "^3.4.7",
     "redis": "^4.7.0",

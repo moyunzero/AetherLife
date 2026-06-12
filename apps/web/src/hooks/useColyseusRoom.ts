@@ -229,6 +229,8 @@ export function useColyseusRoom(roomId = "default", map: RoomState | null = null
     let restoredGridPos = false;
     let offChunksSync: (() => void) | undefined;
     let offLoreSync: (() => void) | undefined;
+    let onStateChangeHandler: (() => void) | undefined;
+    let onLeaveHandler: ((code: number, reason?: string) => void) | undefined;
 
     sync.setJoinGeneration(generation);
     const client = new Client(wsUrl);
@@ -276,10 +278,11 @@ export function useColyseusRoom(roomId = "default", map: RoomState | null = null
       sync.attachRoom(joined);
       applySnapshots(joined);
 
-      joined.onStateChange(() => {
+      onStateChangeHandler = () => {
         if (generation !== joinGeneration) return;
         applySnapshots(joined);
-      });
+      };
+      joined.onStateChange(onStateChangeHandler);
 
       offChunksSync = joined.onMessage(
         COLYSEUS_SERVER_MESSAGES.chunksSync,
@@ -322,7 +325,10 @@ export function useColyseusRoom(roomId = "default", map: RoomState | null = null
       try {
         // Prefer joinOrCreate — avoids spurious matchmake 521 when shard not yet created.
         const joined = await client.joinOrCreate(COLYSEUS_ROOM_NAME, joinOptions);
-        joined.onLeave((code, reason) => {
+        if (onLeaveHandler) {
+          joined.onLeave.remove(onLeaveHandler);
+        }
+        onLeaveHandler = (code: number, reason?: string) => {
           if (generation !== joinGeneration) return;
           if (isRoomFullError(code) || isRoomFullError(reason)) {
             setRoomFull(true);
@@ -338,7 +344,8 @@ export function useColyseusRoom(roomId = "default", map: RoomState | null = null
           if (code === COLYSEUS_ORPHAN_SHARD_WS_CODE && attempt < 5) {
             void attemptJoin(attempt + 1);
           }
-        });
+        };
+        joined.onLeave(onLeaveHandler);
         attachRoom(joined);
       } catch (err) {
         if (generation !== joinGeneration) return;
@@ -361,8 +368,17 @@ export function useColyseusRoom(roomId = "default", map: RoomState | null = null
       joinGeneration += 1;
       offChunksSync?.();
       offLoreSync?.();
-      resetLore();
       const leaving = activeRoom ?? roomRef.current;
+      if (leaving) {
+        if (onStateChangeHandler) {
+          leaving.onStateChange.remove(onStateChangeHandler);
+        }
+        if (onLeaveHandler) {
+          leaving.onLeave.remove(onLeaveHandler);
+        }
+        void leaving.leave();
+      }
+      resetLore();
       activeRoom = null;
       roomRef.current = null;
       sync.reset();

@@ -1877,4 +1877,35 @@ Worker 主循环仅在 npc-turn 队列 **连续 5s 为空** 时才 `BLPOP` chunk
 
 ---
 
+### ISSUE-049 — 多人同房间 `POST /reset` 仍重置共享 RoomState
+
+- **状态:** open (deferred)
+- **发现:** 2026-06-12
+- **阶段/范围:** v3 audit · `apps/game-server/src/routes/rooms.ts` · `reset(roomId)`
+- **严重性:** medium
+
+**现象**
+
+- 玩家 A 调用 `POST /reset` 时，除 per-player memory/collective/dialogue 外，`reset(roomId)` 仍重建**整房间**默认 `RoomState`（NPC/物体位置等），同房间其他玩家可见世界被重置（griefing 风险）。
+
+**已缓解（2026-06-12）**
+
+- Reset 路径改为 `clearActionTrackersForPlayer` / `moveIntentTracker.clearForPlayer`（不再 `clearActionTrackersForRoom`）。
+- `resetColyseusFromMap` 使用 scoped player snap（WR-05 fixed）。
+
+**待办**
+
+- 设计多人安全 reset：仅 initiator 可见状态 vs 房间级 reset 权限 / 房主确认。
+- UAT：2 人同房间 reset 边界用例。
+
+**验证（partial fix）**
+
+- `pnpm --filter @aetherlife/game-server test`
+
+**关联**
+
+- TECH-DEBT-v3 WR-01
+
+---
+
 <!-- 新问题上文追加，保持 ISSUE 编号递增 -->

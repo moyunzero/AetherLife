@@ -49,5 +49,12 @@ pnpm dev:stack
 | 10 Chunk 地形 | `pnpm verify:phase10` |
 | 11 世界 lore | `pnpm verify:phase11` |
 | 12 集体记忆 | `pnpm verify:phase12` |
+| 13 视觉 / 铭牌 | `pnpm verify:phase13` · `pnpm uat:phase13:playwright` |
+| 14 Living NPCs | `pnpm verify:phase14` |
+| 15 Town loop | `pnpm verify:phase15` · `pnpm uat:phase15:playwright` |
+| 16 Ambient NPCs | `pnpm verify:phase16` · `pnpm uat:phase16:playwright` |
+| 17 Speak SLA | `pnpm agent:verify --e2e --base`（无独立 `verify:phase17`） |
+
+Golden Flows 回归：`pnpm agent:verify --e2e`（见 [docs/E2E-POLICY.md §8](./docs/E2E-POLICY.md#8-golden-flowsagent-迭代回归预言机)）。
 
 环境变量详见根目录 [`.env.example`](./.env.example)。

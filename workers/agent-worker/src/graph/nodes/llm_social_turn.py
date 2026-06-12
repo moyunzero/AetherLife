@@ -61,7 +61,7 @@ SOCIAL_SYSTEM_PROMPT = """你是「以太人生」NPC 的社交感知模块。
 若玩家要求移动/开门/拿东西，reply 可承诺行动，但本步不调用工具。"""
 
 # One attempt per provider — APITimeout × 3 retries caused ~135s hangs before fallback.
-SOCIAL_LLM_MAX_ATTEMPTS = 1
+SOCIAL_LLM_MAX_ATTEMPTS = 3
 
 _META_BRIEF_RE = re.compile(r"简短|一句话|别太长|简单说说|简单说")
 
@@ -446,6 +446,7 @@ def _invoke_tool_turn(
         ),
     )
 
+    last_err: Exception | None = None
     for provider, model in npc_provider_attempts(settings):
         from src.llm.invoke_tools import invoke_tool_bound_llm
 
@@ -469,9 +470,12 @@ def _invoke_tool_turn(
                 room=room_snapshot,
                 dialogue_context=dialogue_context,
             )
-        except Exception:
+        except Exception as exc:
+            last_err = exc
             continue
     record_phase_ms("t_tool_llm_ms", int((time.perf_counter() - t0) * 1000))
+    if last_err is not None:
+        raise last_err
     return inject_relative_move_tool(
         [],
         player_message=player_message,

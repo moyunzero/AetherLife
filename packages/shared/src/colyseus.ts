@@ -29,6 +29,7 @@ export const COLYSEUS_SERVER_MESSAGES = {
   error: "error",
   moveAck: "moveAck",
   patch: "patch",
+  speakAck: "speakAck",
   speakBusy: "speakBusy",
   speakIdle: "speakIdle",
   chunksSync: "chunksSync",

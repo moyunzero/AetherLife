@@ -5,7 +5,8 @@ import { emitJobEvent } from "../sse/hub.js";
 function requireWorkerAuth(req: Request, res: Response, next: NextFunction): void {
   const token = process.env.INTERNAL_WORKER_TOKEN;
   const allowOpen =
-    process.env.NODE_ENV === "test" || process.env.ALLOW_OPEN_INTERNAL === "1";
+    process.env.NODE_ENV === "test" ||
+    (process.env.ALLOW_OPEN_INTERNAL === "1" && process.env.NODE_ENV !== "production");
   if (!token) {
     if (allowOpen) {
       next();

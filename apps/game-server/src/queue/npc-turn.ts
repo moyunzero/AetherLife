@@ -78,10 +78,16 @@ export async function addNpcTurnJob(input: {
   };
 
   const q = getQueue();
-  if (q) {
-    await q.add("turn", payload, { jobId });
-    await pushBridgeJob(payload);
+  if (!q) {
+    mockJobs.set(jobId, payload);
+    if (process.env.NODE_ENV === "test") {
+      return jobId;
+    }
+    throw new Error("REDIS_URL not configured; NPC speak queue unavailable");
   }
+
+  await q.add("turn", payload, { jobId });
+  await pushBridgeJob(payload);
 
   mockJobs.set(jobId, payload);
   return jobId;

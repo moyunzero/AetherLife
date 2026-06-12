@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from "express";
+import { MAX_PLAYER_MESSAGE_LEN } from "@aetherlife/shared";
 import { requireWorkerAuth } from "./internal.js";
 import { playerIdFromRequest } from "../http/player-id.js";
 import { MemoryService } from "../memory/service.js";
@@ -36,6 +37,10 @@ export function createInternalMemoriesRouter(): Router {
 
     if (!text) {
       res.status(400).json({ ok: false, error: "text required" });
+      return;
+    }
+    if (text.length > MAX_PLAYER_MESSAGE_LEN) {
+      res.status(400).json({ ok: false, error: "text too long" });
       return;
     }
 

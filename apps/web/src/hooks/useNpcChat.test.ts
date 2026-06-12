@@ -12,7 +12,7 @@ import {
   registerNpcJob,
   resolveNpcForJob,
   type NpcSpeakQueue,
-} from "./useNpcChat.js";
+} from "./npcChat/index.js";
 
 describe("npc speak queue helpers", () => {
   it("enqueue and dequeue preserve FIFO order", () => {

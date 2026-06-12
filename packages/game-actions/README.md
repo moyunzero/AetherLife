@@ -12,6 +12,7 @@ All game mutations flow through a discriminated union on `type`:
 | `interact` | Interact with a world object |
 | `speak` | Speak to a target |
 | `wait` | Pause for a duration |
+| `transfer` | Transfer an item from inventory to another NPC |
 
 ## game-server usage
 
@@ -53,6 +54,10 @@ const tools = toOpenAIToolDefinitions();
 
 ```json
 { "type": "wait", "durationMs": 1500 }
+```
+
+```json
+{ "type": "transfer", "itemId": "key-1", "toNpcId": "npc-2" }
 ```
 
 ## Adding actions (future phases)

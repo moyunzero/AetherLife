@@ -16,185 +16,64 @@ import { shouldRefetchCollectiveOnJobDone } from "./useCollectiveAttitude.js";
 import { applyStatePatch } from "../lib/applyStatePatch.js";
 import { clearLastGridPos, getOrCreatePlayerId, playerApiHeaders } from "../lib/playerSession.js";
 import { recordSpeakLatencyMark } from "../lib/speakLatencyTrace.js";
+import {
+  attitudeGateHintCopy,
+  clearInFlightRefsForDrain,
+  createNpcJobRegistry,
+  clearNpcJob,
+  collectThinkingNpcIds,
+  dequeueNpcSpeak,
+  discardQueuedSpeakMatching,
+  enqueueNpcSpeak,
+  isNpcSpeakInFlight,
+  isTrackedSpeakJob,
+  npcSpeakQueueDepth,
+  pendingJobNpcIds,
+  registerNpcJob,
+  registryToRecord,
+  resolveNpcForJob,
+  type AttitudeGateCue,
+  type ChatMessage,
+  type ChatStatus,
+  type NpcJobRegistry,
+  type NpcSpeakQueue,
+  type ParsedIntent,
+  type RoomNpc,
+  type RoomStateShape,
+  type UseNpcChatOptions,
+} from "./npcChat/index.js";
 
-export type ChatMessage = {
-  id: string;
-  role: "player" | "npc" | "error";
-  text: string;
-  npcId?: string;
-  npcName?: string;
-  /** PLAY-03: worker-sourced memory citation from speak done payload. */
-  memoryQuote?: string;
+export type {
+  AttitudeGateCue,
+  ChatMessage,
+  ChatStatus,
+  NpcJobRegistry,
+  NpcSpeakQueue,
+  ParsedIntent,
+  RoomNpc,
+  RoomStateShape,
+  UseNpcChatOptions,
 };
-
-export type ChatStatus = "idle" | "thinking" | "error";
-
-export type RoomNpc = {
-  id: string;
-  name: string;
+export {
+  clearInFlightRefsForDrain,
+  clearNpcJob,
+  collectThinkingNpcIds,
+  createNpcJobRegistry,
+  dequeueNpcSpeak,
+  discardQueuedSpeakMatching,
+  enqueueNpcSpeak,
+  isNpcSpeakInFlight,
+  isTrackedSpeakJob,
+  npcSpeakQueueDepth,
+  pendingJobNpcIds,
+  registerNpcJob,
+  registryToRecord,
+  resolveNpcForJob,
 };
-
-export type RoomStateShape = RoomState;
-
-export type ParsedIntent = Record<string, unknown> | null;
-
-export type AttitudeGateCue = {
-  gateKind: string;
-  npcName: string;
-};
-
-function attitudeGateHintCopy(npcName: string, gateKind?: string): string {
-  switch (gateKind) {
-    case "transfer":
-      return `${npcName}拒绝配合这个请求。`;
-    case "interact":
-    case "generic":
-      return `${npcName}现在不愿意帮忙。`;
-    case "move":
-    default:
-      return `${npcName}似乎不愿协助你移动。`;
-  }
-}
 
 const apiBase = import.meta.env.VITE_GAME_SERVER_URL || "/api";
 const chatBase = import.meta.env.VITE_AI_GATEWAY_URL || "/v1";
 const DEFAULT_NPC_ID = "npc-1";
-
-/** Per-NPC pending speak texts — server `speakBusy` retry only (Phase 12.2 FIFO).
- * Option A UX: `sendMessage` does not enqueue while in-flight; composer is disabled instead. */
-export type NpcSpeakQueue = Map<string, string[]>;
-
-export function enqueueNpcSpeak(queues: NpcSpeakQueue, npcId: string, text: string): number {
-  const q = queues.get(npcId) ?? [];
-  q.push(text);
-  queues.set(npcId, q);
-  return q.length;
-}
-
-export function dequeueNpcSpeak(queues: NpcSpeakQueue, npcId: string): string | undefined {
-  const q = queues.get(npcId);
-  if (!q?.length) return undefined;
-  const next = q.shift()!;
-  if (q.length === 0) queues.delete(npcId);
-  else queues.set(npcId, q);
-  return next;
-}
-
-/** Drop queued speaks identical to a turn that just finished (duplicate speakBusy retry). */
-export function discardQueuedSpeakMatching(
-  queues: NpcSpeakQueue,
-  npcId: string,
-  text: string,
-): number {
-  const normalized = text.trim();
-  if (!normalized) return 0;
-  const q = queues.get(npcId);
-  if (!q?.length) return 0;
-  const kept = q.filter((item) => item.trim() !== normalized);
-  const removed = q.length - kept.length;
-  if (kept.length === 0) queues.delete(npcId);
-  else queues.set(npcId, kept);
-  return removed;
-}
-
-export function npcSpeakQueueDepth(queues: NpcSpeakQueue, npcId: string): number {
-  return queues.get(npcId)?.length ?? 0;
-}
-
-/** Maps npcId ↔ jobId so parallel speaks (A thinking, tab B) each accept their own events. */
-export type NpcJobRegistry = {
-  byNpc: Map<string, string>;
-  byJob: Map<string, string>;
-};
-
-export function createNpcJobRegistry(): NpcJobRegistry {
-  return { byNpc: new Map(), byJob: new Map() };
-}
-
-export function registerNpcJob(registry: NpcJobRegistry, npcId: string, jobId: string): void {
-  const prevJob = registry.byNpc.get(npcId);
-  if (prevJob) registry.byJob.delete(prevJob);
-  registry.byNpc.set(npcId, jobId);
-  registry.byJob.set(jobId, npcId);
-}
-
-export function clearNpcJob(registry: NpcJobRegistry, jobId: string): string | undefined {
-  const npcId = registry.byJob.get(jobId);
-  if (npcId !== undefined && registry.byNpc.get(npcId) === jobId) {
-    registry.byNpc.delete(npcId);
-  }
-  registry.byJob.delete(jobId);
-  return npcId;
-}
-
-export function resolveNpcForJob(
-  registry: NpcJobRegistry,
-  jobId: string | undefined,
-): string | undefined {
-  if (typeof jobId !== "string") return undefined;
-  return registry.byJob.get(jobId);
-}
-
-export function isTrackedSpeakJob(registry: NpcJobRegistry, jobId: string | undefined): boolean {
-  return typeof jobId === "string" && registry.byJob.has(jobId);
-}
-
-export function pendingJobNpcIds(registry: NpcJobRegistry): Set<string> {
-  return new Set(registry.byNpc.keys());
-}
-
-export function collectThinkingNpcIds(
-  registry: NpcJobRegistry,
-  sendingNpcId: string | null,
-): string[] {
-  const ids = new Set(registry.byNpc.keys());
-  if (sendingNpcId) ids.add(sendingNpcId);
-  return [...ids];
-}
-
-export function registryToRecord(registry: NpcJobRegistry): Record<string, string> {
-  const rec: Record<string, string> = {};
-  for (const [npcId, jobId] of registry.byNpc) rec[npcId] = jobId;
-  return rec;
-}
-
-export function isNpcSpeakInFlight(params: {
-  npcId: string;
-  speakBusyNpcId: string | null;
-  sendingNpcId: string | null;
-  pendingJobNpcIds?: Iterable<string>;
-  /** @deprecated use pendingJobNpcIds — kept for tests */
-  thinkingNpcId?: string | null;
-}): boolean {
-  const { npcId, speakBusyNpcId, sendingNpcId, pendingJobNpcIds, thinkingNpcId } = params;
-  if (speakBusyNpcId === npcId || sendingNpcId === npcId) return true;
-  if (thinkingNpcId === npcId) return true;
-  if (pendingJobNpcIds) {
-    for (const id of pendingJobNpcIds) {
-      if (id === npcId) return true;
-    }
-  }
-  return false;
-}
-
-/** Sync in-flight refs before queueMicrotask drain — setState lags; refs still block drain. */
-export function clearInFlightRefsForDrain(
-  refs: {
-    thinkingNpcId: { current: string | null };
-    speakBusyNpcId: { current: string | null };
-    sendingNpcId: { current: string | null };
-  },
-  npcId: string,
-): void {
-  if (refs.thinkingNpcId.current === npcId) refs.thinkingNpcId.current = null;
-  if (refs.speakBusyNpcId.current === npcId) refs.speakBusyNpcId.current = null;
-  if (refs.sendingNpcId.current === npcId) refs.sendingNpcId.current = null;
-}
-
-export type UseNpcChatOptions = {
-  onCollectiveUpdated?: () => void;
-};
-
 export function useNpcChat(
   colyseusRoom: Room | null,
   mapRoomId = "default",
@@ -202,6 +81,12 @@ export function useNpcChat(
 ) {
   const onCollectiveUpdatedRef = useRef(options.onCollectiveUpdated);
   onCollectiveUpdatedRef.current = options.onCollectiveUpdated;
+  const fetchAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    return () => {
+      fetchAbortRef.current?.abort();
+    };
+  }, []);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [status, setStatus] = useState<ChatStatus>("idle");
   const [roomState, setRoomState] = useState<RoomStateShape | null>(null);
@@ -300,9 +185,13 @@ export function useNpcChat(
   const refetchState = useCallback(async (opts?: { retryUntilMs?: number; memoryOnly?: boolean }) => {
     const url = `${apiBase}/rooms/${mapRoomId}/state`;
     const deadline = Date.now() + (opts?.retryUntilMs ?? 0);
+    fetchAbortRef.current?.abort();
+    const abort = new AbortController();
+    fetchAbortRef.current = abort;
     while (true) {
+      if (abort.signal.aborted) return false;
       try {
-        const res = await fetch(url, { headers: playerApiHeaders() });
+        const res = await fetch(url, { headers: playerApiHeaders(), signal: abort.signal });
         if (res.ok) {
           const body = await res.json();
           if (opts?.memoryOnly) {
@@ -313,7 +202,8 @@ export function useNpcChat(
           }
           return true;
         }
-      } catch {
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return false;
         /* game-server may still be starting (vite proxy ECONNREFUSED) */
       }
       if (Date.now() >= deadline) return false;
@@ -656,6 +546,7 @@ export function useNpcChat(
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ message: trimmed, npcId }),
+          signal: fetchAbortRef.current?.signal,
         })
           .then(async (parseRes) => {
             const parseBody = await parseRes.json().catch(() => ({}));
@@ -685,6 +576,9 @@ export function useNpcChat(
   dispatchSpeakRef.current = dispatchSpeak;
 
   const resetGame = useCallback(async (): Promise<RoomState | null> => {
+    fetchAbortRef.current?.abort();
+    const abort = new AbortController();
+    fetchAbortRef.current = abort;
     try {
       const res = await fetch(`${apiBase}/rooms/${mapRoomId}/reset`, {
         method: "POST",
@@ -692,6 +586,7 @@ export function useNpcChat(
           "Content-Type": "application/json",
           ...playerApiHeaders(),
         },
+        signal: abort.signal,
       });
       if (!res.ok) {
         setError("重置房间失败");
@@ -724,7 +619,8 @@ export function useNpcChat(
       setStreamingByNpc({});
       partialSeenByJobRef.current = new Map();
       return body.state as RoomState;
-    } catch {
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return null;
       setError("重置房间失败");
       setStatus("error");
       return null;

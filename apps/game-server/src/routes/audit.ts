@@ -1,4 +1,6 @@
 import { Router, type Request, type Response } from "express";
+import { assertScopedPlayerRequest } from "../colyseus/bridge.js";
+import { playerIdFromRequest } from "../http/player-id.js";
 import { MemoryService } from "../memory/service.js";
 
 export function createAuditRouter(): Router {
@@ -6,6 +8,12 @@ export function createAuditRouter(): Router {
 
   router.get("/:roomId/audit-log", async (req: Request, res: Response) => {
     const { roomId } = req.params;
+    const playerId = playerIdFromRequest(req);
+    const scope = assertScopedPlayerRequest(req, playerId, roomId);
+    if (!scope.ok) {
+      res.status(scope.status).json({ ok: false, error: scope.error });
+      return;
+    }
     const limitRaw = req.query.limit;
     const limit =
       typeof limitRaw === "string" && /^\d+$/.test(limitRaw)

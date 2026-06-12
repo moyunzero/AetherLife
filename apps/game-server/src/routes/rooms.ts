@@ -13,7 +13,7 @@ import { applyGameAction, ExecutorError } from "../room/executor.js";
 import { recordSuccessfulMutation } from "../audit/record.js";
 import { MemoryService } from "../memory/service.js";
 import {
-  clearActionTrackersForRoom,
+  clearActionTrackersForPlayer,
   detectRoomCollaborateTransfer,
   detectRoomCompeteObject,
   recordRoomNpcTransfer,
@@ -23,6 +23,7 @@ import { attitudeGateResponse, isActionBlockedByGate } from "../collective/gate.
 import { moveIntentTracker } from "../collective/move-intent-tracker.js";
 import { CollectiveService } from "../collective/service.js";
 import {
+  assertScopedPlayerRequest,
   collectPlayerCells,
   findPlayerCellByPlayerId,
   resetColyseusFromMap,
@@ -169,9 +170,9 @@ async function applyActionsHandler(req: Request, res: Response): Promise<void> {
     return;
   }
 
-  let current = record;
+  let workingState = record.state;
   let applied = 0;
-  const playerCells = collectPlayerCells(roomId, record.state);
+  const playerCells = collectPlayerCells(roomId, workingState);
   const moveAnchorCell = initiatorPlayerId
     ? findPlayerCellByPlayerId(roomId, initiatorPlayerId)
     : null;
@@ -205,12 +206,12 @@ async function applyActionsHandler(req: Request, res: Response): Promise<void> {
     }
 
     try {
-      const result = applyGameAction(current.state, parsed.data, actingNpcId, {
+      const result = applyGameAction(workingState, parsed.data, actingNpcId, {
         otherPlayerCells: playerCells,
         moveSnapAnchor,
         moveAnchorCell: moveAnchorCell ?? undefined,
       });
-      current = setState(roomId, result.room);
+      workingState = result.room;
       applied += 1;
       await recordSuccessfulMutation({
         roomId,
@@ -229,6 +230,8 @@ async function applyActionsHandler(req: Request, res: Response): Promise<void> {
       return;
     }
   }
+
+  const current = setState(roomId, workingState);
 
   const colyseusRoom = getColyseusRoom(roomId);
   colyseusRoom?.refreshFromMap();
@@ -330,6 +333,11 @@ export function createRoomsRouter(): Router {
   router.post("/:roomId/reset", async (req, res) => {
     const { roomId } = req.params;
     const playerId = playerIdFromRequest(req, req.body);
+    const auth = assertScopedPlayerRequest(req, playerId, roomId);
+    if (!auth.ok) {
+      res.status(auth.status).json({ ok: false, error: auth.error });
+      return;
+    }
     try {
       const record = reset(roomId);
       resetColyseusFromMap(roomId, record.state, playerId);
@@ -337,8 +345,8 @@ export function createRoomsRouter(): Router {
       await service.deleteForPlayer(roomId, playerId);
       await CollectiveService.getInstance().deleteForPlayer(roomId, playerId);
       clearDialogueForPlayer(roomId, playerId);
-      clearActionTrackersForRoom(roomId);
-      moveIntentTracker.clearRoom(roomId);
+      clearActionTrackersForPlayer(roomId, playerId);
+      moveIntentTracker.clearForPlayer(roomId, playerId);
       const memoryCounts = await buildMemoryCounts(
         roomId,
         playerId,

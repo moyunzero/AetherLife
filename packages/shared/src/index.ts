@@ -198,6 +198,8 @@ export {
 } from "./contentGuard.js";
 
 export {
+  DEFAULT_NPC_ID,
+  LEGACY_DEFAULT_NPC_ID,
   LEGACY_PLAYER_ID,
   PLAYER_ID_HEADER,
   PLAYER_ID_STORAGE_KEY,

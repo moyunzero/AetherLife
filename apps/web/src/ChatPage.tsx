@@ -518,13 +518,19 @@ export function ChatPage() {
             }}
           />
         )}
-        <MessageList
-          messages={messages}
-          thinkingNpcId={thinkingNpcId}
-          activeNpcId={activeNpcId}
-          thinkingNpcName={activeNpcName}
-          streamingReply={streamingReply}
-        />
+        <div
+          role="tabpanel"
+          id={`npc-panel-${activeNpcId}`}
+          aria-labelledby={`npc-tab-${activeNpcId}`}
+        >
+          <MessageList
+            messages={messages}
+            thinkingNpcId={thinkingNpcId}
+            activeNpcId={activeNpcId}
+            thinkingNpcName={activeNpcName}
+            streamingReply={streamingReply}
+          />
+        </div>
         <CollectiveBrowsePanel
           activeNpcName={activeNpcName}
           snapshot={collectiveSnapshot}

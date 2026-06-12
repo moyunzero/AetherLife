@@ -31,7 +31,13 @@ export function MessageList({
   const showThinking = thinkingNpcId !== null && thinkingNpcId === activeNpcId;
   const partialText = streamingReply?.trim() ?? "";
   return (
-    <div className="message-list">
+    <div
+      className="message-list"
+      role="log"
+      aria-live="polite"
+      aria-relevant="additions"
+      aria-label="对话消息"
+    >
       {messages.length === 0 && (
         <p className="empty-state">输入任意指令，与 NPC 开始对话。</p>
       )}

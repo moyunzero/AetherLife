@@ -10,6 +10,7 @@ from typing import Any
 import httpx
 
 from app.config import get_settings
+from app.models.actions import validate_nl_action
 
 PARSE_SYSTEM = """You extract a single game action as JSON from the player message.
 Return ONLY valid JSON with one object matching exactly one of:
@@ -75,6 +76,30 @@ def _heuristic_parse(message: str) -> dict[str, Any]:
     return {"type": "wait", "durationMs": 1000}
 
 
+def _parse_openrouter_content(body: object) -> dict[str, Any]:
+    if not isinstance(body, dict):
+        raise ValueError("OpenRouter response is not an object")
+    choices = body.get("choices")
+    if not isinstance(choices, list) or not choices:
+        raise ValueError("OpenRouter response missing choices")
+    first = choices[0]
+    if not isinstance(first, dict):
+        raise ValueError("OpenRouter choice is not an object")
+    message = first.get("message")
+    if not isinstance(message, dict):
+        raise ValueError("OpenRouter choice missing message")
+    content = message.get("content")
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError("OpenRouter message content empty")
+    parsed = json.loads(content)
+    if not isinstance(parsed, dict):
+        raise ValueError("OpenRouter content is not a JSON object")
+    action, err = validate_nl_action(parsed)
+    if err or not action:
+        raise ValueError(err or "invalid NL action")
+    return action
+
+
 async def parse_intent_json(message: str, *, golden_expected: dict | None = None) -> dict[str, Any]:
     """Return raw action dict before Pydantic validation."""
     settings = get_settings()
@@ -114,13 +139,17 @@ async def parse_intent_json(message: str, *, golden_expected: dict | None = None
                 )
                 res.raise_for_status()
                 body = res.json()
-                content = body["choices"][0]["message"]["content"]
-                return json.loads(content)
+                return _parse_openrouter_content(body)
             except httpx.HTTPStatusError as exc:
                 last_error = exc
                 if exc.response.status_code == 429 and key_idx + 1 < len(keys):
                     continue
                 raise
+            except (json.JSONDecodeError, ValueError) as exc:
+                last_error = exc
+                if key_idx + 1 < len(keys):
+                    continue
+                break
     if last_error:
         raise last_error
     return _heuristic_parse(message)

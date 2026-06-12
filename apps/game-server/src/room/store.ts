@@ -4,21 +4,37 @@ export type RoomRecord = {
   state: RoomState;
 };
 
+const MAX_ROOM_RECORDS = 128;
 const rooms = new Map<string, RoomRecord>();
 
-export function getOrCreate(roomId: string): RoomRecord {
-  let record = rooms.get(roomId);
-  if (!record) {
-    record = { state: createDefaultRoom(roomId) };
-    rooms.set(roomId, record);
+function touchRoom(roomId: string, record: RoomRecord): RoomRecord {
+  rooms.delete(roomId);
+  rooms.set(roomId, record);
+  return record;
+}
+
+function evictOldestRoomIfNeeded(): void {
+  if (rooms.size < MAX_ROOM_RECORDS) return;
+  const oldest = rooms.keys().next().value;
+  if (oldest !== undefined) {
+    rooms.delete(oldest);
   }
+}
+
+export function getOrCreate(roomId: string): RoomRecord {
+  const existing = rooms.get(roomId);
+  if (existing) {
+    return touchRoom(roomId, existing);
+  }
+  evictOldestRoomIfNeeded();
+  const record: RoomRecord = { state: createDefaultRoom(roomId) };
+  rooms.set(roomId, record);
   return record;
 }
 
 export function reset(roomId: string): RoomRecord {
   const record: RoomRecord = { state: createDefaultRoom(roomId) };
-  rooms.set(roomId, record);
-  return record;
+  return touchRoom(roomId, record);
 }
 
 export function setState(roomId: string, state: RoomState): RoomRecord {

@@ -417,6 +417,7 @@ export function PhaserGame({
       destroyed = true;
       resizeObserver?.disconnect();
       if (bootTimer) clearTimeout(bootTimer);
+      if (motionBridgeRef) motionBridgeRef.current = null;
       game.destroy(true, false);
       gameRef.current = null;
     };

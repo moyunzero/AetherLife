@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from dataclasses import dataclass
 
@@ -53,6 +54,8 @@ class ModerationApiGuard:
             )
             if res.status_code >= 400:
                 logger.warning("moderation API error %s", res.status_code)
+                if os.getenv("NODE_ENV") == "production":
+                    return GuardResult(False, "moderation unavailable")
                 return GuardResult(True)
             data = res.json()
         flagged = data.get("results", [{}])[0].get("flagged", False)

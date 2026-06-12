@@ -77,6 +77,17 @@ export function clearActionTrackersForRoom(roomId: string): void {
   }
 }
 
+/** Clear compete/collaborate windows for one initiator (multiplayer reset). */
+export function clearActionTrackersForPlayer(roomId: string, playerId: string): void {
+  const prefix = `${roomId}:`;
+  for (const [key, entry] of recentByObject.entries()) {
+    if (key.startsWith(prefix) && entry.playerId === playerId) recentByObject.delete(key);
+  }
+  for (const [key, entry] of recentByNpc.entries()) {
+    if (key.startsWith(prefix) && entry.playerId === playerId) recentByNpc.delete(key);
+  }
+}
+
 /** @internal vitest */
 export function clearAllActionTrackers(): void {
   recentByObject.clear();
