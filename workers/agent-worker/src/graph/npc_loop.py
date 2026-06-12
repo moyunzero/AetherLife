@@ -25,6 +25,7 @@ from src.graph.summarize import maybe_bulk_summarize
 from src.graph.recall_merge import merge_recall_into_reply
 from src.graph.reply_sanitize import sanitize_npc_reply
 from src.graph.tools import load_tools_for_binding, parse_tool_calls, reply_from_turn
+from src.http_json import safe_response_json
 from src.llm.errors import (
     LlmCallError,
     is_auth_error,
@@ -182,7 +183,7 @@ def fetch_state(
         try:
             res = client.get(url, headers=headers, timeout=_FETCH_STATE_TIMEOUT_S)
             res.raise_for_status()
-            body = res.json()
+            body = safe_response_json(res)
             snapshot = body.get("state", {}) or {}
             nearby = body.get("nearbyLore")
             if nearby is not None:
@@ -229,7 +230,7 @@ def fetch_nearby_lore_into_snapshot(
     try:
         res = client.get(url, headers=headers, timeout=_FETCH_STATE_TIMEOUT_S)
         res.raise_for_status()
-        nearby = res.json().get("nearbyLore") or []
+        nearby = safe_response_json(res).get("nearbyLore") or []
         snapshot = {**(state.get("room_snapshot") or {}), "nearbyLore": nearby}
         return {**state, "room_snapshot": snapshot}
     except Exception as exc:
@@ -404,7 +405,9 @@ def _invoke_llm_turn(
     provider: str,
     model: str,
 ) -> tuple[list[dict[str, Any]], str]:
-    response = llm.invoke(messages)
+    from src.llm.invoke_tools import invoke_tool_bound_llm
+
+    response = invoke_tool_bound_llm(llm, messages)
     record_llm_call("main", provider, model)
     tool_calls = parse_tool_calls(response)
     reply = reply_from_turn(response, tool_calls)
@@ -415,7 +418,7 @@ def _invoke_llm_turn(
             *messages,
             HumanMessage(content=build_tool_retry_message(room_snapshot)),
         ]
-        response = llm.invoke(retry_messages)
+        response = invoke_tool_bound_llm(llm, retry_messages)
         record_llm_call("main", provider, model)
         tool_calls = parse_tool_calls(response)
         reply = reply_from_turn(response, tool_calls)
@@ -569,10 +572,7 @@ def apply_tools(state: GraphState, *, settings: Settings, client: httpx.Client) 
     )
     if res.status_code >= 400:
         detail = res.text.strip()
-        try:
-            payload = res.json()
-        except ValueError:
-            payload = {}
+        payload = safe_response_json(res)
         if res.status_code == 403 and payload.get("code") == "hostile_gate":
             action_type = payload.get("actionType")
             record_phase_ms("t_apply_ms", int((time.perf_counter() - t0) * 1000))
@@ -588,7 +588,7 @@ def apply_tools(state: GraphState, *, settings: Settings, client: httpx.Client) 
         raise RuntimeError(
             f"apply-actions failed ({res.status_code}): {detail[:500]}",
         )
-    body = res.json()
+    body = safe_response_json(res)
     record_phase_ms("t_apply_ms", int((time.perf_counter() - t0) * 1000))
     return {
         **state,

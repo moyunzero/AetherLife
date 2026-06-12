@@ -55,7 +55,15 @@ def parse_tool_calls(message: Any) -> list[dict[str, Any]]:
             name = getattr(call, "name", "")
             args = getattr(call, "args", {}) or {}
         if isinstance(args, str):
-            args = json.loads(args)
+            raw = args.strip()
+            if not raw:
+                args = {}
+            else:
+                try:
+                    parsed_args = json.loads(raw)
+                except json.JSONDecodeError:
+                    parsed_args = None
+                args = parsed_args if isinstance(parsed_args, dict) else {}
         if not isinstance(args, dict):
             args = {}
         parsed.append({"name": name, "args": args})

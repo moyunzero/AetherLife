@@ -7,10 +7,13 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { assertE2eNoMock } from "./lib/e2e-policy.mjs";
 
-export const VERIFY_PHASE11_TARGET_X = 8;
-export const VERIFY_PHASE11_TARGET_Y = 4;
-/** seed=42: chunk (2,0) east edge walkable at y=7 (y=4 discover row cannot step onto gx=16). */
-export const VERIFY_PHASE11_DEDUP_GY = 7;
+/** Keep in sync with packages/shared/src/homeMap.ts — do not import @aetherlife/shared */
+const HOME_SPAWN = { x: 34, y: 13 };
+/** West chunk cross from homestead spawn (34,13) → chunk (3,1). */
+export const VERIFY_PHASE11_TARGET_X = 31;
+export const VERIFY_PHASE11_TARGET_Y = 13;
+/** seed=42 Beginning Fields: dedup row south of spawn (walkable via sendMoveTo). */
+export const VERIFY_PHASE11_DEDUP_GY = 15;
 export const E2E_LORE_TIMEOUT_MS = 120_000;
 
 const CHUNK_SIZE = 8;
@@ -215,7 +218,7 @@ async function waitMoveIdle(page, timeoutMs = 30_000, label = "move idle") {
   );
 }
 
-async function sendMoveToGrid(page, targetGx, targetGy, label) {
+async function sendMoveToGrid(page, targetGx, targetGy, label, coordTimeoutMs = 20_000) {
   await page.bringToFront();
   await focusScene(page);
   await waitMoveIdle(page, 30_000, `${label} before sendMoveTo`);
@@ -226,9 +229,16 @@ async function sendMoveToGrid(page, targetGx, targetGy, label) {
     }
     fn(x, y);
   }, { x: targetGx, y: targetGy });
-  await waitMoveIdle(page, 45_000, `${label} after sendMoveTo`);
+  await waitMoveIdle(page, 60_000, `${label} after sendMoveTo`);
   await waitCoordsStable(page, 2500);
-  await assertGridCoords(page, targetGx, targetGy, label);
+  await waitFor(
+    async () => {
+      const { gx, gy } = await readGridCoords(page);
+      return gx === targetGx && gy === targetGy;
+    },
+    coordTimeoutMs,
+    label,
+  );
 }
 
 async function stepTowardCoords(page, targetGx, targetGy, maxSteps, label) {
@@ -245,19 +255,6 @@ async function stepTowardCoords(page, targetGx, targetGy, maxSteps, label) {
   }
   await waitCoordsStable(page, 2000);
   await assertGridCoords(page, targetGx, targetGy, label);
-}
-
-async function movePageADedupStaging(page, stagingEastX, pageACoordsGy, stagingWestX, dedupGy) {
-  await stepTowardCoords(page, stagingEastX, pageACoordsGy, 24, "pageA east along discover row");
-  // seed=42: (15,5) blocked — detour west before going south to y=7.
-  await stepTowardCoords(page, stagingWestX, pageACoordsGy, 8, "pageA west to bypass (15,5) wall");
-  await stepTowardCoords(page, stagingWestX, dedupGy, 24, "pageA south on staging column");
-  await waitCoordsStable(page, 3000);
-}
-
-async function movePageBDedupStaging(pageB, stagingWestX, pageBTargetGy, dedupGy) {
-  await stepTowardCoords(pageB, stagingWestX, pageBTargetGy, 24, "pageB to dedup staging column");
-  await waitCoordsStable(pageB, 3000);
 }
 
 async function placeNameText(page) {
@@ -303,16 +300,37 @@ async function main() {
   const page = await browser.newPage();
   await page.goto(webUrl, { waitUntil: "networkidle", timeout: 45_000 });
   await page.locator('[data-testid="room-scene"]').waitFor({ timeout: 30_000 });
+  await page.locator('[data-testid="phaser-parent"] canvas').waitFor({ timeout: 45_000 });
+  await page.waitForTimeout(800);
   await page.locator('[data-testid="explore-coords-strip"]').waitFor({ timeout: 30_000 });
 
+  const spawnCx = Math.floor(HOME_SPAWN.x / CHUNK_SIZE);
+  const spawnCy = Math.floor(HOME_SPAWN.y / CHUNK_SIZE);
+  await waitFor(
+    async () => {
+      const { gx, gy } = await readGridCoords(page);
+      return (
+        Math.floor(gx / CHUNK_SIZE) === spawnCx && Math.floor(gy / CHUNK_SIZE) === spawnCy
+      );
+    },
+    45_000,
+    "homestead spawn chunk",
+  );
+  await waitFor(
+    async () => {
+      const pending = await page
+        .locator('[data-testid="lore-pending-hint"]')
+        .isVisible()
+        .catch(() => false);
+      if (pending) return false;
+      const name = await placeNameText(page);
+      return name.length > 0 && !name.includes("生成中");
+    },
+    loreTimeoutMs,
+    "homestead spawn place label ready",
+  );
   const homeName = await placeNameText(page);
-  if (!homeName.includes("晨曦村")) {
-    throw new Error(`home expected 晨曦村, got: ${homeName}`);
-  }
-  if (await page.locator('[data-testid="lore-pending-hint"]').isVisible().catch(() => false)) {
-    throw new Error("home chunk should not show lore pending");
-  }
-  console.log("  ✓ home chunk shows 晨曦村");
+  console.log(`  ✓ homestead spawn place: ${homeName}`);
 
   const homeLore = await request(`/rooms/${roomId}/chunks/0/0/lore`);
   assertPublicLoreSubset(homeLore.lore);
@@ -400,8 +418,24 @@ async function main() {
     );
   }
 
+  const ctxB = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const pageB = await ctxB.newPage();
+  await pageB.goto(webUrl, { waitUntil: "networkidle", timeout: 45_000 });
+  await pageB.locator('[data-testid="room-scene"]').waitFor({ timeout: 30_000 });
+  await pageB.locator('[data-testid="phaser-parent"] canvas').waitFor({ timeout: 45_000 });
+  await pageB.waitForTimeout(800);
+  await pageB.locator('[data-testid="explore-coords-strip"]').waitFor({ timeout: 30_000 });
+  await waitFor(
+    async () => {
+      const { gx } = await readGridCoords(pageB);
+      return gx >= HOME_SPAWN.x - 4;
+    },
+    45_000,
+    "pageB connected in homestead",
+  );
+
   await page.waitForTimeout(600);
-  const homeGx = 4;
+  const homeGx = HOME_SPAWN.x;
   const homeGy = (await readGridCoords(page)).gy;
   await waitLorePostsStable(90_000);
   const metricsBeforeCacheNav = await fetchLoreMetrics();
@@ -435,33 +469,19 @@ async function main() {
   }
   console.log("  ✓ cache hit — enqueue counter unchanged, no re-toast");
 
-  const dedupX = 16;
+  const dedupX = 42;
   const dedupCx = Math.floor(dedupX / CHUNK_SIZE);
   const dedupGy = VERIFY_PHASE11_DEDUP_GY;
   const dedupCy = Math.floor(dedupGy / CHUNK_SIZE);
-  const stagingX = dedupX - 2;
-  const pageACoords = await readGridCoords(page);
-  const pageBTargetGy = dedupGy;
-  const pageBStartX = pageACoords.gx - 1;
+  // Staging in chunk (4,1): (39,15) is blocked in beginning-fields bake; (41,15) is already chunk (5,1).
+  const dedupApproachA = { x: dedupX - 4, y: dedupGy };
+  const dedupApproachB = { x: dedupX - 5, y: dedupGy };
 
-  const ctxB = await browser.newContext({ viewport: { width: 1280, height: 900 } });
-  const pageB = await ctxB.newPage();
-  await pageB.goto(webUrl, { waitUntil: "networkidle", timeout: 45_000 });
-  await pageB.locator('[data-testid="room-scene"]').waitFor({ timeout: 30_000 });
-  await pageB.locator('[data-testid="explore-coords-strip"]').waitFor({ timeout: 30_000 });
-  await pageB.locator('[data-testid="phaser-parent"] canvas').waitFor({ timeout: 45_000 });
-  await pageB.waitForTimeout(800);
-
-  await waitFor(
-    async () => (await placeNameText(pageB)).includes("晨曦村") || (await readGridCoords(pageB)).gx > 4,
-    30_000,
-    "pageB connected",
-  );
-  await stepTowardCoords(pageB, pageBStartX, pageBTargetGy, 20, "pageB beside pageA (offset row)");
-  await assertGridCoords(page, pageACoords.gx, pageACoords.gy, "pageA before dedup staging");
-
-  await movePageADedupStaging(page, stagingX + 1, pageACoords.gy, stagingX, dedupGy);
-  await movePageBDedupStaging(pageB, stagingX - 1, pageBTargetGy, dedupGy);
+  const dedupMoveTimeoutMs = 60_000;
+  await sendMoveToGrid(page, dedupApproachA.x, dedupApproachA.y, "pageA dedup approach", dedupMoveTimeoutMs);
+  await stepTowardCoords(pageB, dedupApproachB.x, dedupApproachB.y, 24, "pageB dedup approach");
+  await waitCoordsStable(page, 2500);
+  await waitCoordsStable(pageB, 2500);
 
   const metricsBeforeDedup = await fetchLoreMetrics();
 

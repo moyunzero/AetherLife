@@ -115,6 +115,25 @@ describe("hub colyseus routing", () => {
     expect(state.stateVersion).toBeGreaterThan(0);
   });
 
+  it("skips ambient enqueue when done gateRejected", () => {
+    const clearSpeakInFlight = vi.fn();
+    const mockRoom = {
+      broadcast: vi.fn(),
+      clients: [{ sessionId: "a", send: vi.fn() }],
+      state: new GameRoomState(),
+      clearSpeakInFlight,
+    };
+
+    registerJob("job-gate", mockRoom as never, "default", "a");
+    emitJobEvent("job-gate", "done", {
+      gateRejected: true,
+      npcId: "npc-1",
+      state: { width: 8, height: 8, player: { x: 0, y: 0 }, npcs: [], objects: [] },
+    });
+
+    expect(clearSpeakInFlight).toHaveBeenCalledWith("job-gate", { enqueueAmbient: false });
+  });
+
   it("records completed turn in dialogue session on done", () => {
     const mockRoom = {
       broadcast: vi.fn(),

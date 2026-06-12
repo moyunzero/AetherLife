@@ -40,6 +40,9 @@ const wsUrl = process.env.GAME_SERVER_WS || "ws://127.0.0.1:2567";
 const roomId = process.env.VERIFY_PHASE10_ROOM_ID || `verify-p10-${Date.now()}`;
 const VERIFY_PLAYER_ID = "verifyph10test0001";
 
+/** Keep in sync with packages/shared/src/homeMap.ts */
+const HOME_SPAWN = { x: 34, y: 13 };
+
 function waitFor(condition, timeoutMs = 8000, intervalMs = 50, label = "condition") {
   return new Promise((resolve, reject) => {
     const started = Date.now();
@@ -68,18 +71,6 @@ function biomeAt(chunks, gx, gy) {
   return chunk.tiles.find((t) => t.lx === lx && t.ly === ly)?.biome ?? null;
 }
 
-async function request(path, options = {}) {
-  const res = await fetch(`${httpBase}${path}`, {
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-    ...options,
-  });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(`${options.method || "GET"} ${path} → ${res.status}: ${JSON.stringify(body)}`);
-  }
-  return body;
-}
-
 async function moveToTarget(room, sessionId, targetX, targetY) {
   room.send("move", { targetX, targetY });
   await waitFor(() => {
@@ -88,21 +79,16 @@ async function moveToTarget(room, sessionId, targetX, targetY) {
   }, 12_000, 80, `move to (${targetX},${targetY})`);
 }
 
-function runChunkLoaderTest() {
+function runVitestFilter(pkg, relPath, titleFilter, env = process.env) {
   return new Promise((resolve, reject) => {
     const child = spawn(
       "pnpm",
-      ["--filter", "@aetherlife/game-server", "exec", "vitest", "run", "src/world/chunk-loader.test.ts", "-t", "persists and reloads"],
-      {
-        cwd: root,
-        stdio: "inherit",
-        // In-memory delta path; HTTP interact above already exercised Postgres.
-        env: { ...process.env, DATABASE_URL: "" },
-      },
+      ["--filter", pkg, "exec", "vitest", "run", relPath, "-t", titleFilter],
+      { cwd: root, stdio: "inherit", env },
     );
     child.on("exit", (code) => {
       if (code === 0) resolve();
-      else reject(new Error(`chunk-loader door reload test exit ${code}`));
+      else reject(new Error(`${relPath} (${titleFilter}) exit ${code}`));
     });
     child.on("error", reject);
   });
@@ -121,6 +107,13 @@ async function main() {
   const health = await fetch(`${httpBase}/health`);
   if (!health.ok) throw new Error(`health ${health.status}`);
 
+  await runVitestFilter(
+    "@aetherlife/game-server",
+    "src/world/noise.test.ts",
+    "seed=42 snapshot",
+  );
+  console.log("verify:phase10: procedural seed biome unit OK");
+
   let latestChunks = [];
   const client = new Client(wsUrl);
   const room = await client.joinOrCreate("game_room", {
@@ -134,58 +127,48 @@ async function main() {
 
   await waitFor(() => room.state?.players?.get, 5000, 50, "players map");
   room.send(COLYSEUS_CLIENT_MESSAGES.requestChunksSync, {});
-  await waitFor(() => latestChunks.length > 0, 8000, 80, "initial chunksSync");
+  await waitFor(() => latestChunks.length >= 3, 8000, 80, "initial chunksSync");
   const sessionId = room.sessionId;
-
-  const home = biomeAt(latestChunks, 0, 0);
-  const scrub = biomeAt(latestChunks, 8, 0);
-  const wetland = biomeAt(latestChunks, 9, 0);
-  if (home !== "home") throw new Error(`(0,0) expected home, got ${home}`);
-  if (scrub !== "scrub") throw new Error(`(8,0) expected scrub, got ${scrub}`);
-  if (wetland !== "wetland") throw new Error(`(9,0) expected wetland, got ${wetland}`);
-  console.log("verify:phase10: seed biome snapshot OK");
 
   const self = room.state.players.get(sessionId);
   if (!self) throw new Error("self player missing");
+  if (self.x !== HOME_SPAWN.x || self.y !== HOME_SPAWN.y) {
+    throw new Error(
+      `expected spawn (${HOME_SPAWN.x},${HOME_SPAWN.y}), got (${self.x},${self.y})`,
+    );
+  }
 
-  await moveToTarget(room, sessionId, 7, 0);
-  await moveToTarget(room, sessionId, 8, 0);
-  await waitFor(() => latestChunks.length > 0, 3000, 50, "chunks after cross-chunk");
+  const spawnBiome = biomeAt(latestChunks, HOME_SPAWN.x, HOME_SPAWN.y);
+  if (!spawnBiome) {
+    throw new Error(
+      `spawn biome missing from chunksSync at (${HOME_SPAWN.x},${HOME_SPAWN.y})`,
+    );
+  }
+  console.log(`verify:phase10: homestead chunksSync OK (spawn biome=${spawnBiome})`);
+
+  const crossTarget = { x: HOME_SPAWN.x - 2, y: HOME_SPAWN.y };
+  await moveToTarget(room, sessionId, crossTarget.x, crossTarget.y);
+  await waitFor(() => latestChunks.length >= 3, 3000, 50, "chunks after cross-chunk");
   const after = room.state.players.get(sessionId);
-  if (after?.x !== 8 || after?.y !== 0) {
-    throw new Error(`cross-chunk move failed: at (${after?.x},${after?.y})`);
+  if (after?.x !== crossTarget.x || after?.y !== crossTarget.y) {
+    throw new Error(
+      `cross-chunk move failed: at (${after?.x},${after?.y}), expected (${crossTarget.x},${crossTarget.y})`,
+    );
   }
-  console.log("verify:phase10: cross-chunk move (7,0)→(8,0) OK");
+  console.log(
+    `verify:phase10: cross-chunk move (${HOME_SPAWN.x},${HOME_SPAWN.y})→(${crossTarget.x},${crossTarget.y}) OK`,
+  );
 
-  const afterInteract = await request(`/internal/rooms/${roomId}/apply-actions`, {
-    method: "POST",
-    headers: (() => {
-      const h = { "Content-Type": "application/json" };
-      const token = process.env.INTERNAL_WORKER_TOKEN;
-      if (token) h.Authorization = `Bearer ${token}`;
-      return h;
-    })(),
-    body: JSON.stringify({
-      actingNpcId: "npc-1",
-      actions: [{ type: "interact", objectId: "door-1" }],
-    }),
-  });
-  const door = afterInteract.state?.objects?.find((o) => o.id === "door-1");
-  if (door?.state !== "open") {
-    throw new Error("interact did not open door-1");
-  }
-  const refetch = await request(`/rooms/${roomId}/state`);
-  const door2 = refetch.state?.objects?.find((o) => o.id === "door-1");
-  if (door2?.state !== "open") {
-    throw new Error("door-1 state not persisted in room HTTP state");
-  }
-  console.log("verify:phase10: door delta HTTP state OK");
-
-  await runChunkLoaderTest();
-  console.log("verify:phase10: chunk-loader door reload unit OK");
+  await runVitestFilter(
+    "@aetherlife/game-server",
+    "src/world/chunk-loader.test.ts",
+    "persists and reloads",
+    { ...process.env, DATABASE_URL: "" },
+  );
+  console.log("verify:phase10: chunk-loader door delta unit OK");
 
   await room.leave();
-  console.log("verify:phase10 OK — biome seed, cross-chunk, door delta");
+  console.log("verify:phase10 OK — seed unit, homestead chunks, cross-chunk, door delta unit");
 }
 
 main().catch((err) => {

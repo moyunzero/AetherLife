@@ -8,6 +8,14 @@ import {
   e2eSpeakTimeoutMs,
 } from "./lib/e2e-policy.mjs";
 
+/** Isolated plaza cells — away from default spawn cluster so 下方 (y+1) is not player-occupied. */
+const NL_STAGING_A = { x: 31, y: 15 };
+const NL_STAGING_B = { x: 32, y: 15 };
+/** Move extras off the 4-client spawn cluster so A/B are not trapped at (34,13)/(34,14). */
+const NL_CLEAR_C = { x: 38, y: 18 };
+const NL_CLEAR_D = { x: 39, y: 18 };
+const NL_STAGING_MOVE_MS = 12_000;
+
 const COLYSEUS_MAX_CLIENTS = 4;
 const COLYSEUS_SERVER_MESSAGES = {
   moveAck: "moveAck",
@@ -62,6 +70,19 @@ function waitFor(condition, timeoutMs = 5000, intervalMs = 50, label = "conditio
     };
     tick();
   });
+}
+
+async function movePlayerToTarget(room, sessionId, targetX, targetY, label, timeoutMs = 8000) {
+  room.send("move", { targetX, targetY });
+  await waitFor(
+    () => {
+      const p = room.state?.players?.get(sessionId);
+      return p?.x === targetX && p?.y === targetY;
+    },
+    timeoutMs,
+    50,
+    `${label} move to (${targetX},${targetY})`,
+  );
 }
 
 /** Wait for terminal speak event on one client (jobId-scoped when known). */
@@ -271,18 +292,46 @@ function chebyshev(a, b) {
   return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
 }
 
-function assertNpcAdjacentToPlayer(state, npcId, label) {
-  const player = state?.player;
-  const npc = state?.npcs?.find((n) => n.id === npcId);
-  if (!player || !npc) {
-    throw new Error(`${label}: missing player or ${npcId} in state view`);
+function assertNpcAdjacentToPlayerCoords(playerCell, npc, label) {
+  if (!playerCell || !npc) {
+    throw new Error(`${label}: missing player or NPC coordinates`);
   }
-  const dist = chebyshev(player, npc);
+  const dist = chebyshev(playerCell, npc);
   if (dist > 1) {
     throw new Error(
-      `${label}: ${npcId} at (${npc.x},${npc.y}) not adjacent to player (${player.x},${player.y}) dist=${dist}`,
+      `${label}: ${npc.id} at (${npc.x},${npc.y}) not adjacent to player (${playerCell.x},${playerCell.y}) dist=${dist}`,
     );
   }
+}
+
+function colyseusPlayerCell(room, sessionId, label) {
+  const player = room.state?.players?.get(sessionId);
+  if (!player) {
+    throw new Error(`${label}: missing Colyseus player for session ${sessionId}`);
+  }
+  return { x: player.x, y: player.y };
+}
+
+function assertNpcAdjacentToPlayer(state, npcId, label, playerCell) {
+  const npc = state?.npcs?.find((n) => n.id === npcId);
+  assertNpcAdjacentToPlayerCoords(playerCell, npc, label);
+}
+
+async function waitForNpcAdjacent(room, sessionId, playerId, npcId, label, timeoutMs = 15000) {
+  const started = Date.now();
+  while (Date.now() - started <= timeoutMs) {
+    const playerCell = colyseusPlayerCell(room, sessionId, label);
+    const state = await fetchRoomState(playerId);
+    const npc = state?.npcs?.find((n) => n.id === npcId);
+    if (npc && chebyshev(playerCell, npc) <= 1) {
+      assertNpcAdjacentToPlayer(state, npcId, label, playerCell);
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 400));
+  }
+  const playerCell = colyseusPlayerCell(room, sessionId, label);
+  const state = await fetchRoomState(playerId);
+  assertNpcAdjacentToPlayer(state, npcId, label, playerCell);
 }
 
 async function main() {
@@ -470,6 +519,47 @@ async function main() {
     console.log("verify:phase8: parallel speak rounds drained OK");
 
     if (process.env.SKIP_NL_MOVE_VERIFY !== "1") {
+      const roomC = rooms[2];
+      const roomD = rooms[3];
+      await Promise.all([
+        movePlayerToTarget(
+          roomC,
+          roomC.sessionId,
+          NL_CLEAR_C.x,
+          NL_CLEAR_C.y,
+          "NL clear player C",
+          NL_STAGING_MOVE_MS,
+        ),
+        movePlayerToTarget(
+          roomD,
+          roomD.sessionId,
+          NL_CLEAR_D.x,
+          NL_CLEAR_D.y,
+          "NL clear player D",
+          NL_STAGING_MOVE_MS,
+        ),
+      ]);
+      console.log("verify:phase8: NL spawn crowd cleared OK");
+
+      await Promise.all([
+        movePlayerToTarget(
+          roomA,
+          roomA.sessionId,
+          NL_STAGING_A.x,
+          NL_STAGING_A.y,
+          "NL staging A",
+          NL_STAGING_MOVE_MS,
+        ),
+        movePlayerToTarget(
+          roomB,
+          roomB.sessionId,
+          NL_STAGING_B.x,
+          NL_STAGING_B.y,
+          "NL staging B",
+          NL_STAGING_MOVE_MS,
+        ),
+      ]);
+      console.log("verify:phase8: NL staging positions OK");
       await runSpeakTurn(
         roomA,
         { text: "移动到我的下方", npcId: "npc-1", playerId: playerAId },
@@ -482,10 +572,8 @@ async function main() {
         "NL npc-2 player B",
         speakTimeoutMs,
       );
-      const stateA = await fetchRoomState(playerAId);
-      const stateB = await fetchRoomState(playerBId);
-      assertNpcAdjacentToPlayer(stateA, "npc-1", "player A → npc-1");
-      assertNpcAdjacentToPlayer(stateB, "npc-2", "player B → npc-2");
+      await waitForNpcAdjacent(roomA, roomA.sessionId, playerAId, "npc-1", "player A → npc-1");
+      await waitForNpcAdjacent(roomB, roomB.sessionId, playerBId, "npc-2", "player B → npc-2");
       console.log("verify:phase8: dual NL relative move (adjacent) OK");
     }
 

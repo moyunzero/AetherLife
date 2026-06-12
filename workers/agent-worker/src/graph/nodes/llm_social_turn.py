@@ -37,6 +37,7 @@ from src.llm.errors import (
     retry_after_seconds,
 )
 from src.llm.factory import create_chat_model, npc_provider_attempts
+from src.llm.invoke_tools import is_empty_tool_args_json_error
 from src.llm.openrouter_keys import openrouter_keys
 from src.llm.roles import auxiliary_provider_attempts, social_provider_model
 
@@ -306,18 +307,26 @@ def run_social_turn_llm(state: GraphState, *, settings: Settings | None = None) 
                     if partial_emit is not None:
                         buffer = ""
                         last_pushed = ""
-                        for chunk in llm.stream(messages):
-                            piece = getattr(chunk, "content", "") or ""
-                            if not piece:
-                                continue
-                            buffer += str(piece)
-                            visible = _extract_reply_from_json_stream(buffer)
-                            if len(visible) > len(last_pushed):
-                                last_pushed = visible
-                                partial_emit(visible)
+                        try:
+                            for chunk in llm.stream(messages):
+                                piece = getattr(chunk, "content", "") or ""
+                                if not piece:
+                                    continue
+                                buffer += str(piece)
+                                visible = _extract_reply_from_json_stream(buffer)
+                                if len(visible) > len(last_pushed):
+                                    last_pushed = visible
+                                    partial_emit(visible)
+                        except Exception as stream_exc:
+                            if not is_empty_tool_args_json_error(stream_exc):
+                                raise
+                            print(
+                                f"social stream empty JSON/tool-args provider={provider} model={model}",
+                                file=sys.stderr,
+                            )
                         record_llm_call("social", provider, model)
                         record_phase_ms("t_social_llm_ms", int((time.perf_counter() - t0) * 1000))
-                        parsed = _parse_social_turn_json(buffer)
+                        parsed = _parse_social_turn_json(buffer) if buffer.strip() else None
                     else:
                         response = llm.invoke(messages)
                         record_llm_call("social", provider, model)
@@ -346,6 +355,12 @@ def run_social_turn_llm(state: GraphState, *, settings: Settings | None = None) 
                     break
                 except Exception as exc:
                     last_error = exc
+                    if is_empty_tool_args_json_error(exc):
+                        print(
+                            f"social LLM empty JSON/tool-args provider={provider} model={model}",
+                            file=sys.stderr,
+                        )
+                        break
                     if is_auth_error(exc):
                         raise
                     if is_rate_limit_error(exc):
@@ -432,9 +447,11 @@ def _invoke_tool_turn(
     )
 
     for provider, model in npc_provider_attempts(settings):
+        from src.llm.invoke_tools import invoke_tool_bound_llm
+
         llm = create_chat_model(settings=settings, provider=provider, model=model).bind_tools(tools)
         try:
-            response = llm.invoke(messages)
+            response = invoke_tool_bound_llm(llm, messages)
             record_llm_call("main", provider, model)
             tool_calls = parse_tool_calls(response)
             if player_requests_physical_action(player_message) and not has_state_changing_tool(tool_calls):
@@ -442,7 +459,7 @@ def _invoke_tool_turn(
                     *messages,
                     HumanMessage(content=build_tool_retry_message(room_snapshot)),
                 ]
-                response = llm.invoke(retry_messages)
+                response = invoke_tool_bound_llm(llm, retry_messages)
                 record_llm_call("main", provider, model)
                 tool_calls = parse_tool_calls(response)
             record_phase_ms("t_tool_llm_ms", int((time.perf_counter() - t0) * 1000))

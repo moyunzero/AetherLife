@@ -486,10 +486,16 @@ async function main() {
     "hostile NL move blocked",
     speakTimeoutMs,
   );
+  const doneNpc = npcPosition(moveSpeakDone?.state);
   const afterMoveSpeak = npcPosition(await fetchRoomState(PLAYER_A));
-  if (beforeMoveSpeak.x !== afterMoveSpeak.x || beforeMoveSpeak.y !== afterMoveSpeak.y) {
+  if (
+    beforeMoveSpeak.x !== doneNpc.x ||
+    beforeMoveSpeak.y !== doneNpc.y ||
+    beforeMoveSpeak.x !== afterMoveSpeak.x ||
+    beforeMoveSpeak.y !== afterMoveSpeak.y
+  ) {
     throw new Error(
-      `NPC moved under hostile gate: before (${beforeMoveSpeak.x},${beforeMoveSpeak.y}) after (${afterMoveSpeak.x},${afterMoveSpeak.y})`,
+      `NPC moved under hostile gate: before (${beforeMoveSpeak.x},${beforeMoveSpeak.y}) done (${doneNpc.x},${doneNpc.y}) http (${afterMoveSpeak.x},${afterMoveSpeak.y})`,
     );
   }
   const reply = moveSpeakDone?.reply ?? "";
