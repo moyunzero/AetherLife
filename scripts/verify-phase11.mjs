@@ -14,6 +14,8 @@ export const VERIFY_PHASE11_TARGET_X = 31;
 export const VERIFY_PHASE11_TARGET_Y = 13;
 /** seed=42 Beginning Fields: dedup row south of spawn (walkable via sendMoveTo). */
 export const VERIFY_PHASE11_DEDUP_GY = 15;
+/** Walkable cell in homestead chunk (4,1) — clears spawn without new lore enqueue. */
+const PHASE11_SPAWN_CLEAR_B = { x: 36, y: 13 };
 export const E2E_LORE_TIMEOUT_MS = 120_000;
 
 const CHUNK_SIZE = 8;
@@ -432,6 +434,13 @@ async function main() {
     },
     45_000,
     "pageB connected in homestead",
+  );
+  await sendMoveToGrid(
+    pageB,
+    PHASE11_SPAWN_CLEAR_B.x,
+    PHASE11_SPAWN_CLEAR_B.y,
+    "pageB clear spawn cluster",
+    60_000,
   );
 
   await page.waitForTimeout(600);
