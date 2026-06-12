@@ -105,7 +105,7 @@ export function attachGridMovementKeys(options: {
     repeatDelayTimer = window.setTimeout(() => {
       repeatDelayTimer = undefined;
       if (heldKey !== key) return;
-      interval = window.setInterval(fireHeld, stepMs);
+      interval = window.setInterval(() => fireHeld(), stepMs);
     }, holdRepeatDelayMs);
   };
 

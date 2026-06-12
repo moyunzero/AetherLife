@@ -197,10 +197,13 @@ def process_job(client: httpx.Client, settings: Settings, payload: dict) -> None
     try:
         recent = recent_turns if isinstance(recent_turns, list) else []
         preview_already_emitted = bool(payload.get("casualPreviewEmitted"))
-        _intent, fast_preview = can_use_casual_fast_lane(player_message, recent)
+        _intent, fast_preview = can_use_casual_fast_lane(
+            player_message, recent, npc_id=npc_id
+        )
         _social_intent, social_preview = can_use_social_edge_fast_lane(
             player_message,
             recent,
+            npc_id=npc_id,
         )
         if fast_preview is not None:
             if not preview_already_emitted:

@@ -64,7 +64,7 @@ def test_run_social_turn_llm_parse_fail_tries_next_provider_once(monkeypatch):
     assert turn.social.kind == "ignore"
 
 
-def test_llm_social_turn_skips_social_llm_for_deterministic_relative_move(monkeypatch):
+def test_llm_social_turn_injects_move_without_tool_llm(monkeypatch):
     state: GraphState = {
         "room_id": "default",
         "player_message": "费雪找你，去她旁边吧",
@@ -83,12 +83,19 @@ def test_llm_social_turn_skips_social_llm_for_deterministic_relative_move(monkey
         "allowed_tools": ["move", "wait", "speak", "interact", "transfer"],
     }
 
-    def _should_not_run_social(*_a, **_k):
-        raise AssertionError("run_social_turn_llm should not run for deterministic move")
+    def _should_not_run_tool_llm(*_a, **_k):
+        raise AssertionError("_invoke_tool_turn should not run when move is injected")
 
     monkeypatch.setattr(
-        "src.graph.nodes.llm_social_turn.run_social_turn_llm",
-        _should_not_run_social,
+        "src.graph.nodes.llm_social_turn._invoke_tool_turn",
+        _should_not_run_tool_llm,
+    )
+    monkeypatch.setattr(
+        "src.graph.nodes.llm_social_turn.run_physical_reply_turn",
+        lambda _state, **_: SocialTurnOut(
+            social=SocialPerception(kind=SOCIAL_SKIP_KIND, summary="", delta=0),
+            reply="行，我过去看看。",
+        ),
     )
 
     out = llm_social_turn(state, settings=Settings(llm_mock=False))
@@ -96,6 +103,7 @@ def test_llm_social_turn_skips_social_llm_for_deterministic_relative_move(monkey
     assert out["tool_calls"][0]["name"] == "move"
     assert out["tool_calls"][0]["args"]["x"] == 9
     assert out["tool_calls"][0]["args"]["y"] == 21
+    assert out["reply_draft"] == "行，我过去看看。"
 
 
 def test_llm_social_turn_skips_tool_llm_for_relative_move(monkeypatch):

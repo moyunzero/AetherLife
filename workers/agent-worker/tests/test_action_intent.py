@@ -183,3 +183,38 @@ def test_build_tool_retry_message_includes_bounds_and_door():
     assert "0 到 7" in msg
     assert "door-1" in msg
     assert "interact" in msg
+
+
+def test_relay_summon_phrases_from_uat():
+    """UAT: «费雪找你有事，来这边一趟» — NPC 口头答应但未移动 (ISSUE relay summon)."""
+    from src.graph.speak_intent import classify_speak_intent, SpeakIntent
+
+    room = {
+        "width": 40,
+        "height": 40,
+        "player": {"x": 34, "y": 13},
+        "npcs": [
+            {"id": "npc-1", "name": "路昂", "x": 23, "y": 10},
+            {"id": "npc-2", "name": "费雪", "x": 9, "y": 21},
+            {"id": "npc-3", "name": "南宫婉", "x": 15, "y": 8},
+        ],
+    }
+    for msg in ("费雪找你有事，来这边一趟", "费雪找你有事，你来不"):
+        assert player_requests_move(msg), msg
+        assert classify_speak_intent(msg) == SpeakIntent.PHYSICAL, msg
+        calls = inject_relative_move_tool([], player_message=msg, room=room)
+        assert calls and calls[0]["name"] == "move", msg
+        assert calls[0]["args"]["x"] == 34 and calls[0]["args"]["y"] == 13, msg
+
+    farm_relay = "南宫婉那边有农活需要人帮忙，你去不？"
+    assert player_requests_move(farm_relay)
+    assert classify_speak_intent(farm_relay) == SpeakIntent.PHYSICAL
+    farm_calls = inject_relative_move_tool([], player_message=farm_relay, room=room)
+    assert farm_calls[0]["args"]["x"] == 15 and farm_calls[0]["args"]["y"] == 8
+
+    relay_only = inject_relative_move_tool(
+        [],
+        player_message="费雪找你有事，去她那边",
+        room=room,
+    )
+    assert relay_only[0]["args"]["x"] == 9 and relay_only[0]["args"]["y"] == 21

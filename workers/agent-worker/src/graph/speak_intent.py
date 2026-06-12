@@ -89,6 +89,8 @@ def should_skip_memory_embed(intent: SpeakIntent) -> bool:
 def can_use_casual_fast_lane(
     player_message: str,
     recent_turns: list | None = None,
+    *,
+    npc_id: str = "npc-1",
 ) -> tuple[SpeakIntent, Any | None]:
     """CASUAL + deterministic social — eligible for graph bypass (B1 fast lane)."""
     from src.graph.nodes.llm_social_turn import _deterministic_social_turn
@@ -99,6 +101,7 @@ def can_use_casual_fast_lane(
     turn: SocialTurnOut | None = _deterministic_social_turn(
         player_message,
         speak_intent=intent.value,
+        npc_id=npc_id,
     )
     if turn is None:
         return intent, None
@@ -108,6 +111,8 @@ def can_use_casual_fast_lane(
 def can_use_social_edge_fast_lane(
     player_message: str,
     recent_turns: list | None = None,
+    *,
+    npc_id: str = "npc-1",
 ) -> tuple[SpeakIntent, Any | None]:
     """SOCIAL_EDGE + rule-based social (rude/help) — bypass LangGraph for verify latency."""
     from src.graph.nodes.llm_social_turn import _deterministic_social_turn
@@ -118,6 +123,7 @@ def can_use_social_edge_fast_lane(
     turn: SocialTurnOut | None = _deterministic_social_turn(
         player_message,
         speak_intent=intent.value,
+        npc_id=npc_id,
     )
     if turn is None or turn.social.kind == "ignore":
         return intent, None

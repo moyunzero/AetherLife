@@ -13,6 +13,7 @@ type Props = {
   roomId: string;
   activeNpcId: string;
   activeNpcName: string;
+  roomConnected?: boolean;
   lastParsedIntent?: ParsedIntent;
   parseError?: string | null;
 };
@@ -23,6 +24,7 @@ export function NpcMemoryPanel({
   roomId,
   activeNpcId,
   activeNpcName,
+  roomConnected = false,
   lastParsedIntent = null,
   parseError = null,
 }: Props) {
@@ -30,6 +32,12 @@ export function NpcMemoryPanel({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!roomConnected) {
+      setDebug(null);
+      setError(null);
+      return;
+    }
+
     let cancelled = false;
     setError(null);
 
@@ -54,7 +62,7 @@ export function NpcMemoryPanel({
     return () => {
       cancelled = true;
     };
-  }, [roomId, activeNpcId]);
+  }, [roomId, activeNpcId, roomConnected]);
 
   const showMemoryDebug =
     import.meta.env.DEV ||

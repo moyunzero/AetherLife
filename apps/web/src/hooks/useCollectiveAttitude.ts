@@ -81,7 +81,11 @@ export function baselineCollectiveSnapshots(
   return snapshotsFromPayload(rows, []);
 }
 
-export function useCollectiveAttitude(roomId: string, activeNpcId: string) {
+export function useCollectiveAttitude(
+  roomId: string,
+  activeNpcId: string,
+  roomConnected = false,
+) {
   const [cache, setCache] = useState<Map<string, CollectiveAttitudeSnapshot>>(
     () => new Map(),
   );
@@ -92,7 +96,7 @@ export function useCollectiveAttitude(roomId: string, activeNpcId: string) {
 
   const fetchCollective = useCallback(
     async (opts?: { signal?: AbortSignal; retryUntilMs?: number }) => {
-      if (!roomId) return;
+      if (!roomId || !roomConnected) return;
 
       const seq = ++requestSeqRef.current;
       const hadCache = cacheRef.current.size > 0;
@@ -121,6 +125,10 @@ export function useCollectiveAttitude(roomId: string, activeNpcId: string) {
               );
               return;
             }
+            if (res.status === 403) {
+              if (!hadCache) setCache(baselineCollectiveSnapshots());
+              return;
+            }
           } catch (err) {
             if (seq !== requestSeqRef.current) return;
             if (err instanceof DOMException && err.name === "AbortError") return;
@@ -138,12 +146,16 @@ export function useCollectiveAttitude(roomId: string, activeNpcId: string) {
         }
       }
     },
-    [roomId],
+    [roomId, roomConnected],
   );
 
   useEffect(() => {
     if (!roomId) {
       setCache(new Map());
+      return;
+    }
+    if (!roomConnected) {
+      setCache(baselineCollectiveSnapshots());
       return;
     }
 
@@ -152,7 +164,7 @@ export function useCollectiveAttitude(roomId: string, activeNpcId: string) {
     return () => {
       aborter.abort();
     };
-  }, [roomId, fetchCollective]);
+  }, [roomId, roomConnected, fetchCollective]);
 
   const refetchCollective = useCallback(() => {
     void fetchCollective();

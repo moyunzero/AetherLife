@@ -379,6 +379,7 @@ export class RoomScene extends Phaser.Scene {
 
   update(_time: number, delta: number): void {
     this.movementController?.tickPausedPath();
+    this.movementController?.tickLocalMovement();
     this.remoteInterp.advance(
       this.playerSprites,
       this.getSessionId(),
