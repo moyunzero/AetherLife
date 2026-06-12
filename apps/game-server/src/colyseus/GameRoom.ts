@@ -62,12 +62,29 @@ export class GameRoom extends Room {
   /** Per-session move pipeline — async chunk load must not interleave dx/dy handlers. */
   private moveQueueTail = new Map<string, Promise<void>>();
 
+  private sendMoveAckForClient(client: Client, raw: ColyseusMovePayload): void {
+    const clientSeq =
+      raw && typeof raw === "object" && typeof raw.clientSeq === "number"
+        ? raw.clientSeq
+        : undefined;
+    if (clientSeq === undefined) return;
+    const player = this.gameState.players.get(client.sessionId);
+    if (!player) return;
+    client.send(COLYSEUS_SERVER_MESSAGES.moveAck, {
+      clientSeq,
+      x: player.x,
+      y: player.y,
+      facing: player.facing as Facing,
+    });
+  }
+
   private enqueuePlayerMove(client: Client, raw: ColyseusMovePayload): void {
     const sid = client.sessionId;
     const tail = this.moveQueueTail.get(sid) ?? Promise.resolve();
     const run = tail.then(() => this.processPlayerMove(client, raw));
     const settled = run.catch((err) => {
       console.error("[GameRoom] move failed", err);
+      this.sendMoveAckForClient(client, raw);
     });
     this.moveQueueTail.set(sid, settled);
   }
@@ -214,7 +231,8 @@ export class GameRoom extends Room {
     this.onMessage(COLYSEUS_CLIENT_MESSAGES.speak, async (client, raw: ColyseusSpeakPayload) => {
       const text = validateChatMessage(raw?.text);
       const npcId = validateChatNpcId(this.mapRoomId, raw?.npcId);
-      const playerId = normalizePlayerId(raw?.playerId);
+      const player = this.gameState.players.get(client.sessionId);
+      const playerId = normalizePlayerId(player?.playerId);
       if (!text || !npcId || !playerId) {
         client.send(COLYSEUS_SERVER_MESSAGES.error, { message: "invalid speak payload" });
         return;
@@ -228,10 +246,6 @@ export class GameRoom extends Room {
         client.send(COLYSEUS_SERVER_MESSAGES.speakBusy, { reason: "npc_busy", npcId });
         return;
       }
-      const player = this.gameState.players.get(client.sessionId);
-      if (player) {
-        player.playerId = playerId;
-      }
       const pendingToken = `pending:${client.sessionId}`;
       this.npcSpeakJobs.set(npcId, pendingToken);
       this.lastSpeakInitiatorByNpc.set(npcId, playerId);
@@ -244,7 +258,7 @@ export class GameRoom extends Room {
           playerMessage: text,
         });
         // speakAck before Redis enqueue — fast-lane worker can finish before LPUSH returns otherwise.
-        client.send("speakAck", { jobId, npcId });
+        client.send(COLYSEUS_SERVER_MESSAGES.speakAck, { jobId, npcId });
         const casualStub = previewCasualSpeakStub(text);
         if (casualStub) {
           emitJobEvent(jobId, "speakPartial", { text: casualStub, npcId });
@@ -419,6 +433,15 @@ export class GameRoom extends Room {
   /** Claim speak mutex for HTTP /chat when a live Colyseus room exists. */
   acquireNpcSpeakJob(npcId: string, jobId: string): void {
     this.npcSpeakJobs.set(npcId, jobId);
+  }
+
+  /** Atomically claim speak mutex; returns false if NPC already busy. */
+  tryAcquireNpcSpeakJob(npcId: string, jobId: string): boolean {
+    if (this.npcSpeakJobs.has(npcId)) {
+      return false;
+    }
+    this.npcSpeakJobs.set(npcId, jobId);
+    return true;
   }
 
   /** Called after Map executor mutates NPC/objects */

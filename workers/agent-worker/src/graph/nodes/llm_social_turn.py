@@ -60,8 +60,12 @@ SOCIAL_SYSTEM_PROMPT = """你是「以太人生」NPC 的社交感知模块。
 
 若玩家要求移动/开门/拿东西，reply 可承诺行动，但本步不调用工具。"""
 
-# One attempt per provider — APITimeout × 3 retries caused ~135s hangs before fallback.
-SOCIAL_LLM_MAX_ATTEMPTS = 1
+PHYSICAL_REPLY_APPEND = """\
+[系统] 玩家本条消息包含移动/行动指令；游戏引擎已自动解析移动并将执行，你无需在 reply 里重复坐标或逐步描述路径。
+请用 1–2 句第一人称中文回复，必须符合当前 NPC 身份、好感与态度，避免千篇一律的套话（不要所有 NPC 都说「好的，我这就去」）。"""
+
+# Up to 3 attempts per provider/model — balances resilience vs. timeout accumulation.
+SOCIAL_LLM_MAX_ATTEMPTS = 3
 
 _META_BRIEF_RE = re.compile(r"简短|一句话|别太长|简单说说|简单说")
 
@@ -148,6 +152,7 @@ def _deterministic_social_turn(
     player_message: str,
     *,
     speak_intent: str = "",
+    npc_id: str = "npc-1",
 ) -> SocialTurnOut | None:
     """Rule-based social + reply — skip social LLM when heuristics are sufficient."""
     msg = player_message.strip()
@@ -158,7 +163,9 @@ def _deterministic_social_turn(
         if inferred.kind == "rude":
             reply = "请不要这样说话。"
         elif inferred.kind == "help":
-            reply = "好的，我会尽力帮忙。"
+            seed = stable_string_hash(f"{npc_id}:{msg}")
+            variants = _STUB_HELP_REPLIES.get(npc_id, ("好的，我会尽力帮忙。",))
+            reply = variants[seed % len(variants)]
         else:
             reply = f"我听到了：{msg[:120]}"
         return SocialTurnOut(social=inferred, reply=reply)
@@ -224,19 +231,52 @@ def _mock_social_perception(message: str) -> SocialPerception:
     return SocialPerception(kind=SOCIAL_SKIP_KIND, summary="", delta=0)
 
 
-def _stub_physical_action_turn(player_message: str) -> SocialTurnOut:
-    """Deterministic social + reply when move/interact target is parsed without LLM."""
+_STUB_MOVE_REPLIES: dict[str, tuple[str, ...]] = {
+    "npc-1": ("行，我去。", "哼，知道了，我过去。"),
+    "npc-2": ("好呀，我这就去看看。", "嗯，我过去一趟。"),
+    "npc-3": ("……好吧，我去。", "知道了，别催。"),
+}
+_STUB_INTERACT_REPLIES: dict[str, tuple[str, ...]] = {
+    "npc-1": ("行，我试试。", "知道了。"),
+    "npc-2": ("好呀，我来。", "嗯，我看看。"),
+    "npc-3": ("……我试试。", "好吧。"),
+}
+_STUB_HELP_REPLIES: dict[str, tuple[str, ...]] = {
+    "npc-1": ("行，我看看能帮什么。", "哼，知道了。"),
+    "npc-2": ("好呀，我尽量帮。", "嗯，我来看看。"),
+    "npc-3": ("……好吧，我试试。", "知道了，我去看看。"),
+}
+
+
+def _stub_physical_action_turn(state: GraphState) -> SocialTurnOut:
+    """Fallback social + reply when move is injected but social LLM is unavailable."""
+    player_message = (state.get("player_message") or "").strip()
+    npc_id = state.get("npc_id") or "npc-1"
     inferred = infer_social_from_message(player_message)
     social = inferred if inferred is not None else SocialPerception(
         kind=SOCIAL_SKIP_KIND, summary="", delta=0
     )
+    seed = stable_string_hash(f"{npc_id}:{player_message}")
     if player_requests_move(player_message):
-        reply = "好的，我这就去。"
+        variants = _STUB_MOVE_REPLIES.get(npc_id, ("好的，我这就去。",))
+        reply = variants[seed % len(variants)]
     elif player_requests_interact(player_message):
-        reply = "好的，我来试试。"
+        variants = _STUB_INTERACT_REPLIES.get(npc_id, ("好的，我来试试。",))
+        reply = variants[seed % len(variants)]
     else:
         reply = "好的。"
     return SocialTurnOut(social=social, reply=reply)
+
+
+def run_physical_reply_turn(state: GraphState, *, settings: Settings | None = None) -> SocialTurnOut:
+    """In-character reply when move/interact was injected deterministically (no tool LLM)."""
+    cfg = settings or get_settings()
+    if cfg.llm_mock or os.getenv("LLM_MOCK") == "1":
+        return _mock_social_turn(state)
+    try:
+        return run_social_turn_llm(state, settings=cfg, system_append=PHYSICAL_REPLY_APPEND)
+    except LlmCallError:
+        return _stub_physical_action_turn(state)
 
 
 def _mock_social_turn(state: GraphState) -> SocialTurnOut:
@@ -251,7 +291,11 @@ def _mock_social_turn(state: GraphState) -> SocialTurnOut:
     return SocialTurnOut(social=social, reply=reply)
 
 
-def _build_social_messages(state: GraphState) -> list[SystemMessage | HumanMessage]:
+def _build_social_messages(
+    state: GraphState,
+    *,
+    system_append: str = "",
+) -> list[SystemMessage | HumanMessage]:
     room = state.get("room_snapshot") or {}
     attitude = format_attitude_context(
         band=state.get("attitude_band"),
@@ -262,6 +306,9 @@ def _build_social_messages(state: GraphState) -> list[SystemMessage | HumanMessa
     memory = (state.get("memory_summary") or "").strip()
     if memory:
         system_text = f"{system_text}\n\nMemory summary:\n{memory}"
+    append = (system_append or "").strip()
+    if append:
+        system_text = f"{system_text}\n\n{append}"
     player_message = state.get("player_message") or ""
     return [
         SystemMessage(content=system_text),
@@ -269,12 +316,17 @@ def _build_social_messages(state: GraphState) -> list[SystemMessage | HumanMessa
     ]
 
 
-def run_social_turn_llm(state: GraphState, *, settings: Settings | None = None) -> SocialTurnOut:
+def run_social_turn_llm(
+    state: GraphState,
+    *,
+    settings: Settings | None = None,
+    system_append: str = "",
+) -> SocialTurnOut:
     cfg = settings or get_settings()
     if cfg.llm_mock or os.getenv("LLM_MOCK") == "1":
         return _mock_social_turn(state)
 
-    messages = _build_social_messages(state)
+    messages = _build_social_messages(state, system_append=system_append)
     partial_emit = get_partial_emit()
     last_error: BaseException | None = None
     primary = social_provider_model(cfg)
@@ -446,6 +498,7 @@ def _invoke_tool_turn(
         ),
     )
 
+    last_err: Exception | None = None
     for provider, model in npc_provider_attempts(settings):
         from src.llm.invoke_tools import invoke_tool_bound_llm
 
@@ -469,9 +522,12 @@ def _invoke_tool_turn(
                 room=room_snapshot,
                 dialogue_context=dialogue_context,
             )
-        except Exception:
+        except Exception as exc:
+            last_err = exc
             continue
     record_phase_ms("t_tool_llm_ms", int((time.perf_counter() - t0) * 1000))
+    if last_err is not None:
+        raise last_err
     return inject_relative_move_tool(
         [],
         player_message=player_message,
@@ -499,9 +555,8 @@ def llm_social_turn(state: GraphState, *, settings: Settings | None = None) -> G
             dialogue_context=dialogue_context,
         )
         if has_state_changing_tool(fast_path):
-            turn = _stub_physical_action_turn(player_message)
+            turn = run_physical_reply_turn(state, settings=cfg)
             _emit_partial_reply(turn.reply)
-            record_phase_ms("t_social_llm_ms", 0)
             return {
                 **state,
                 "social_perception": turn.social.model_dump(),
@@ -510,9 +565,8 @@ def llm_social_turn(state: GraphState, *, settings: Settings | None = None) -> G
                 "social_applied": False,
                 "collective_updated": False,
             }
-        turn = _stub_physical_action_turn(player_message)
+        turn = run_physical_reply_turn(state, settings=cfg)
         _emit_partial_reply(turn.reply)
-        record_phase_ms("t_social_llm_ms", 0)
         tool_calls = _invoke_tool_turn(state, settings=cfg, reply_draft=turn.reply)
         return {
             **state,
@@ -526,6 +580,7 @@ def llm_social_turn(state: GraphState, *, settings: Settings | None = None) -> G
     deterministic = _deterministic_social_turn(
         player_message,
         speak_intent=speak_intent,
+        npc_id=state.get("npc_id") or "npc-1",
     )
     if deterministic is not None:
         record_phase_ms("t_social_llm_ms", 0)

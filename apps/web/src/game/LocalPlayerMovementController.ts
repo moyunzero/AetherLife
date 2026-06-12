@@ -1,6 +1,7 @@
 import type Phaser from "phaser";
 import {
   GRID_STEP_MS,
+  MAX_PREDICT_AHEAD,
   STEP_OVERLAP,
 } from "./gridMovement.js";
 import { gridToWorld } from "./gridLayout.js";
@@ -85,6 +86,12 @@ export class LocalPlayerMovementController {
     }
   }
 
+  /** Per-frame drain so queued steps start as soon as the prior tween finishes. */
+  tickLocalMovement(): void {
+    const ent = this.deps.getEntity();
+    if (ent) this.drainLocalStepQueue(ent);
+  }
+
   reset(): void {
     this.localStepQueue = [];
     this.localPathState = null;
@@ -106,6 +113,9 @@ export class LocalPlayerMovementController {
   }
 
   private queueLocalStep(gx: number, gy: number): void {
+    if (this.localStepQueue.length >= MAX_PREDICT_AHEAD) {
+      this.localStepQueue.shift();
+    }
     this.localStepQueue.push({ x: gx, y: gy });
     const ent = this.deps.getEntity();
     if (ent) this.drainLocalStepQueue(ent);
@@ -202,7 +212,9 @@ export class LocalPlayerMovementController {
   }
 
   private drainLocalStepQueue(ent: MovementEntity): void {
-    if (ent.moveTween?.isPlaying()) return;
+    if (ent.moveTween?.isPlaying()) {
+      return;
+    }
     const next = this.localStepQueue.shift();
     if (!next) return;
     this.tweenLocalStep(ent, next.x, next.y, () => {
@@ -233,7 +245,7 @@ export class LocalPlayerMovementController {
     ent.container.setDepth(entityYSortDepth(gx, gy, ent.depthLayer));
     let overlapTriggered = false;
 
-    const finishStep = () => {
+    const finishStep = (via: "overlap" | "complete") => {
       ent.moveTween = undefined;
       this.deps.onStepEnd?.(ent, gx, gy, this.hasMoreLocalSteps());
       onComplete?.();
@@ -256,13 +268,13 @@ export class LocalPlayerMovementController {
         ent.gridX = gx;
         ent.gridY = gy;
         tween.stop();
-        finishStep();
+        finishStep("overlap");
       },
       onComplete: () => {
         if (overlapTriggered) return;
         ent.gridX = gx;
         ent.gridY = gy;
-        finishStep();
+        finishStep("complete");
       },
     });
   }

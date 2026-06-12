@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from dataclasses import dataclass
 
@@ -28,15 +29,16 @@ SLUR_PATTERNS = [
 class GuardResult:
     allowed: bool
     reason: str | None = None
+    code: str | None = None
 
 
 class BlocklistGuard:
     def check(self, text: str) -> GuardResult:
         if len(text) > MAX_MESSAGE_LEN:
-            return GuardResult(False, "message too long")
+            return GuardResult(False, "message too long", "content_blocked")
         for pat in BLOCKLIST_PATTERNS + SLUR_PATTERNS:
             if pat.search(text):
-                return GuardResult(False, "blocklist match")
+                return GuardResult(False, "blocklist match", "content_blocked")
         return GuardResult(True)
 
 
@@ -53,11 +55,15 @@ class ModerationApiGuard:
             )
             if res.status_code >= 400:
                 logger.warning("moderation API error %s", res.status_code)
+                if os.getenv("NODE_ENV") == "production":
+                    return GuardResult(
+                        False, "moderation unavailable", "moderation_unavailable"
+                    )
                 return GuardResult(True)
             data = res.json()
         flagged = data.get("results", [{}])[0].get("flagged", False)
         if flagged:
-            return GuardResult(False, "moderation flagged")
+            return GuardResult(False, "moderation flagged", "content_blocked")
         return GuardResult(True)
 
 

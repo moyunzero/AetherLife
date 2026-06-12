@@ -1,3 +1,4 @@
+import { DEFAULT_NPC_ID } from "@aetherlife/shared";
 import { and, asc, count, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "./db.js";
 import { memorySummaries, mutationAuditLogs, npcMemories, type SummaryKind } from "./schema.js";
@@ -27,7 +28,7 @@ export class MemoryRepository {
   constructor(private readonly db: Db) {}
 
   async appendMemory(input: AppendMemoryInput): Promise<string> {
-    const npcId = input.npcId ?? "1";
+    const npcId = input.npcId ?? DEFAULT_NPC_ID;
     const rows = await this.db
       .insert(npcMemories)
       .values({
@@ -49,7 +50,7 @@ export class MemoryRepository {
     queryEmbedding: number[];
     k?: number;
   }): Promise<SimilarMemory[]> {
-    const npcId = input.npcId ?? "1";
+    const npcId = input.npcId ?? DEFAULT_NPC_ID;
     const k = input.k ?? 5;
     const vectorLiteral = `[${input.queryEmbedding.join(",")}]`;
 
@@ -84,7 +85,7 @@ export class MemoryRepository {
     npcId?: string;
     unsummarizedOnly?: boolean;
   }): Promise<number> {
-    const npcId = input.npcId ?? "1";
+    const npcId = input.npcId ?? DEFAULT_NPC_ID;
     const conditions = [
       eq(npcMemories.roomId, input.roomId),
       eq(npcMemories.playerId, input.playerId),
@@ -108,7 +109,7 @@ export class MemoryRepository {
     text: string;
     sourceCount?: number;
   }): Promise<string> {
-    const npcId = input.npcId ?? "1";
+    const npcId = input.npcId ?? DEFAULT_NPC_ID;
     const rows = await this.db
       .insert(memorySummaries)
       .values({
@@ -155,7 +156,7 @@ export class MemoryRepository {
     npcId?: string;
     kind: SummaryKind;
   }): Promise<string | null> {
-    const npcId = input.npcId ?? "1";
+    const npcId = input.npcId ?? DEFAULT_NPC_ID;
     const rows = await this.db
       .select({ text: memorySummaries.text })
       .from(memorySummaries)
@@ -178,7 +179,7 @@ export class MemoryRepository {
     npcId?: string;
     limit: number;
   }): Promise<Array<{ id: string; text: string }>> {
-    const npcId = input.npcId ?? "1";
+    const npcId = input.npcId ?? DEFAULT_NPC_ID;
     return this.db
       .select({ id: npcMemories.id, text: npcMemories.text })
       .from(npcMemories)
@@ -200,7 +201,7 @@ export class MemoryRepository {
     npcId?: string;
     limit: number;
   }): Promise<Array<{ id: string; text: string }>> {
-    const npcId = input.npcId ?? "1";
+    const npcId = input.npcId ?? DEFAULT_NPC_ID;
     return this.db
       .select({ id: npcMemories.id, text: npcMemories.text })
       .from(npcMemories)

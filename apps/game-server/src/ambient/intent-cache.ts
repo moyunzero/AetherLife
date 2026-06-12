@@ -127,8 +127,9 @@ function applyIntentToLiveRoom(
 
   const colyseus = getColyseusRoom(roomId);
   if (!colyseus) return;
-  syncColyseusFromMap(colyseus.state, map);
-  bumpStateVersion(colyseus.state);
+  const state = colyseus.state as GameRoomState;
+  syncColyseusFromMap(state, map);
+  bumpStateVersion(state);
 }
 
 /** Test hook — wipe all cached intents. */

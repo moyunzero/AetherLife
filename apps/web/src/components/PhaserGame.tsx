@@ -417,6 +417,7 @@ export function PhaserGame({
       destroyed = true;
       resizeObserver?.disconnect();
       if (bootTimer) clearTimeout(bootTimer);
+      if (motionBridgeRef) motionBridgeRef.current = null;
       game.destroy(true, false);
       gameRef.current = null;
     };
@@ -481,14 +482,10 @@ export function PhaserGame({
       npcAmbientById,
       speakBusyNpcId,
     });
-    game.registry.events.emit("changedata", game.registry, "roomSync");
 
     const scene = game.scene.getScene(ROOM_SCENE_KEY) as RoomScene | undefined;
     if (scene && motionBridgeRef && scene.scene.isActive()) {
       motionBridgeRef.current = scene.getLocalPlayerMotionBridge();
-    }
-    if (scene?.scene.isActive()) {
-      scene.syncEntities();
     }
   }, [
     players,

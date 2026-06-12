@@ -4,16 +4,21 @@
  */
 import { mkdir } from "node:fs/promises";
 import { assertE2eNoMock } from "./lib/e2e-policy.mjs";
+import { loadRootEnv } from "./lib/env.mjs";
+import { HOME_NPC_SPAWNS } from "./lib/home-spawn.mjs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+loadRootEnv(root);
 const WEB = process.env.WEB_URL || "http://localhost:5173";
 const GS = process.env.GAME_SERVER_URL || "http://127.0.0.1:2567";
 const ROOM = "default";
 const NPC_ID = "npc-1";
-const DEFAULT = { x: 2, y: 2 };
-const FAR = { x: 6, y: 6 };
+/** Beginning Fields default slot — keep in sync with `packages/shared/src/homeMap.ts`. */
+const DEFAULT = { ...HOME_NPC_SPAWNS[NPC_ID] };
+/** Walkable cell far from DEFAULT (verified via internal apply-actions). */
+const FAR = { x: 15, y: 10 };
 const outDir = resolve(root, ".planning/phases/07-2-5d-renderer/uat-screenshots");
 
 async function loadPlaywright() {
@@ -148,11 +153,12 @@ async function main() {
   await page.getByTestId("reset-confirm-start").click();
 
   await page.waitForFunction(
-    () => {
+    ({ dx, dy, id }) => {
       const d = window.__aetherlife_npcDebug?.();
-      const s = d?.sprites?.find((n) => n.id === "npc-1");
-      return Boolean(s && s.gridX === 2 && s.gridY === 2);
+      const s = d?.sprites?.find((n) => n.id === id);
+      return Boolean(s && s.gridX === dx && s.gridY === dy);
     },
+    { dx: DEFAULT.x, dy: DEFAULT.y, id: NPC_ID },
     { timeout: 10_000 },
   );
 

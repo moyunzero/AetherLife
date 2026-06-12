@@ -12,7 +12,6 @@
  *   AGENT_SCOPE  — declared file/dir scope for --scope-check
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -22,8 +21,10 @@ import {
   flattenVerifyScripts,
   isCrossLayerDiff,
 } from "./lib/agent-verify-map.mjs";
+import { gameServerHttpBase, loadRootEnv } from "./lib/env.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+loadRootEnv(root);
 
 const args = process.argv.slice(2);
 const planOnly = args.includes("--plan");
@@ -64,8 +65,7 @@ function changedFiles() {
 
 function healthOk() {
   try {
-    const port = process.env.GAME_SERVER_PORT || "2567";
-    const base = process.env.GAME_SERVER_URL || `http://127.0.0.1:${port}`;
+    const base = gameServerHttpBase();
     const res = spawnSync("curl", ["-sf", `${base}/health`], { encoding: "utf8" });
     return res.status === 0;
   } catch {
@@ -85,23 +85,7 @@ function runCmd(label, cmd) {
   return r.status ?? 1;
 }
 
-function loadEnv() {
-  const envPath = resolve(root, ".env");
-  if (!existsSync(envPath)) return;
-  for (const line of readFileSync(envPath, "utf8").split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const eq = trimmed.indexOf("=");
-    if (eq === -1) continue;
-    const key = trimmed.slice(0, eq).trim();
-    if (!(key in process.env)) {
-      process.env[key] = trimmed.slice(eq + 1).trim();
-    }
-  }
-}
-
 function main() {
-  loadEnv();
   const files = changedFiles();
 
   console.log("=== Agent Verify Harness ===");
@@ -132,6 +116,7 @@ function main() {
     if (!audit.ok) {
       console.log("\n✗ Out-of-scope changes:");
       for (const f of audit.outOfScope) console.log(`  · ${f}`);
+      if (scope && !planOnly) return 1;
       if (failFast && !planOnly) return 1;
     } else if (scope) {
       console.log("\n✓ All changes within declared scope.");

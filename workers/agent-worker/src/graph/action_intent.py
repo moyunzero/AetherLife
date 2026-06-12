@@ -7,6 +7,12 @@ EXPLICIT_COORD_PATTERN = re.compile(
     r"[\(（]\s*(\d+)\s*[,，]\s*(\d+)\s*[\)）]",
 )
 
+# Player wants the spoken-to NPC to come to them (not «go to another NPC»).
+_PLAYER_SUMMON_RE = re.compile(
+    r"来这边|这边(儿)?|来一趟|过来一趟|到我|来我|过来|你来|你来不|叫你来|来一下",
+    re.IGNORECASE,
+)
+
 MOVE_PATTERNS = (
     r"移动",
     r"走到",
@@ -15,6 +21,9 @@ MOVE_PATTERNS = (
     r"向[左右上下]",
     r"去\s*[\(（]?\s*\d+\s*[,，]\s*\d+\s*[\)）]?",
     r"左侧|右侧|左边|右边|上方|下方|下面|下边|旁边|附近|旁白|到我|来我|过来",
+    r"来这边|这边(儿)?|来一趟|过来一趟|来一下|叫你来|让你来|你来|你来不",
+    r"找你有事|有事找|传话|叫你去|你去不|你去吗|去不去|你去一趟|你去一下",
+    r"过去",
     r"\bmove\b",
     r"\bgo to\b",
 )
@@ -53,6 +62,10 @@ def player_requests_interact(message: str) -> bool:
 
 def player_requests_physical_action(message: str) -> bool:
     return player_requests_move(message) or player_requests_interact(message)
+
+
+def _player_summons_npc(message: str) -> bool:
+    return bool(_PLAYER_SUMMON_RE.search((message or "").strip()))
 
 
 def _player_cell(room: dict[str, Any]) -> tuple[int, int] | None:
@@ -132,7 +145,7 @@ def resolve_npc_snap_anchor_cell(
         return None
     if EXPLICIT_COORD_PATTERN.search(text):
         return None
-    if re.search(r"我(?:的|这边|这边儿)?|到我|来我|过来", text, re.IGNORECASE):
+    if _player_summons_npc(text):
         return None
     anchor_npc = _npc_anchor_from_message(text, room, dialogue_context)
     if anchor_npc is None:
@@ -154,8 +167,8 @@ def resolve_npc_relative_move_cell(
         return None
     if EXPLICIT_COORD_PATTERN.search(text):
         return None
-    # 「我/我的/到我」→ player anchor (resolve_relative_move_cell)
-    if re.search(r"我(?:的|这边|这边儿)?|到我|来我|过来", text, re.IGNORECASE):
+    # 「来这边/过来/你来」→ player anchor (resolve_relative_move_cell)
+    if _player_summons_npc(text):
         return None
 
     anchor_npc = _npc_anchor_from_message(text, room, dialogue_context)
@@ -175,7 +188,7 @@ def resolve_npc_relative_move_cell(
     if re.search(r"右侧|右边|右方", text, re.IGNORECASE):
         return _clamp_cell(nx + 1, ny, room)
     if re.search(
-        r"旁边|附近|旁白|那边|那里|那儿|去找|去找她|去找他",
+        r"旁边|附近|旁白|那边|那里|那儿|去找|去找她|去找他|找你有事|有事找|传话|叫你去",
         text,
         re.IGNORECASE,
     ):
@@ -232,7 +245,11 @@ def resolve_relative_move_cell(message: str, room: dict[str, Any]) -> tuple[int,
         return _clamp_cell(px - 1, py, room)
     if re.search(r"右侧|右边|右方", text, re.IGNORECASE):
         return _clamp_cell(px + 1, py, room)
-    if re.search(r"到我|来我|过来|旁边|我这边|我这边儿", text, re.IGNORECASE):
+    if re.search(
+        r"到我|来我|过来|旁边|我这边|我这边儿|来这边|这边(儿)?|来一趟|过来一趟|你来|你来不|叫你来|来一下|过去",
+        text,
+        re.IGNORECASE,
+    ):
         # Target initiator cell; game-server snapNpcMoveDest + moveAnchorCell picks a free neighbor.
         return _clamp_cell(px, py, room)
 

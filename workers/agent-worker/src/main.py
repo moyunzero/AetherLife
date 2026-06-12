@@ -2,6 +2,7 @@ import json
 import os
 import sys
 import threading
+import time
 from typing import Any
 
 import httpx
@@ -34,6 +35,37 @@ BLPOP_TIMEOUT_S = 5
 LORE_BLPOP_TIMEOUT_S = 1
 AMBIENT_BLPOP_TIMEOUT_S = 1
 _speak_in_progress = False
+_speak_lock = threading.Lock()
+
+
+def _is_speak_in_progress() -> bool:
+    with _speak_lock:
+        return _speak_in_progress
+
+
+def _set_speak_in_progress(value: bool) -> None:
+    global _speak_in_progress
+    with _speak_lock:
+        _speak_in_progress = value
+
+
+def _parse_bridge_payload(raw: str, *, queue: str) -> dict | None:
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        print(f"invalid {queue} job JSON: {exc}", file=sys.stderr)
+        return None
+    if not isinstance(payload, dict):
+        print(f"invalid {queue} job payload (expected object)", file=sys.stderr)
+        return None
+    return payload
+
+
+def _job_id_from_payload(payload: dict) -> str:
+    job_id = payload.get("jobId")
+    if isinstance(job_id, str) and job_id.strip():
+        return job_id.strip()
+    return "unknown"
 
 
 def create_redis_client(redis_url: str) -> redis.Redis:
@@ -103,12 +135,14 @@ def process_ambient_intent_job(client: httpx.Client, settings: Settings, payload
 
 
 def drain_one_ambient_intent_job(r: redis.Redis, client: httpx.Client, settings: Settings) -> bool:
-    if _speak_in_progress or r.llen(BRIDGE_LIST_KEY) > 0:
+    if _is_speak_in_progress() or r.llen(BRIDGE_LIST_KEY) > 0:
         return False
     raw = r.rpop(AMBIENT_INTENT_BRIDGE_LIST_KEY)
     if not raw:
         return False
-    payload = json.loads(raw)
+    payload = _parse_bridge_payload(raw, queue="ambient-intent")
+    if not payload:
+        return True
     try:
         process_ambient_intent_job(client, settings, payload)
     except Exception as exc:
@@ -118,13 +152,15 @@ def drain_one_ambient_intent_job(r: redis.Redis, client: httpx.Client, settings:
 
 def drain_one_lore_job(r: redis.Redis, client: httpx.Client, settings: Settings) -> bool:
     """Process at most one pending chunk-lore job (non-blocking). Returns True if handled."""
-    if _speak_in_progress or r.llen(BRIDGE_LIST_KEY) > 0:
+    if _is_speak_in_progress() or r.llen(BRIDGE_LIST_KEY) > 0:
         return False
     # game-server LPUSH → RPOP oldest first (FIFO), same as main-loop BRPOP
     raw = r.rpop(LORE_BRIDGE_LIST_KEY)
     if not raw:
         return False
-    payload = json.loads(raw)
+    payload = _parse_bridge_payload(raw, queue="lore")
+    if not payload:
+        return True
     try:
         process_lore_job(client, settings, payload)
     except Exception as exc:
@@ -133,8 +169,9 @@ def drain_one_lore_job(r: redis.Redis, client: httpx.Client, settings: Settings)
 
 
 def process_job(client: httpx.Client, settings: Settings, payload: dict) -> None:
-    global _speak_in_progress
-    job_id = payload["jobId"]
+    job_id = _job_id_from_payload(payload)
+    if job_id == "unknown":
+        raise ValueError("job payload missing jobId")
     room_id = payload.get("roomId", "default")
     npc_id = payload.get("npcId", "npc-1")
     player_message = payload.get("playerMessage", "")
@@ -156,14 +193,17 @@ def process_job(client: httpx.Client, settings: Settings, payload: dict) -> None
 
     ctx_tokens = set_job_context(partial_emit=partial_emit, phase_timing=phase_timing)
     start_recorder()
-    _speak_in_progress = True
+    _set_speak_in_progress(True)
     try:
         recent = recent_turns if isinstance(recent_turns, list) else []
         preview_already_emitted = bool(payload.get("casualPreviewEmitted"))
-        _intent, fast_preview = can_use_casual_fast_lane(player_message, recent)
+        _intent, fast_preview = can_use_casual_fast_lane(
+            player_message, recent, npc_id=npc_id
+        )
         _social_intent, social_preview = can_use_social_edge_fast_lane(
             player_message,
             recent,
+            npc_id=npc_id,
         )
         if fast_preview is not None:
             if not preview_already_emitted:
@@ -200,7 +240,7 @@ def process_job(client: httpx.Client, settings: Settings, payload: dict) -> None
                 settings=settings,
             )
     finally:
-        _speak_in_progress = False
+        _set_speak_in_progress(False)
         reset_job_context(ctx_tokens)
     perception = result.get("social_perception")
     if isinstance(perception, dict) and result.get("social_applied"):
@@ -269,14 +309,19 @@ def process_job(client: httpx.Client, settings: Settings, payload: dict) -> None
     )
 
     def _memory_tail_worker() -> None:
+        tail_started = time.perf_counter()
         try:
             run_npc_memory_tail(result, settings)
+            elapsed_ms = int((time.perf_counter() - tail_started) * 1000)
             tail_recorder = get_recorder()
             if tail_recorder is not None and tail_recorder.total > 0:
                 print(
-                    f"llmCallSummary jobId={job_id} full={summarize_for_log(tail_recorder)}",
+                    f"llmCallSummary jobId={job_id} full={summarize_for_log(tail_recorder)} "
+                    f"tailMs={elapsed_ms}",
                     file=sys.stderr,
                 )
+            else:
+                print(f"memory tail ok jobId={job_id} tailMs={elapsed_ms}", file=sys.stderr)
         except Exception as exc:
             print(
                 f"memory tail failed jobId={job_id} (player already got done): {exc}",
@@ -357,21 +402,25 @@ def run_worker() -> None:
             if not item or not queue:
                 continue
             _, raw = item
-            payload = json.loads(raw)
+            payload = _parse_bridge_payload(raw, queue=queue)
+            if not payload:
+                continue
             if queue == "npc":
-                print(f"job received jobId={payload.get('jobId')}", file=sys.stderr)
+                job_id = _job_id_from_payload(payload)
+                print(f"job received jobId={job_id}", file=sys.stderr)
                 try:
                     process_job(client, settings, payload)
                 except Exception as exc:
-                    print(f"job failed jobId={payload.get('jobId')}: {exc}", file=sys.stderr)
-                    err_msg = format_llm_error(exc, provider=settings.llm_provider)
-                    emit_job_event(
-                        client,
-                        settings,
-                        payload["jobId"],
-                        "error",
-                        {"message": err_msg},
-                    )
+                    print(f"job failed jobId={job_id}: {exc}", file=sys.stderr)
+                    if job_id != "unknown":
+                        err_msg = format_llm_error(exc, provider=settings.llm_provider)
+                        emit_job_event(
+                            client,
+                            settings,
+                            job_id,
+                            "error",
+                            {"message": err_msg},
+                        )
                 # Fairness: one lore job per speak job when lore backlog exists (ISSUE-030)
                 drain_one_lore_job(r, client, settings)
                 drain_one_ambient_intent_job(r, client, settings)

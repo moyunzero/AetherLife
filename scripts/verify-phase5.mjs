@@ -1,13 +1,16 @@
 import { spawn } from "node:child_process";
-import { assertE2eRealLlm, e2eSpeakTimeoutMs } from "./lib/e2e-policy.mjs";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { assertE2eRealLlm, e2eSpeakTimeoutMs } from "./lib/e2e-policy.mjs";
+import { gameServerHttpBase, loadRootEnv } from "./lib/env.mjs";
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+loadRootEnv(root);
 
 const gatewayUrl =
   process.env.AI_GATEWAY_URL || `http://127.0.0.1:${process.env.AI_GATEWAY_PORT || "8000"}`;
-const baseUrl =
-  process.env.GAME_SERVER_URL ||
-  `http://127.0.0.1:${process.env.GAME_SERVER_PORT || "2567"}`;
+const baseUrl = gameServerHttpBase();
 const roomId = "default";
 
 async function request(url, options = {}) {

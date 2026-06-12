@@ -1,9 +1,9 @@
-import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { Client } from "@colyseus/sdk";
 import { assertE2eNoMock } from "./lib/e2e-policy.mjs";
+import { gameServerHttpBase, gameServerWsUrl, loadRootEnv } from "./lib/env.mjs";
 
 const CHUNK_SIZE = 8;
 const COLYSEUS_CLIENT_MESSAGES = {
@@ -15,28 +15,14 @@ const COLYSEUS_SERVER_MESSAGES = {
 };
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const envPath = resolve(root, ".env");
-if (existsSync(envPath)) {
-  for (const line of readFileSync(envPath, "utf8").split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const eq = trimmed.indexOf("=");
-    if (eq === -1) continue;
-    const key = trimmed.slice(0, eq).trim();
-    if (!(key in process.env)) {
-      process.env[key] = trimmed.slice(eq + 1).trim();
-    }
-  }
-}
+loadRootEnv(root);
 
 if (!process.env.WORLD_SEED) {
   process.env.WORLD_SEED = "42";
 }
 
-const httpBase =
-  process.env.GAME_SERVER_URL ||
-  `http://127.0.0.1:${process.env.GAME_SERVER_PORT || "2567"}`;
-const wsUrl = process.env.GAME_SERVER_WS || "ws://127.0.0.1:2567";
+const httpBase = gameServerHttpBase();
+const wsUrl = gameServerWsUrl();
 const roomId = process.env.VERIFY_PHASE10_ROOM_ID || `verify-p10-${Date.now()}`;
 const VERIFY_PLAYER_ID = "verifyph10test0001";
 

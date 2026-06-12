@@ -2,7 +2,6 @@
  * Phase 15 E2E — Town play loop (PLAY-01…04 smoke).
  * Requires: pnpm dev:stack (no LLM_MOCK=1), real API keys in .env.
  */
-import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
@@ -10,33 +9,20 @@ import {
   assertE2eRealLlm,
   e2eSpeakTimeoutMs,
 } from "./lib/e2e-policy.mjs";
+import { gameServerHttpBase, loadRootEnv } from "./lib/env.mjs";
 
 const BOOT_WARN_MS = 5000;
 const BOOT_FAIL_MS = 8000;
 const BANNER_WAIT_MS = 30_000;
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const envPath = resolve(root, ".env");
-if (existsSync(envPath)) {
-  for (const line of readFileSync(envPath, "utf8").split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const eq = trimmed.indexOf("=");
-    if (eq === -1) continue;
-    const key = trimmed.slice(0, eq).trim();
-    if (!(key in process.env)) {
-      process.env[key] = trimmed.slice(eq + 1).trim();
-    }
-  }
-}
+loadRootEnv(root);
 
 if (!process.env.WORLD_SEED) {
   process.env.WORLD_SEED = "42";
 }
 
-const httpBase =
-  process.env.GAME_SERVER_URL ||
-  `http://127.0.0.1:${process.env.GAME_SERVER_PORT || "2567"}`;
+const httpBase = gameServerHttpBase();
 const webBase = process.env.WEB_URL || "http://localhost:5173";
 const roomId = process.env.VERIFY_PHASE15_ROOM_ID || `verify-p15-${Date.now()}`;
 const webUrl = `${webBase}${webBase.includes("?") ? "&" : "?"}room=${encodeURIComponent(roomId)}`;

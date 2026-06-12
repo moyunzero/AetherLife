@@ -5,6 +5,7 @@ export {
   interactActionSchema,
   moveActionSchema,
   speakActionSchema,
+  transferActionSchema,
   waitActionSchema,
 } from "./schemas.js";
 export { parseGameAction, safeParseGameAction } from "./parse.js";

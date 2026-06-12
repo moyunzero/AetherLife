@@ -138,7 +138,7 @@ export function ChatPage() {
       new URLSearchParams(window.location.search).get("collectiveDebug") === "1");
   const [attitudeGateHint, setAttitudeGateHint] = useState<string | null>(null);
   const { snapshot: collectiveSnapshot, loading: collectiveLoading, invalidateCollective, refetchCollective } =
-    useCollectiveAttitude(mapRoomId, activeNpcId);
+    useCollectiveAttitude(mapRoomId, activeNpcId, connected);
   onCollectiveUpdatedRef.current = refetchCollective;
 
   const latestCollectiveEvent = collectiveSnapshot?.recentEvents[0];
@@ -518,13 +518,19 @@ export function ChatPage() {
             }}
           />
         )}
-        <MessageList
-          messages={messages}
-          thinkingNpcId={thinkingNpcId}
-          activeNpcId={activeNpcId}
-          thinkingNpcName={activeNpcName}
-          streamingReply={streamingReply}
-        />
+        <div
+          role="tabpanel"
+          id={`npc-panel-${activeNpcId}`}
+          aria-labelledby={`npc-tab-${activeNpcId}`}
+        >
+          <MessageList
+            messages={messages}
+            thinkingNpcId={thinkingNpcId}
+            activeNpcId={activeNpcId}
+            thinkingNpcName={activeNpcName}
+            streamingReply={streamingReply}
+          />
+        </div>
         <CollectiveBrowsePanel
           activeNpcName={activeNpcName}
           snapshot={collectiveSnapshot}
@@ -542,6 +548,7 @@ export function ChatPage() {
           roomId={mapRoomId}
           activeNpcId={activeNpcId}
           activeNpcName={activeNpcName}
+          roomConnected={connected}
           lastParsedIntent={lastParsedIntent}
           parseError={parseError}
         />

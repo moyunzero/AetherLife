@@ -271,6 +271,12 @@ def load_memory_context(
             file=sys.stderr,
         )
         ctx = {}
+    except httpx.HTTPError as exc:
+        print(
+            f"memory-context http error room={state['room_id']} npc={npc_id}: {exc}",
+            file=sys.stderr,
+        )
+        ctx = {}
     summary = format_memory_summary(
         latest_bulk=ctx.get("latestBulkSummary"),
         latest_reflection=ctx.get("latestReflection"),

@@ -11,7 +11,7 @@ from typing import Any
 import httpx
 
 from src.config import Settings, get_settings
-from src.graph.lore_loop import _extract_json_object, _invoke_lore_llm
+from src.graph.lore_loop import _extract_json_object, _invoke_lore_llm, _lore_provider_attempts
 from src.llm.errors import is_rate_limit_error, is_retryable_llm_error, should_try_lore_provider_fallback
 
 JOIN_VICINITY_DAILY_CAP = 2
@@ -162,6 +162,17 @@ def _normalize_intent(raw: dict[str, Any], payload: dict[str, Any], settings: Se
     return intent
 
 
+def _ambient_provider_attempts(settings: Settings) -> list[tuple[str, str]]:
+    primary = _intent_provider(settings)
+    attempts: list[tuple[str, str]] = [primary]
+    seen = {primary[0]}
+    for prov, mod in _lore_provider_attempts(settings, "t0"):
+        if prov not in seen:
+            attempts.append((prov, mod))
+            seen.add(prov)
+    return attempts
+
+
 def generate_ambient_intent(payload: dict[str, Any], settings: Settings) -> dict[str, Any]:
     if settings.llm_mock or os.getenv("LLM_MOCK") == "1":
         return _mock_intent(payload)
@@ -186,9 +197,8 @@ def generate_ambient_intent(payload: dict[str, Any], settings: Settings) -> dict
         "禁止暴力、禁止 apply-actions、禁止 tool_calls。"
     )
 
-    provider, model = _intent_provider(settings)
     last_exc: BaseException | None = None
-    for prov, mod in [(provider, model)]:
+    for prov, mod in _ambient_provider_attempts(settings):
         try:
             raw_text = _invoke_lore_llm(settings, prov, mod, prompt)
             data = _extract_json_object(raw_text)

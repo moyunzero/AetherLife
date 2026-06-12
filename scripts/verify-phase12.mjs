@@ -2,45 +2,22 @@
  * Phase 12 E2E — Collective memory (SOCL-01, SOCL-02).
  * Requires: pnpm dev:stack (no LLM_MOCK=1), REDIS_URL, DATABASE_URL, real LLM keys.
  */
-import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@colyseus/sdk";
+import { COLYSEUS_SERVER_MESSAGES } from "./lib/shared-pack.mjs";
 import {
   assertE2eNoMock,
   assertE2eRealLlm,
   e2eSpeakTimeoutMs,
 } from "./lib/e2e-policy.mjs";
-
-const COLYSEUS_SERVER_MESSAGES = {
-  moveAck: "moveAck",
-  thinking: "thinking",
-  done: "done",
-  error: "error",
-  speakAck: "speakAck",
-  speakBusy: "speakBusy",
-  speakIdle: "speakIdle",
-};
+import { gameServerHttpBase, gameServerWsUrl, loadRootEnv } from "./lib/env.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const envPath = resolve(root, ".env");
-if (existsSync(envPath)) {
-  for (const line of readFileSync(envPath, "utf8").split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const eq = trimmed.indexOf("=");
-    if (eq === -1) continue;
-    const key = trimmed.slice(0, eq).trim();
-    if (!(key in process.env)) {
-      process.env[key] = trimmed.slice(eq + 1).trim();
-    }
-  }
-}
+loadRootEnv(root);
 
-const httpBase =
-  process.env.GAME_SERVER_URL ||
-  `http://127.0.0.1:${process.env.GAME_SERVER_PORT || "2567"}`;
-const wsUrl = process.env.GAME_SERVER_WS || "ws://127.0.0.1:2567";
+const httpBase = gameServerHttpBase();
+const wsUrl = gameServerWsUrl();
 const roomId = process.env.VERIFY_PHASE12_ROOM_ID || `verify-p12-${Date.now()}`;
 const VERIFY_PREFIX = "verifyph12test0000";
 const PLAYER_A = `${VERIFY_PREFIX}a`;

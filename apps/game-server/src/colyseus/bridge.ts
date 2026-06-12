@@ -2,9 +2,11 @@ import {
   HOME_DEFAULT_PLAYER_SPAWN,
   LEGACY_PLAYER_ID,
   normalizePlayerId,
+  PLAYER_ID_HEADER,
   type GridCell,
   type RoomState,
 } from "@aetherlife/shared";
+import type { Request } from "express";
 import { getOrCreate } from "../room/store.js";
 import { getChunkLoader } from "../world/chunk-loader.js";
 import { buildMoveGrid, findNearestWalkableCell } from "./move-handler.js";
@@ -16,7 +18,7 @@ function cellKey(x: number, y: number): string {
   return `${x},${y}`;
 }
 
-/** Merge map snapshot player cell with all connected Colyseus player positions. */
+/** Merge Colyseus player positions; legacy map.player only when no live multiplayer session. */
 export function collectPlayerCells(roomId: string, map: RoomState): GridCell[] {
   const seen = new Set<string>();
   const cells: GridCell[] = [];
@@ -27,13 +29,55 @@ export function collectPlayerCells(roomId: string, map: RoomState): GridCell[] {
     cells.push({ x, y });
   };
 
-  add(map.player.x, map.player.y);
   const colyseus = getColyseusRoom(roomId);
   if (colyseus) {
     const state = colyseus.state as GameRoomState;
     state.players.forEach((player) => add(player.x, player.y));
+    if (state.players.size > 0) {
+      return cells;
+    }
   }
+
+  add(map.player.x, map.player.y);
   return cells;
+}
+
+/** HTTP routes: require X-Player-Id header match; when Colyseus live, player must be connected. */
+export function assertScopedPlayerRequest(
+  req: Request,
+  playerId: string,
+  roomId: string,
+): { ok: true } | { ok: false; status: number; error: string } {
+  const normalized = normalizePlayerId(playerId);
+  if (normalized === LEGACY_PLAYER_ID) {
+    return { ok: true };
+  }
+
+  const headerId = normalizePlayerId(req.get(PLAYER_ID_HEADER));
+  if (!headerId || headerId !== normalized) {
+    return {
+      ok: false,
+      status: 403,
+      error: "X-Player-Id required and must match request scope",
+    };
+  }
+
+  const colyseus = getColyseusRoom(roomId);
+  if (!colyseus) {
+    return { ok: true };
+  }
+
+  const state = colyseus.state as GameRoomState;
+  let connected = false;
+  state.players.forEach((player) => {
+    if (normalizePlayerId(player.playerId) === normalized) {
+      connected = true;
+    }
+  });
+  if (!connected) {
+    return { ok: false, status: 403, error: "player not connected to room" };
+  }
+  return { ok: true };
 }
 
 /** Live Colyseus position for the player who sent this turn (multiplayer). */

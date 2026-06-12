@@ -3,11 +3,17 @@ import {
   index,
   integer,
   pgTable,
+  primaryKey,
   real,
   text,
   timestamp,
   uuid,
 } from "drizzle-orm/pg-core";
+import {
+  DEFAULT_NPC_ID,
+  type CollectiveEventKind,
+  type CollectiveEventSource,
+} from "@aetherlife/shared";
 
 /** Matches nvidia/llama-nemotron-embed-vl-1b-v2:free (see docs/phase3-embed-spike.md). */
 export const EMBED_DIMENSIONS = 2048;
@@ -27,7 +33,7 @@ export const npcMemories = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     roomId: text("room_id").notNull(),
     playerId: text("player_id").notNull().default("__legacy__"),
-    npcId: text("npc_id").notNull().default("1"),
+    npcId: text("npc_id").notNull().default(DEFAULT_NPC_ID),
     text: text("text").notNull(),
     importance: real("importance").notNull().default(5),
     embedding: vector2048("embedding"),
@@ -50,7 +56,7 @@ export const memorySummaries = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     roomId: text("room_id").notNull(),
     playerId: text("player_id").notNull().default("__legacy__"),
-    npcId: text("npc_id").notNull().default("1"),
+    npcId: text("npc_id").notNull().default(DEFAULT_NPC_ID),
     kind: text("kind").notNull(),
     text: text("text").notNull(),
     sourceCount: real("source_count"),
@@ -68,21 +74,7 @@ export const memorySummaries = pgTable(
 
 export type SummaryKind = "reflection" | "bulk";
 
-export type CollectiveEventKind =
-  | "rude"
-  | "polite"
-  | "help"
-  | "contradict"
-  | "compete_object"
-  | "collaborate"
-  | "steal_attempt"
-  | "ignore"
-  | "gift"
-  | "praise"
-  | "apologize"
-  | "betray";
-
-export type CollectiveEventSource = "rule" | "llm_refine" | "worker";
+export type { CollectiveEventKind, CollectiveEventSource };
 
 export const collectiveEvents = pgTable(
   "collective_events",
@@ -117,6 +109,7 @@ export const npcAttitudes = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
+    primaryKey({ columns: [table.roomId, table.npcId, table.playerId] }),
     index("npc_attitudes_room_player_idx").on(table.roomId, table.playerId),
   ],
 );

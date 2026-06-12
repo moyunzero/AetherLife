@@ -43,6 +43,13 @@ export class MoveIntentTracker {
     }
   }
 
+  clearForPlayer(roomId: string, playerId: string): void {
+    const suffix = `:${playerId}`;
+    for (const k of [...this.intents.keys()]) {
+      if (k.startsWith(`${roomId}:`) && k.endsWith(suffix)) this.intents.delete(k);
+    }
+  }
+
   clearAll(): void {
     this.intents.clear();
   }

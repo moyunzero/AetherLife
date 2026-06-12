@@ -1,6 +1,12 @@
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { assertE2eNoMock } from "./lib/e2e-policy.mjs";
+import { gameServerHttpBase, loadRootEnv } from "./lib/env.mjs";
 
-const baseUrl = process.env.GAME_SERVER_URL || "http://127.0.0.1:2567";
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+loadRootEnv(root);
+
+const baseUrl = gameServerHttpBase();
 const roomId = "default";
 
 async function request(path, options = {}) {

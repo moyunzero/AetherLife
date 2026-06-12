@@ -23,7 +23,10 @@ export function NpcTabBar({ npcs, activeNpcId, onSelect, activeBand }: Props) {
             key={npc.id}
             type="button"
             role="tab"
+            id={`npc-tab-${npc.id}`}
+            aria-controls={`npc-panel-${npc.id}`}
             aria-selected={isActive}
+            tabIndex={isActive ? 0 : -1}
             className={`npc-tab${isActive ? " npc-tab--active" : ""}`}
             onPointerDown={() => onSelect(npc.id)}
           >

@@ -8,6 +8,7 @@ import {
   registerColyseusRoom,
 } from "./room-registry.js";
 import {
+  collectPlayerCells,
   findPlayerCellByPlayerId,
   resetColyseusFromMap,
   roomStateForInitiator,
@@ -34,6 +35,24 @@ describe("syncColyseusFromMap", () => {
 describe("initiator player view", () => {
   afterEach(() => {
     clearColyseusRoomRegistry();
+  });
+
+  it("collectPlayerCells prefers Colyseus players over legacy map.player", () => {
+    const map = createDefaultRoom("default");
+    map.player = { x: 99, y: 99 };
+
+    const state = new GameRoomState();
+    const player = new PlayerSchema();
+    player.playerId = "player-alpha01";
+    player.x = 6;
+    player.y = 1;
+    state.players.set("sess-a", player);
+
+    registerColyseusRoom("default", { state } as never);
+
+    const cells = collectPlayerCells("default", map);
+    expect(cells).toEqual([{ x: 6, y: 1 }]);
+    expect(cells.some((c) => c.x === 99)).toBe(false);
   });
 
   it("findPlayerCellByPlayerId reads Colyseus players map", () => {

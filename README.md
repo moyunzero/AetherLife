@@ -10,6 +10,8 @@ AI 驱动的多人联机生活模拟 Web 游戏：与拥有记忆的 NPC 用自�
 - **自然语言指挥** — 通过 ai-gateway 解析意图，worker 异步执行 NPC 回合
 - **持久记忆** — Postgres + pgvector，NPC 会记住互动并影响后续行为
 - **Phaser 4 世界** — 2D 像素「地球Online」风：网格移动、程序化 chunk 地形与世界 lore
+- **智能 Ambient NPC（v3）** — schedule/zone 漫游、异步 LLM intent 副行、Tiled 碰撞与 village-plaza 跨区（Phase 16）
+- **Speak SLA（v3）** — worker-state / memory-context 缓存、stale fallback、并行 speak 多 Tab 不丢回复（Phase 17 / ISSUE-048）
 - **集体态度** — NPC 对玩家/群体的态度随行为演化（Phase 12+）
 
 ## 技术栈
@@ -89,6 +91,7 @@ flowchart LR
 pnpm turbo test
 pnpm turbo build
 pnpm verify          # build + test + verify:cloud
+pnpm agent:verify    # diff → mapped unit tests (mock LLM OK)
 
 # 跨层单测（可 mock LLM）
 pnpm --filter @aetherlife/game-server test
@@ -96,7 +99,8 @@ cd workers/agent-worker && LLM_MOCK=1 uv run pytest -q
 cd apps/ai-gateway && uv run pytest tests -q
 ```
 
-Phase 集成验收（需 `pnpm dev:stack` + 真实 API Key）：见 [CONTRIBUTING.md](./CONTRIBUTING.md#集成验收)。
+Phase 集成验收（需 `pnpm dev:stack` + 真实 API Key）：见 [CONTRIBUTING.md](./CONTRIBUTING.md#集成验收)。  
+v3 Speak SLA / Golden Flows：`pnpm agent:verify --e2e --base`（见 [docs/E2E-POLICY.md](./docs/E2E-POLICY.md)）。
 
 Action schema：[packages/game-actions/README.md](./packages/game-actions/README.md)
 
@@ -108,6 +112,8 @@ Action schema：[packages/game-actions/README.md](./packages/game-actions/README
 | [docs/CONTRACTS.md](./docs/CONTRACTS.md) | game-server ↔ worker API 契约 |
 | [docs/INVARIANTS-MULTIPLAYER.md](./docs/INVARIANTS-MULTIPLAYER.md) | 多人空间与 NL 不变量 |
 | [docs/MOVEMENT-ARCHITECTURE.md](./docs/MOVEMENT-ARCHITECTURE.md) | Phaser 移动与 Colyseus 同步 |
+| [docs/E2E-POLICY.md](./docs/E2E-POLICY.md) | E2E / UAT 策略与 Golden Flows |
+| [docs/PHASE-EVOLUTION.md](./docs/PHASE-EVOLUTION.md) | 阶段演进与跨层防债务 |
 
 ## 贡献
 

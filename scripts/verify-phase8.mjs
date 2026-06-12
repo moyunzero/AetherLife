@@ -1,12 +1,16 @@
-import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@colyseus/sdk";
+import {
+  COLYSEUS_MAX_CLIENTS,
+  COLYSEUS_SERVER_MESSAGES,
+} from "./lib/shared-pack.mjs";
 import {
   assertE2eNoMock,
   assertE2eRealLlm,
   e2eSpeakTimeoutMs,
 } from "./lib/e2e-policy.mjs";
+import { gameServerHttpBase, gameServerWsUrl, loadRootEnv } from "./lib/env.mjs";
 
 /** Isolated plaza cells — away from default spawn cluster so 下方 (y+1) is not player-occupied. */
 const NL_STAGING_A = { x: 31, y: 15 };
@@ -16,37 +20,11 @@ const NL_CLEAR_C = { x: 38, y: 18 };
 const NL_CLEAR_D = { x: 39, y: 18 };
 const NL_STAGING_MOVE_MS = 12_000;
 
-const COLYSEUS_MAX_CLIENTS = 4;
-const COLYSEUS_SERVER_MESSAGES = {
-  moveAck: "moveAck",
-  patch: "patch",
-  thinking: "thinking",
-  done: "done",
-  error: "error",
-  speakAck: "speakAck",
-  speakBusy: "speakBusy",
-  speakIdle: "speakIdle",
-};
-
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const envPath = resolve(root, ".env");
-if (existsSync(envPath)) {
-  for (const line of readFileSync(envPath, "utf8").split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const eq = trimmed.indexOf("=");
-    if (eq === -1) continue;
-    const key = trimmed.slice(0, eq).trim();
-    if (!(key in process.env)) {
-      process.env[key] = trimmed.slice(eq + 1).trim();
-    }
-  }
-}
+loadRootEnv(root);
 
-const httpBase =
-  process.env.GAME_SERVER_URL ||
-  `http://127.0.0.1:${process.env.GAME_SERVER_PORT || "2567"}`;
-const wsUrl = process.env.GAME_SERVER_WS || "ws://127.0.0.1:2567";
+const httpBase = gameServerHttpBase();
+const wsUrl = gameServerWsUrl();
 const roomId = process.env.VERIFY_PHASE8_ROOM_ID || `verify-p8-${Date.now()}`;
 const skipSpeak = process.env.SKIP_SPEAK_VERIFY === "1";
 const soakEnabled = process.env.SOAK === "1";

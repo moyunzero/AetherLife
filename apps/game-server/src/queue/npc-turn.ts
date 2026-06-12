@@ -78,9 +78,25 @@ export async function addNpcTurnJob(input: {
   };
 
   const q = getQueue();
-  if (q) {
-    await q.add("turn", payload, { jobId });
+  if (!q) {
+    mockJobs.set(jobId, payload);
+    if (process.env.NODE_ENV === "test") {
+      return jobId;
+    }
+    throw new Error("REDIS_URL not configured; NPC speak queue unavailable");
+  }
+
+  await q.add("turn", payload, { jobId });
+  try {
     await pushBridgeJob(payload);
+  } catch (err) {
+    try {
+      const job = await q.getJob(jobId);
+      if (job) await job.remove();
+    } catch (rollbackErr) {
+      console.error("[npc-turn] failed to rollback BullMQ job after bridge failure", rollbackErr);
+    }
+    throw err;
   }
 
   mockJobs.set(jobId, payload);

@@ -301,9 +301,7 @@ export class ClientMovementPredictor {
     if (this.pending.length >= MAX_PREDICT_AHEAD) {
       this.inputBuffer = { dx, dy };
       this.queueVisualOnlyStep(ctx, dx, dy);
-      return;
-    }
-    if (!this.enqueueStep(ctx, dx, dy)) {
+    } else if (!this.enqueueStep(ctx, dx, dy)) {
       this.inputBuffer = { dx, dy };
     } else {
       this.inputBuffer = null;
