@@ -1,7 +1,7 @@
 from fastapi import APIRouter
-from fastapi.responses import JSONResponse
 
 from app.guards.content import ContentGuard
+from app.guards.responses import guard_denied_response
 from app.models.requests import ParseBody
 from app.services.parse import parse_intent
 
@@ -15,9 +15,6 @@ async def nl_parse(room_id: str, body: ParseBody):
     message = body.message.strip()
     guard = await _content_guard.check(message)
     if not guard.allowed:
-        return JSONResponse(
-            status_code=400,
-            content={"ok": False, "code": "content_blocked", "error": "无法处理该内容"},
-        )
+        return guard_denied_response(guard)
     parsed, err = await parse_intent(message)
     return {"ok": True, "parsedIntent": parsed, "parseError": err}

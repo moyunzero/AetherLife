@@ -38,10 +38,10 @@
       "breakpoints": true
     },
     {
-      "idx": 5,
+      "idx": 6,
       "version": "7",
-      "when": 1749446400000,
-      "tag": "0006_collective_memory",
+      "when": 1749532800000,
+      "tag": "0007_npc_id_default",
       "breakpoints": true
     }
   ]

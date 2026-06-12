@@ -2,9 +2,9 @@ import asyncio
 import logging
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import JSONResponse
 
 from app.guards.content import ContentGuard
+from app.guards.responses import guard_denied_response
 from app.models.requests import ChatBody
 from app.services.parse import parse_intent
 from app.services.proxy import proxy_chat
@@ -20,10 +20,7 @@ async def room_chat(room_id: str, body: ChatBody):
     guard = await _content_guard.check(message)
     if not guard.allowed:
         logger.info("event=content_blocked room=%s reason=%s", room_id, guard.reason)
-        return JSONResponse(
-            status_code=400,
-            content={"ok": False, "code": "content_blocked", "error": "无法处理该内容"},
-        )
+        return guard_denied_response(guard)
 
     async def safe_parse() -> tuple[dict | None, str | None]:
         try:

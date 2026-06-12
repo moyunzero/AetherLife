@@ -87,7 +87,17 @@ export async function addNpcTurnJob(input: {
   }
 
   await q.add("turn", payload, { jobId });
-  await pushBridgeJob(payload);
+  try {
+    await pushBridgeJob(payload);
+  } catch (err) {
+    try {
+      const job = await q.getJob(jobId);
+      if (job) await job.remove();
+    } catch (rollbackErr) {
+      console.error("[npc-turn] failed to rollback BullMQ job after bridge failure", rollbackErr);
+    }
+    throw err;
+  }
 
   mockJobs.set(jobId, payload);
   return jobId;
