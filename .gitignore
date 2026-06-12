@@ -21,10 +21,6 @@ tmp/
 .cursor/
 .codegraph/
 .githooks/
-AGENTS.md
-CLAUDE.md
-apps/game-server/AGENTS.md
-apps/web/AGENTS.md
 
 # Internal development docs (local only)
 docs/ISSUE-LOG.md
