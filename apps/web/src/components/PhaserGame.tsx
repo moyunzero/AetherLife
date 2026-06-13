@@ -541,8 +541,11 @@ export function PhaserGame({
       {connected && exploreCoords && journalStoryHook ? (
         <JournalQuestStrip storyHook={journalStoryHook} />
       ) : null}
-      <div className="room-scene-panel__viewport">
-        <div className="room-scene-panel__stage">
+      <div className="room-scene-panel__viewport phaser-stage-fill">
+        <div
+          className="room-scene-panel__stage phaser-stage-fill"
+          data-testid="phaser-stage-fill"
+        >
           <div
             ref={parentRef}
             data-testid="phaser-parent"

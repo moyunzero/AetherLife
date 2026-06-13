@@ -131,6 +131,51 @@ body {
   flex: 1;
   overflow-y: auto;
   padding: 16px 0 12px;
+  min-height: 0;
+}
+
+.immersive-shell .chat-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px 12px 8px;
+}
+
+.immersive-shell .chat-header {
+  margin: 8px 12px 4px;
+  flex-shrink: 0;
+}
+
+.immersive-shell .npc-tab-bar {
+  margin: 0 12px 8px;
+  flex-shrink: 0;
+}
+
+.immersive-shell .composer {
+  padding: 0 12px 8px;
+}
+
+.immersive-shell .room-player-strip {
+  margin: 0 12px 8px;
+}
+
+.immersive-shell .room-scene-panel {
+  flex: 1 0 auto;
+  min-height: min(65dvh, 100%);
+  display: flex;
+  flex-direction: column;
+}
+
+.phaser-stage-fill {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .message-list {
@@ -999,11 +1044,11 @@ body {
   color: var(--destructive);
 }
 
-/* Viewport — Stardew-style wood window around 1:1 canvas */
+/* Viewport — fills shell world area (no 1:1 square lock) */
 .room-scene-panel__viewport {
   width: 100%;
-  max-width: min(576px, 100%);
-  margin: 4px auto 0;
+  max-width: none;
+  margin: 4px 0 0;
   padding: 10px;
   border-radius: calc(var(--radius-md) + 2px);
   background:
@@ -1014,16 +1059,18 @@ body {
     0 12px 28px rgba(0, 0, 0, 0.35);
 }
 
-/* Fixed 1:1 stage — hints overlay so canvas size never jumps */
 .room-scene-panel__stage {
   position: relative;
   width: 100%;
-  flex: 0 0 auto;
+  flex: 1;
+  min-height: 0;
 }
 
 .room-scene-panel__canvas {
   width: 100%;
-  aspect-ratio: 1 / 1;
+  height: 100%;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
   border-radius: 3px;
   border: 2px solid #2a1f16;
