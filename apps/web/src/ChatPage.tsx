@@ -12,13 +12,13 @@ import { flushSync } from "react-dom";
 import { useColyseusRoom } from "./hooks/useColyseusRoom.js";
 import { useNpcChat } from "./hooks/useNpcChat.js";
 import { MovementPanel } from "./components/MovementPanel.js";
-import { PhaserGame, probePhaserBoot } from "./components/PhaserGame.js";
+import { PhaserGame, probePhaserBoot, readReducedMotion } from "./components/PhaserGame.js";
 import { MessageList } from "./components/MessageList.js";
 import { CollectiveAttitudeOverlay } from "./components/CollectiveAttitudeOverlay.js";
 import { CollectiveBrowsePanel } from "./components/CollectiveBrowsePanel.js";
 import { CollectiveDebugPanel } from "./components/CollectiveDebugPanel.js";
 import { CollectiveFeedbackBanner } from "./components/CollectiveFeedbackBanner.js";
-import { NpcTabBar } from "./components/NpcTabBar.js";
+import { NpcAvatarStrip } from "./components/NpcAvatarStrip.js";
 import { useCollectiveAttitude } from "./hooks/useCollectiveAttitude.js";
 import { RoomStatePanel } from "./components/RoomStatePanel.js";
 import { NpcMemoryPanel } from "./components/NpcMemoryPanel.js";
@@ -186,6 +186,9 @@ export function ChatPage() {
     [setActiveNpcId],
   );
 
+  const [viewportVisibleNpcIds, setViewportVisibleNpcIds] = useState<string[]>([]);
+  const reducedMotion = useMemo(() => readReducedMotion(), []);
+
   const displayNpcs = useMemo(() => {
     const meta = roomState?.npcs ?? moveMap.npcs;
     return meta.map((npc) => {
@@ -210,6 +213,11 @@ export function ChatPage() {
         })),
     [displayNpcs],
   );
+
+  const stripNpcs = useMemo(() => {
+    const visible = new Set(viewportVisibleNpcIds);
+    return npcs.filter((npc) => visible.has(npc.id));
+  }, [npcs, viewportVisibleNpcIds]);
 
   const activeNpcName =
     npcs.find((npc) => npc.id === activeNpcId)?.name ?? "NPC";
@@ -448,15 +456,6 @@ export function ChatPage() {
             </button>
           </header>
 
-          {npcs.length > 0 ? (
-            <NpcTabBar
-              npcs={npcs}
-              activeNpcId={activeNpcId}
-              onSelect={selectNpc}
-              activeBand={collectiveSnapshot?.band ?? null}
-            />
-          ) : null}
-
           <main className="chat-main">
             {roomFull ? (
               <div className="error-banner error-banner--warn" data-testid="banner-room-full">
@@ -537,12 +536,14 @@ export function ChatPage() {
                   setPhaserOk(false);
                   setBootOk(false);
                 }}
+                onNpcSpriteClick={selectNpc}
+                onViewportVisibleNpcIdsChange={setViewportVisibleNpcIds}
               />
             )}
             <div
               role="tabpanel"
               id={`npc-panel-${activeNpcId}`}
-              aria-labelledby={`npc-tab-${activeNpcId}`}
+              aria-labelledby={`npc-avatar-${activeNpcId}`}
             >
               <MessageList
                 messages={messages}
@@ -578,6 +579,14 @@ export function ChatPage() {
       }
       bottomHud={
         <>
+          <NpcAvatarStrip
+            npcs={stripNpcs}
+            activeNpcId={activeNpcId}
+            onSelect={selectNpc}
+            activeBand={collectiveSnapshot?.band ?? null}
+            thinkingNpcId={thinkingNpcId}
+            reducedMotion={reducedMotion}
+          />
           <form className="composer" onSubmit={onSubmit}>
             {collectiveFeedbackKind ? (
               <CollectiveFeedbackBanner kind={collectiveFeedbackKind} />

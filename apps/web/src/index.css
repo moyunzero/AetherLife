@@ -154,6 +154,11 @@ body {
   flex-shrink: 0;
 }
 
+.immersive-shell .npc-avatar-strip {
+  margin: 0 12px 6px;
+  flex-shrink: 0;
+}
+
 .immersive-shell .composer {
   padding: 0 12px 8px;
 }
@@ -624,6 +629,84 @@ body {
   bottom: 0;
   height: 2px;
   background: var(--accent);
+}
+
+.npc-avatar-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  border-radius: var(--radius-md);
+  background:
+    linear-gradient(180deg, rgba(74, 54, 40, 0.5) 0%, rgba(42, 36, 28, 0.35) 100%);
+  scrollbar-width: thin;
+}
+
+.npc-avatar-strip__chip {
+  position: relative;
+  flex: 0 0 auto;
+  min-width: 72px;
+  min-height: 40px;
+  padding: 6px 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  border-radius: var(--radius-sm);
+  background: rgba(22, 19, 15, 0.55);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.npc-avatar-strip__chip:hover {
+  color: var(--text);
+  background: rgba(36, 30, 22, 0.75);
+}
+
+.npc-avatar-strip__chip--active {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent),
+    inset 0 1px 0 rgba(255, 220, 170, 0.12);
+  background: linear-gradient(180deg, #3d2e22 0%, #2a2218 100%);
+}
+
+@keyframes npc-avatar-thinking-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow:
+      0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent),
+      0 0 0 0 rgba(201, 162, 39, 0.35);
+  }
+  50% {
+    transform: scale(1.02);
+    box-shadow:
+      0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent),
+      0 0 8px 2px rgba(201, 162, 39, 0.28);
+  }
+}
+
+.npc-avatar-strip:not(.npc-avatar-strip--reduced-motion) .npc-avatar-strip__chip--thinking {
+  animation: npc-avatar-thinking-pulse 1.6s ease-in-out infinite;
+}
+
+.npc-avatar-strip--reduced-motion .npc-avatar-strip__chip--thinking {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .npc-avatar-strip__chip--thinking {
+    animation: none !important;
+  }
 }
 
 .attitude-band-chip {
