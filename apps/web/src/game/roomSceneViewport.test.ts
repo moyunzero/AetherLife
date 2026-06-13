@@ -41,6 +41,15 @@ describe("tickViewportVisibleNpcIds", () => {
     expect(tickViewportVisibleNpcIds(mockCam(view), sprites)).toEqual(["npc-a", "npc-b"]);
   });
 
+  it("returns empty array when no sprites overlap view", () => {
+    const view: Rect = { x: 0, y: 0, width: 100, height: 100 };
+    const outside: Rect = { x: 500, y: 500, width: 20, height: 20 };
+    const sprites = new Map<string, EntitySprite>([
+      ["npc-far", mockEntity({ npcId: "npc-far", bounds: outside })],
+    ]);
+    expect(tickViewportVisibleNpcIds(mockCam(view), sprites)).toEqual([]);
+  });
+
   it("excludes hidden containers and background NPCs", () => {
     const view: Rect = { x: 0, y: 0, width: 100, height: 100 };
     const box: Rect = { x: 10, y: 10, width: 20, height: 20 };

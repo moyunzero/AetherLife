@@ -23,7 +23,16 @@ export function NpcAvatarStrip({
   thinkingNpcId = null,
   reducedMotion = false,
 }: Props) {
-  if (npcs.length === 0) return null;
+  if (npcs.length === 0) {
+    return (
+      <div
+        className={`npc-avatar-strip npc-avatar-strip--empty${reducedMotion ? " npc-avatar-strip--reduced-motion" : ""}`}
+        role="tablist"
+        aria-label="视口内 NPC"
+        data-testid="npc-avatar-strip"
+      />
+    );
+  }
 
   return (
     <div
