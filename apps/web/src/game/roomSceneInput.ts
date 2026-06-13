@@ -5,6 +5,7 @@ import { isGlobalFloorBlocked } from "./floorBlocked.js";
 import { CELL_PX, gridToWorld, worldToGrid } from "./gridLayout.js";
 import { attachGridMovementKeys, GRID_STEP_MS, type GridMovementKeyHandle } from "./gridMovement.js";
 import type { MovementSyncController } from "./MovementSyncController.js";
+import { hitNpcAtWorldPoint } from "./roomSceneViewport.js";
 import type { EntitySprite, PlayerSnap } from "./roomSceneTypes.js";
 import { theme } from "./theme.js";
 
@@ -17,6 +18,8 @@ export type RoomSceneInputCtx = {
   flashGfx: Phaser.GameObjects.Graphics;
   pathGfx: Phaser.GameObjects.Graphics;
   playerSprites: Map<string, EntitySprite>;
+  npcSprites: Map<string, EntitySprite>;
+  onNpcSelected?: (npcId: string) => void;
   getMoveMap: () => RoomState;
   getLoadedChunks: () => ChunkView[];
   getMovementSync: () => MovementSyncController | undefined;
@@ -99,7 +102,7 @@ export function clearPathPreview(ctx: RoomSceneInputCtx): void {
 }
 
 export function setupRoomSceneInput(ctx: RoomSceneInputCtx): void {
-  let pendingTap: { x: number; y: number } | null = null;
+  let pendingTap: { x: number; y: number; worldX: number; worldY: number } | null = null;
 
   const activePointerCount = (): number =>
     [ctx.input.pointer1, ctx.input.pointer2].filter((p) => p.isDown).length;
@@ -112,7 +115,7 @@ export function setupRoomSceneInput(ctx: RoomSceneInputCtx): void {
     }
     const world = ctx.cameras.main.getWorldPoint(ctx.input.pointer1.x, ctx.input.pointer1.y);
     const { x, y } = worldToGrid(world.x, world.y);
-    pendingTap = { x, y };
+    pendingTap = { x, y, worldX: world.x, worldY: world.y };
   });
 
   ctx.input.on(
@@ -172,8 +175,14 @@ export function setupRoomSceneInput(ctx: RoomSceneInputCtx): void {
       return;
     }
 
-    const { x, y } = pendingTap;
+    const { x, y, worldX, worldY } = pendingTap;
     pendingTap = null;
+
+    const hitNpcId = hitNpcAtWorldPoint(worldX, worldY, ctx.npcSprites);
+    if (hitNpcId) {
+      ctx.onNpcSelected?.(hitNpcId);
+      return;
+    }
 
     const map = ctx.getMoveMap();
     const chunks = ctx.getLoadedChunks();
