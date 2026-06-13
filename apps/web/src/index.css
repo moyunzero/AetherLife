@@ -23,6 +23,15 @@
   --radius-sm: 4px;
   --radius-md: 8px;
   --shadow-soft: 0 8px 32px rgba(0, 0, 0, 0.35);
+  /* Phase 19 V3 shell tokens (HUD parchment/wood — partial until 19-03) */
+  --shell-wood: #8b6914;
+  --shell-parchment: #f5ecd7;
+  --shell-ink: #3d3428;
+  --shell-muted: #7a6f5c;
+  --shell-accent: #c9a227;
+  --status-ok: #5a8f5a;
+  --status-warn: #c9a227;
+  --status-err: #b54a4a;
 }
 
 *,
@@ -49,13 +58,50 @@ body {
   line-height: 1.6;
 }
 
+/* Deprecated Phase 15 column — superseded by .immersive-shell (Phase 19) */
 .chat-page {
   min-height: 100%;
-  max-width: 720px;
-  margin: 0 auto;
+  max-width: none;
+  margin: 0;
   display: flex;
   flex-direction: column;
-  padding: 0 24px;
+  padding: 0;
+}
+
+.immersive-shell {
+  height: 100vh;
+  height: 100dvh;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-deep);
+}
+
+.immersive-shell__world {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.immersive-shell__bottom-hud {
+  flex-shrink: 0;
+  padding-bottom: max(0px, env(safe-area-inset-bottom));
+}
+
+.immersive-shell__overlays {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 90;
+}
+
+.immersive-shell__overlays > * {
+  pointer-events: auto;
 }
 
 .chat-header {
