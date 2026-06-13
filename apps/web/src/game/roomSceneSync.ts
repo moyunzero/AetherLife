@@ -20,7 +20,7 @@ import {
 import {
   applyFacingFromSchema,
   paletteRowForPlayerId,
-  setThinkingBubble,
+  refreshNpcChatBubbles,
 } from "./entitySprites.js";
 import { GRID_STEP_MS } from "./gridMovement.js";
 import type { LocalPlayerMotionBridge } from "./localPlayerMotion.js";
@@ -276,7 +276,6 @@ export function syncRoomEntities(host: RoomSceneSyncHost): void {
     } else {
       ent.body.setVisible(false);
       ent.ring.setVisible(false);
-      setThinkingBubble(ent, isNpcThinking(npc.id));
     }
 
     if (!ent.moveTween?.isPlaying()) {
@@ -312,6 +311,7 @@ export function syncRoomEntities(host: RoomSceneSyncHost): void {
       host.npcSprites.delete(id);
     }
   }
+  refreshNpcChatBubbles(host.npcSprites, host.registry);
 
   const seenDoors = new Set<string>();
   for (const obj of mapObjects) {

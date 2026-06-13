@@ -181,8 +181,8 @@ export async function probePhaserBoot(timeoutMs = BOOT_TIMEOUT_MS): Promise<bool
         roundPixels: true,
         render: { preserveDrawingBuffer: true, antialias: false },
         scale: {
-          mode: Phaser.Scale.FIT,
-          autoCenter: Phaser.Scale.CENTER_BOTH,
+          mode: Phaser.Scale.RESIZE,
+          autoCenter: Phaser.Scale.NO_CENTER,
         },
         scene: [RoomScene],
       });
@@ -365,8 +365,8 @@ export function PhaserGame({
       roundPixels: true,
       render: { preserveDrawingBuffer: true, antialias: false },
       scale: {
-        mode: Phaser.Scale.FIT,
-        autoCenter: Phaser.Scale.CENTER_BOTH,
+        mode: Phaser.Scale.RESIZE,
+        autoCenter: Phaser.Scale.NO_CENTER,
       },
       scene: [RoomScene],
     });

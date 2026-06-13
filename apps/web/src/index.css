@@ -83,14 +83,228 @@ body {
 .immersive-shell__world {
   flex: 1;
   min-height: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
-.immersive-shell__bottom-hud {
-  flex-shrink: 0;
-  padding-bottom: max(0px, env(safe-area-inset-bottom));
+.world-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.world-stage::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  background: linear-gradient(
+    to top,
+    rgba(8, 6, 4, 0.72) 0%,
+    rgba(8, 6, 4, 0.35) 28%,
+    transparent 55%
+  );
+}
+
+.chat-main--dialogue-engaged .world-stage::after {
+  opacity: 0.55;
+}
+
+.dialogue-overlay {
+  position: absolute;
+  inset: auto 0 0 0;
+  z-index: 5;
+  pointer-events: none;
+  display: flex;
+  justify-content: center;
+  padding: 0 12px max(8px, env(safe-area-inset-bottom));
+}
+
+.dialogue-overlay--engaged {
+  pointer-events: auto;
+}
+
+.dialogue-overlay__frame {
+  width: min(100%, 680px);
+  max-height: min(28vh, 220px);
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: 8px;
+  padding: 10px 12px 8px;
+  border: 2px solid color-mix(in srgb, var(--shell-wood) 75%, #5c4528);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--shell-parchment) 96%, #efe4cc);
+  box-shadow:
+    0 -4px 0 color-mix(in srgb, var(--shell-wood) 35%, transparent),
+    0 -12px 24px rgba(0, 0, 0, 0.22);
+  overflow: hidden;
+}
+
+.dialogue-overlay__portrait {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid color-mix(in srgb, var(--shell-wood) 45%, #3d2e1c);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--shell-parchment) 55%, #d9c9a8);
+  min-height: 56px;
+  image-rendering: pixelated;
+}
+
+.dialogue-overlay__portrait-initial {
+  font-family: "IBM Plex Mono", "Courier New", monospace;
+  font-size: 1.35rem;
+  font-weight: 600;
+  color: var(--shell-ink);
+}
+
+.dialogue-overlay__body {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dialogue-overlay__meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-height: 1.25rem;
+}
+
+.dialogue-overlay__npc-name {
+  font-family: "Fraunces", "Noto Serif SC", serif;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--shell-ink);
+  letter-spacing: 0.02em;
+}
+
+.dialogue-overlay__thinking {
+  font-family: "IBM Plex Mono", "Courier New", monospace;
+  font-size: 0.78rem;
+  color: var(--shell-accent);
+  font-style: italic;
+}
+
+.dialogue-overlay__thinking-pulse {
+  display: inline-block;
+  animation: dialogue-thinking-pulse 1.2s ease-in-out infinite;
+}
+
+.dialogue-overlay__last-line {
+  margin: 0;
+  font-family: "IBM Plex Mono", "Courier New", monospace;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: var(--shell-ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.dialogue-overlay__end-btn {
+  align-self: flex-end;
+  margin-top: 2px;
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, var(--shell-wood) 30%, transparent);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--shell-muted);
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.dialogue-overlay__end-btn:hover {
+  color: var(--shell-ink);
+  background: color-mix(in srgb, var(--shell-parchment) 40%, #fff);
+}
+
+.dialogue-overlay .dialogue-bar {
+  padding: 0;
+  background: transparent;
+  border-top: none;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.dialogue-overlay .dialogue-bar__header {
+  margin: 0;
+  padding: 0;
+  min-height: 0;
+  justify-content: flex-end;
+}
+
+.dialogue-overlay .dialogue-bar__drawer-btn {
+  padding: 3px 8px;
+  font-size: 0.72rem;
+  border-radius: 4px;
+}
+
+.dialogue-overlay .dialogue-bar .composer {
+  flex: 1;
+  min-height: 0;
+}
+
+.dialogue-overlay .dialogue-bar .composer__shell {
+  background: color-mix(in srgb, var(--shell-wood) 18%, var(--shell-parchment));
+  border: 1px solid color-mix(in srgb, var(--shell-wood) 35%, transparent);
+  border-radius: 4px;
+  padding: 4px;
+}
+
+.dialogue-overlay .dialogue-bar .composer__inner {
+  background: color-mix(in srgb, var(--shell-parchment) 88%, #fff);
+  border-radius: 3px;
+  gap: 6px;
+}
+
+.dialogue-overlay .dialogue-bar .composer__input {
+  background: color-mix(in srgb, var(--shell-parchment) 92%, #fff);
+  color: var(--shell-ink);
+  font-family: "IBM Plex Mono", "Courier New", monospace;
+  font-size: 0.8rem;
+  min-height: 2.25rem;
+}
+
+.dialogue-overlay .dialogue-bar .composer__submit {
+  font-size: 0.78rem;
+  padding: 6px 10px;
+  border-radius: 4px;
+}
+
+@media (max-width: 640px) {
+  .dialogue-overlay__frame {
+    max-height: min(40dvh, 280px);
+    grid-template-columns: 48px 1fr;
+  }
+
+  .dialogue-overlay__portrait {
+    min-height: 48px;
+  }
+}
+
+.corner-menu__nearby {
+  margin: 4px 0 8px;
+}
+
+.corner-menu__nearby .npc-avatar-strip {
+  margin: 0;
+  flex-wrap: wrap;
 }
 
 .immersive-shell__overlays {
@@ -354,6 +568,69 @@ body {
 
 .shell-drawer__body .message-list {
   margin: 0;
+  padding: 8px 4px;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  gap: 10px;
+}
+
+.shell-drawer .message {
+  max-width: 100%;
+  padding: 8px 10px;
+  border-radius: 4px;
+  border: 1px solid color-mix(in srgb, var(--shell-wood) 22%, transparent);
+  background: color-mix(in srgb, var(--shell-parchment) 88%, #fff);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--shell-wood) 12%, transparent);
+  color: var(--shell-ink);
+}
+
+.shell-drawer .message--player {
+  align-self: flex-end;
+  max-width: 88%;
+  opacity: 1;
+  border-color: color-mix(in srgb, var(--shell-accent) 35%, var(--shell-wood));
+  background: color-mix(in srgb, var(--shell-accent) 12%, var(--shell-parchment));
+}
+
+.shell-drawer .message--npc {
+  align-self: flex-start;
+  max-width: 100%;
+  border-left: 3px solid var(--shell-wood);
+  padding-left: 10px;
+}
+
+.shell-drawer .message--latest {
+  border-color: color-mix(in srgb, var(--shell-wood) 45%, transparent);
+  box-shadow: 0 2px 8px rgba(61, 52, 40, 0.12);
+}
+
+.shell-drawer .message__text {
+  font-family: "IBM Plex Mono", "Courier New", monospace;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--shell-ink);
+}
+
+.shell-drawer .message--thinking {
+  border-style: dashed;
+  opacity: 0.9;
+}
+
+.shell-drawer .empty-state {
+  color: var(--shell-muted);
+  border-color: color-mix(in srgb, var(--shell-wood) 25%, transparent);
+  background: color-mix(in srgb, var(--shell-parchment) 60%, #fff);
+  font-size: 0.85rem;
+}
+
+.shell-drawer .message__memory-ref {
+  background: color-mix(in srgb, var(--shell-accent) 10%, var(--shell-parchment));
+  border-left-color: var(--shell-accent);
+}
+
+.shell-drawer .message__memory-ref p {
+  color: var(--shell-muted);
 }
 
 .collective-browse-panel--embedded .collective-browse-panel__title {
@@ -405,6 +682,12 @@ body {
   justify-content: space-between;
   gap: 12px;
   padding: 8px 4px 6px;
+}
+
+.dialogue-bar--overlay .dialogue-bar__header {
+  padding: 0;
+  gap: 6px;
+  justify-content: flex-end;
 }
 
 .dialogue-bar__summary {
@@ -514,11 +797,86 @@ body {
   margin: 0 12px 8px;
 }
 
+.immersive-shell .chat-main {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+
+.immersive-shell .world-stage {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+
 .immersive-shell .room-scene-panel {
-  flex: 1 0 auto;
-  min-height: min(65dvh, 100%);
+  flex: 1;
+  min-height: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
+  padding: 0;
+  gap: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* v2-A: coords / quest / titles stay in DOM (a11y + E2E) but not above the world */
+.immersive-shell .room-scene-panel::before {
+  display: none;
+}
+
+.immersive-shell .room-scene-panel__title,
+.immersive-shell .room-scene-panel__subtitle,
+.immersive-shell .explore-coords-strip,
+.immersive-shell .journal-quest-strip {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.immersive-shell .room-scene-panel__viewport {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+  background: var(--letterbox-bg);
+  box-shadow: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.immersive-shell .room-scene-panel__stage {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+
+.immersive-shell .room-scene-panel__canvas {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  display: block;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.immersive-shell .room-scene-panel__canvas canvas {
+  display: block;
+  margin: 0;
+  width: 100% !important;
+  height: 100% !important;
 }
 
 .phaser-stage-fill {

@@ -66,6 +66,33 @@ async function readPanelFillRatioWarn(page) {
   }
 }
 
+async function engageDialogue(page) {
+  const dialogueBar = page.locator('[data-testid="dialogue-bar"]');
+  if (await dialogueBar.isVisible().catch(() => false)) {
+    return;
+  }
+
+  const cornerMenu = page.locator('[data-testid="corner-menu"]');
+  await cornerMenu.locator(".corner-menu__trigger").click();
+
+  const npcTab = page.locator('[data-testid="npc-avatar-strip"] [role="tab"]').first();
+  if ((await npcTab.count()) > 0) {
+    await npcTab.click();
+  } else {
+    await cornerMenu.locator(".corner-menu__trigger").click();
+    const canvas = page.locator('[data-testid="phaser-stage-fill"] canvas').first();
+    const box = await canvas.boundingBox();
+    if (!box) {
+      throw new Error("cannot engage dialogue: no nearby NPC chip and canvas missing");
+    }
+    await canvas.click({
+      position: { x: Math.round(box.width * 0.5), y: Math.round(box.height * 0.45) },
+    });
+  }
+
+  await dialogueBar.waitFor({ state: "visible", timeout: 20_000 });
+}
+
 async function main() {
   assertE2eNoMock("verify:phase19");
   console.log(`verify:phase19 → ${webUrl} WORLD_SEED=${process.env.WORLD_SEED}`);
@@ -107,6 +134,15 @@ async function main() {
     }
     console.log(`verify:phase19: canvas ${box.width.toFixed(0)}x${box.height.toFixed(0)}`);
 
+    const dialogueOverlay = page.locator('[data-testid="dialogue-overlay"]');
+    await dialogueOverlay.waitFor({ state: "attached", timeout: 10_000 });
+    const engagedAtStart = await dialogueOverlay.getAttribute("data-engaged");
+    if (engagedAtStart === "true") {
+      throw new Error("dialogue-overlay should start idle (data-engaged=false)");
+    }
+
+    await engageDialogue(page);
+
     const dialogueBar = page.locator('[data-testid="dialogue-bar"]');
     await dialogueBar.waitFor({ state: "visible", timeout: 15_000 });
     const composer = dialogueBar.locator("textarea.composer__input, textarea.dialogue-bar__input").first();
@@ -118,8 +154,10 @@ async function main() {
     await page.locator('[data-testid="reset-game-open"]').waitFor({ state: "visible", timeout: 5_000 });
     await cornerMenu.locator(".corner-menu__trigger").click();
 
+    await cornerMenu.locator(".corner-menu__trigger").click();
     const avatarStrip = page.locator('[data-testid="npc-avatar-strip"]');
     await avatarStrip.waitFor({ state: "attached", timeout: 10_000 });
+    await cornerMenu.locator(".corner-menu__trigger").click();
 
     const tabBarCount = await page.locator('[data-testid="npc-tab-bar"], .npc-tab-bar').count();
     if (tabBarCount > 0) {

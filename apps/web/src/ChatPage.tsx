@@ -8,8 +8,8 @@ import { PhaserGame, probePhaserBoot, readReducedMotion } from "./components/Pha
 import { CollectiveAttitudeOverlay } from "./components/CollectiveAttitudeOverlay.js";
 import { CollectiveDebugPanel } from "./components/CollectiveDebugPanel.js";
 import { CornerMenu } from "./components/CornerMenu.js";
-import { DialogueBar, type DrawerTab } from "./components/DialogueBar.js";
-import { NpcAvatarStrip } from "./components/NpcAvatarStrip.js";
+import { DialogueOverlay } from "./components/DialogueOverlay.js";
+import type { DrawerTab } from "./components/DialogueBar.js";
 import { ShellDrawer } from "./components/ShellDrawer.js";
 import { useCollectiveAttitude } from "./hooks/useCollectiveAttitude.js";
 import { SyncMetricsOverlay } from "./components/SyncMetricsOverlay.js";
@@ -21,7 +21,6 @@ import {
 import { getOrCreatePlayerId } from "./lib/playerSession.js";
 import { playerRequestsMove } from "./lib/playerMoveIntent.js";
 import { subscribeTabPresence } from "./lib/playerSession.js";
-import { playerDisplayName } from "./lib/playerDisplayName.js";
 import { ImmersiveShell } from "./ImmersiveShell.js";
 
 /** Merge HTTP room snapshot into moveMap; Colyseus grid wins over stale HTTP npc coords. */
@@ -117,16 +116,17 @@ export function ChatPage() {
   const [phaserOk, setPhaserOk] = useState(false);
   const [bootOk, setBootOk] = useState(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [dialogueEngaged, setDialogueEngaged] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const playerId = useMemo(() => getOrCreatePlayerId(), []);
+  const debugQuery =
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search)
+      : null;
   const showSyncDebug =
-    import.meta.env.DEV ||
-    (typeof window !== "undefined" &&
-      new URLSearchParams(window.location.search).get("syncDebug") === "1");
+    debugQuery?.get("syncDebug") === "1" || debugQuery?.get("debug") === "1";
   const showCollectiveDebug =
-    import.meta.env.DEV ||
-    (typeof window !== "undefined" &&
-      new URLSearchParams(window.location.search).get("collectiveDebug") === "1");
+    debugQuery?.get("collectiveDebug") === "1" || debugQuery?.get("debug") === "1";
   const [attitudeGateHint, setAttitudeGateHint] = useState<string | null>(null);
   const { snapshot: collectiveSnapshot, loading: collectiveLoading, invalidateCollective, refetchCollective } =
     useCollectiveAttitude(mapRoomId, activeNpcId, connected);
@@ -173,13 +173,31 @@ export function ChatPage() {
     };
   }, [forcePhaserFallback]);
 
-  const selectNpc = useCallback(
+  const engageNpc = useCallback(
     (npcId: string) => {
       composerRef.current?.blur();
       setActiveNpcId(npcId);
+      setDialogueEngaged(true);
+      requestAnimationFrame(() => composerRef.current?.focus());
     },
     [setActiveNpcId],
   );
+
+  const endDialogue = useCallback(() => {
+    setDialogueEngaged(false);
+    composerRef.current?.blur();
+  }, []);
+
+  useEffect(() => {
+    if (!dialogueEngaged) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      endDialogue();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [dialogueEngaged, endDialogue]);
 
   const [viewportVisibleNpcIds, setViewportVisibleNpcIds] = useState<string[]>([]);
   const reducedMotion = useMemo(() => readReducedMotion(), []);
@@ -361,6 +379,13 @@ export function ChatPage() {
             onResetOpen={() => setResetConfirmOpen(true)}
             showSyncDebug={showSyncDebug}
             showCollectiveDebug={showCollectiveDebug}
+            nearbyNpcs={stripNpcs}
+            activeNpcId={activeNpcId}
+            onSelectNpc={engageNpc}
+            dialogueEngaged={dialogueEngaged}
+            onEndDialogue={endDialogue}
+            activeBand={collectiveSnapshot?.band ?? null}
+            thinkingNpcId={thinkingNpcId}
           />
           <ShellDrawer
             open={drawerOpen}
@@ -439,29 +464,29 @@ export function ChatPage() {
         </>
       }
       world={
-        <>
-          <main className="chat-main">
-            {roomFull ? (
-              <div className="error-banner error-banner--warn" data-testid="banner-room-full">
-                房间已满（最多 4 人同时在线），请关闭其他标签页或稍后再试。
-              </div>
-            ) : null}
-            {colyseusError && !roomFull ? <div className="error-banner">{colyseusError}</div> : null}
-            {composerSpeakBusyOtherPlayer ? (
-              <div className="error-banner error-banner--warn" data-testid="banner-speak-queue">
-                该 NPC 正在响应其他玩家的指令，请稍候再试。
-              </div>
-            ) : null}
-            {duplicateTab ? (
-              <div className="error-banner error-banner--info">
-                检测到另一个标签页也在使用同一存档。同时游玩可能导致记忆与对话不同步，建议只保留一个标签页。
-              </div>
-            ) : null}
-            {error ? <div className="error-banner">{error}</div> : null}
+        <main
+          className={`chat-main${dialogueEngaged ? " chat-main--dialogue-engaged" : ""}`}
+        >
+          {roomFull ? (
+            <div className="error-banner error-banner--warn" data-testid="banner-room-full">
+              房间已满（最多 4 人同时在线），请关闭其他标签页或稍后再试。
+            </div>
+          ) : null}
+          {colyseusError && !roomFull ? <div className="error-banner">{colyseusError}</div> : null}
+          {composerSpeakBusyOtherPlayer ? (
+            <div className="error-banner error-banner--warn" data-testid="banner-speak-queue">
+              该 NPC 正在响应其他玩家的指令，请稍候再试。
+            </div>
+          ) : null}
+          {duplicateTab ? (
+            <div className="error-banner error-banner--info">
+              检测到另一个标签页也在使用同一存档。同时游玩可能导致记忆与对话不同步，建议只保留一个标签页。
+            </div>
+          ) : null}
+          {error ? <div className="error-banner">{error}</div> : null}
+          <div className="world-stage" data-testid="world-stage">
             {bootPending ? (
-              <section className="room-scene-panel" data-testid="room-scene">
-                <h2 className="room-scene-panel__title">房间</h2>
-                <p className="room-scene-panel__subtitle">地球Online 像素世界 · 最多 4 人同房间 · WASD 或点格移动</p>
+              <section className="room-scene-panel room-scene-panel--boot" data-testid="room-scene">
                 <p className="room-scene-panel__hint" data-testid="phaser-boot-loading">
                   地图加载中…
                 </p>
@@ -520,52 +545,32 @@ export function ChatPage() {
                   setPhaserOk(false);
                   setBootOk(false);
                 }}
-                onNpcSpriteClick={selectNpc}
+                onNpcSpriteClick={engageNpc}
                 onViewportVisibleNpcIdsChange={setViewportVisibleNpcIds}
               />
             )}
-          </main>
-        </>
-      }
-      bottomHud={
-        <>
-          <NpcAvatarStrip
-            npcs={stripNpcs}
-            activeNpcId={activeNpcId}
-            onSelect={selectNpc}
-            activeBand={collectiveSnapshot?.band ?? null}
-            thinkingNpcId={thinkingNpcId}
-            reducedMotion={reducedMotion}
-          />
-          <DialogueBar
-            draft={draft}
-            setDraft={setDraft}
-            sendMessage={sendMessage}
-            activeNpcId={activeNpcId}
-            activeNpcName={activeNpcName}
-            messages={messages}
-            thinkingNpcId={thinkingNpcId}
-            composerBusyForActiveNpc={composerBusyForActiveNpc}
-            speakBusyNpcId={speakBusyNpcId}
-            sendingNpcId={sendingNpcId}
-            collectiveFeedbackKind={collectiveFeedbackKind}
-            attitudeGateHint={attitudeGateHint}
-            roomFull={roomFull}
-            reducedMotion={reducedMotion}
-            composerRef={composerRef}
-            onOpenDrawer={openDrawer}
-          />
-
-          {connected && players.length > 0 ? (
-            <div className="room-player-strip" data-testid="player-strip">
-              {players.slice(0, 4).map((p) => (
-                <span key={p.sessionId} className="room-player-strip__name">
-                  {playerDisplayName(p.playerId, p.sessionId === sessionId)}
-                </span>
-              ))}
-            </div>
-          ) : null}
-        </>
+            <DialogueOverlay
+              engaged={dialogueEngaged}
+              draft={draft}
+              setDraft={setDraft}
+              sendMessage={sendMessage}
+              activeNpcId={activeNpcId}
+              activeNpcName={activeNpcName}
+              messages={messages}
+              thinkingNpcId={thinkingNpcId}
+              composerBusyForActiveNpc={composerBusyForActiveNpc}
+              speakBusyNpcId={speakBusyNpcId}
+              sendingNpcId={sendingNpcId}
+              collectiveFeedbackKind={collectiveFeedbackKind}
+              attitudeGateHint={attitudeGateHint}
+              roomFull={roomFull}
+              reducedMotion={reducedMotion}
+              composerRef={composerRef}
+              onOpenDrawer={openDrawer}
+              onEndDialogue={endDialogue}
+            />
+          </div>
+        </main>
       }
     />
   );

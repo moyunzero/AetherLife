@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import type { PlayerPresence } from "@aetherlife/shared";
+import type { AttitudeBand, PlayerPresence } from "@aetherlife/shared";
 import { playerDisplayName } from "../lib/playerDisplayName.js";
 import { readReducedMotion } from "./PhaserGame.js";
+import { NpcAvatarStrip } from "./NpcAvatarStrip.js";
+
+type NearbyNpc = { id: string; name: string };
 
 type Props = {
   connected: boolean;
@@ -13,6 +16,13 @@ type Props = {
   onResetOpen: () => void;
   showSyncDebug?: boolean;
   showCollectiveDebug?: boolean;
+  nearbyNpcs?: NearbyNpc[];
+  activeNpcId?: string;
+  onSelectNpc?: (npcId: string) => void;
+  dialogueEngaged?: boolean;
+  onEndDialogue?: () => void;
+  activeBand?: AttitudeBand | null;
+  thinkingNpcId?: string | null;
 };
 
 function connectionStatus(
@@ -42,6 +52,13 @@ export function CornerMenu({
   onResetOpen,
   showSyncDebug = false,
   showCollectiveDebug = false,
+  nearbyNpcs = [],
+  activeNpcId = "",
+  onSelectNpc,
+  dialogueEngaged = false,
+  onEndDialogue,
+  activeBand = null,
+  thinkingNpcId = null,
 }: Props) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -113,6 +130,43 @@ export function CornerMenu({
                   .join("、")}
               </span>
             </div>
+          ) : null}
+          {nearbyNpcs.length > 0 && onSelectNpc ? (
+            <div className="corner-menu__nearby" data-testid="corner-menu-nearby">
+              <p className="corner-menu__section-label">附近的人</p>
+              <NpcAvatarStrip
+                npcs={nearbyNpcs}
+                activeNpcId={activeNpcId}
+                onSelect={(id) => {
+                  onSelectNpc(id);
+                  setOpen(false);
+                }}
+                activeBand={activeBand}
+                thinkingNpcId={thinkingNpcId}
+                reducedMotion={reducedMotion}
+              />
+            </div>
+          ) : (
+            <div
+              className="npc-avatar-strip npc-avatar-strip--empty"
+              role="tablist"
+              aria-label="视口内 NPC"
+              data-testid="npc-avatar-strip"
+            />
+          )}
+          {dialogueEngaged && onEndDialogue ? (
+            <button
+              type="button"
+              role="menuitem"
+              className="corner-menu__item"
+              data-testid="corner-menu-end-dialogue"
+              onClick={() => {
+                onEndDialogue();
+                setOpen(false);
+              }}
+            >
+              结束对话
+            </button>
           ) : null}
           <div className="corner-menu__meta">
             <span className="corner-menu__meta-label">减少动效</span>

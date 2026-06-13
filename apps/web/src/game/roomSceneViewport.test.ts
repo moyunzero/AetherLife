@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { hitNpcAtWorldPoint, tickViewportVisibleNpcIds } from "./roomSceneViewport.js";
+import {
+  hitNpcAtWorldPoint,
+  npcIdAtGridCell,
+  pickNpcAtWorldPoint,
+  tickViewportVisibleNpcIds,
+} from "./roomSceneViewport.js";
 import type { EntitySprite } from "./roomSceneTypes.js";
 
 type Rect = { x: number; y: number; width: number; height: number };
@@ -10,11 +15,15 @@ function mockEntity(
     visible?: boolean;
     bounds: Rect;
     depth?: number;
+    gridX?: number;
+    gridY?: number;
   },
 ): EntitySprite {
-  const { npcId, visible = true, bounds, depth = 0 } = opts;
+  const { npcId, visible = true, bounds, depth = 0, gridX = 0, gridY = 0 } = opts;
   return {
     npcId,
+    gridX,
+    gridY,
     container: {
       visible,
       depth,
@@ -78,5 +87,32 @@ describe("hitNpcAtWorldPoint", () => {
       ["npc-a", mockEntity({ npcId: "npc-a", bounds: box })],
     ]);
     expect(hitNpcAtWorldPoint(200, 200, sprites)).toBeNull();
+  });
+});
+
+describe("npcIdAtGridCell", () => {
+  it("returns NPC on matching grid cell", () => {
+    const sprites = new Map<string, EntitySprite>([
+      ["npc-a", mockEntity({ npcId: "npc-a", bounds: { x: 0, y: 0, width: 48, height: 48 }, gridX: 3, gridY: 4 })],
+    ]);
+    expect(npcIdAtGridCell(3, 4, sprites)).toBe("npc-a");
+    expect(npcIdAtGridCell(3, 5, sprites)).toBeNull();
+  });
+});
+
+describe("pickNpcAtWorldPoint", () => {
+  it("falls back to grid cell when bounds miss", () => {
+    const sprites = new Map<string, EntitySprite>([
+      [
+        "npc-a",
+        mockEntity({
+          npcId: "npc-a",
+          bounds: { x: 0, y: 0, width: 48, height: 48 },
+          gridX: 2,
+          gridY: 2,
+        }),
+      ],
+    ]);
+    expect(pickNpcAtWorldPoint(200, 200, 2, 2, sprites)).toBe("npc-a");
   });
 });

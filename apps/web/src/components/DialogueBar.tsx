@@ -27,6 +27,8 @@ type Props = {
   reducedMotion?: boolean;
   composerRef: RefObject<HTMLTextAreaElement | null>;
   onOpenDrawer: (tab: DrawerTab) => void;
+  /** Overlay shell: NPC line shown once above; hide duplicate summary. */
+  layout?: "default" | "overlay";
 };
 
 function latestNpcReplyFor(
@@ -59,6 +61,7 @@ export function DialogueBar({
   reducedMotion = false,
   composerRef,
   onOpenDrawer,
+  layout = "default",
 }: Props) {
   const latestReply = useMemo(
     () => latestNpcReplyFor(messages, activeNpcId),
@@ -99,32 +102,36 @@ export function DialogueBar({
       ? sanitizeNpcReplyText(latestReply.text)
       : "";
 
+  const inOverlay = layout === "overlay";
+
   return (
     <div
-      className={`dialogue-bar${reducedMotion ? " dialogue-bar--reduced-motion" : ""}`}
+      className={`dialogue-bar${inOverlay ? " dialogue-bar--overlay" : ""}${reducedMotion ? " dialogue-bar--reduced-motion" : ""}`}
       data-testid="dialogue-bar"
     >
       <div className="dialogue-bar__header">
-        <div className="dialogue-bar__summary">
-          <span className="dialogue-bar__npc-name">{activeNpcName}</span>
-          {summaryText ? (
-            <span
-              className={`dialogue-bar__summary-text${isThinking ? " dialogue-bar__summary-text--thinking" : ""}`}
-              role={isThinking ? "status" : undefined}
-            >
-              {isThinking ? (
-                <>
-                  <span className="dialogue-bar__thinking-pulse" aria-hidden="true">
-                    …
-                  </span>
-                  思考中
-                </>
-              ) : (
-                summaryText
-              )}
-            </span>
-          ) : null}
-        </div>
+        {!inOverlay ? (
+          <div className="dialogue-bar__summary">
+            <span className="dialogue-bar__npc-name">{activeNpcName}</span>
+            {summaryText ? (
+              <span
+                className={`dialogue-bar__summary-text${isThinking ? " dialogue-bar__summary-text--thinking" : ""}`}
+                role={isThinking ? "status" : undefined}
+              >
+                {isThinking ? (
+                  <>
+                    <span className="dialogue-bar__thinking-pulse" aria-hidden="true">
+                      …
+                    </span>
+                    思考中
+                  </>
+                ) : (
+                  summaryText
+                )}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
         <div className="dialogue-bar__drawer-actions">
           <button
             type="button"
@@ -174,7 +181,7 @@ export function DialogueBar({
             <textarea
               ref={composerRef}
               className="composer__input dialogue-bar__input"
-              rows={2}
+              rows={layout === "overlay" ? 1 : 2}
               placeholder={composerPlaceholder}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
