@@ -1,27 +1,17 @@
 import { bandLabelZh, createDefaultRoom, isBackgroundNpc, type RoomState } from "@aetherlife/shared";
-import {
-  FormEvent,
-  KeyboardEvent,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useColyseusRoom } from "./hooks/useColyseusRoom.js";
 import { useNpcChat } from "./hooks/useNpcChat.js";
 import { MovementPanel } from "./components/MovementPanel.js";
 import { PhaserGame, probePhaserBoot, readReducedMotion } from "./components/PhaserGame.js";
-import { MessageList } from "./components/MessageList.js";
 import { CollectiveAttitudeOverlay } from "./components/CollectiveAttitudeOverlay.js";
-import { CollectiveBrowsePanel } from "./components/CollectiveBrowsePanel.js";
 import { CollectiveDebugPanel } from "./components/CollectiveDebugPanel.js";
-import { CollectiveFeedbackBanner } from "./components/CollectiveFeedbackBanner.js";
+import { CornerMenu } from "./components/CornerMenu.js";
+import { DialogueBar, type DrawerTab } from "./components/DialogueBar.js";
 import { NpcAvatarStrip } from "./components/NpcAvatarStrip.js";
+import { ShellDrawer } from "./components/ShellDrawer.js";
 import { useCollectiveAttitude } from "./hooks/useCollectiveAttitude.js";
-import { RoomStatePanel } from "./components/RoomStatePanel.js";
-import { NpcMemoryPanel } from "./components/NpcMemoryPanel.js";
 import { SyncMetricsOverlay } from "./components/SyncMetricsOverlay.js";
 import { getMapRoomId } from "./lib/mapRoomId.js";
 import {
@@ -108,7 +98,8 @@ export function ChatPage() {
     onCollectiveUpdated: () => onCollectiveUpdatedRef.current?.(),
   });
   const [draft, setDraft] = useState("");
-  const [stateUpdated, setStateUpdated] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerTab, setDrawerTab] = useState<DrawerTab>("history");
   const [npcMoveHint, setNpcMoveHint] = useState<string | null>(null);
   /** After first roomState sync, NPC live moves may animate; load/reset always snap. */
   const [npcWorldLive, setNpcWorldLive] = useState(false);
@@ -127,7 +118,6 @@ export function ChatPage() {
   const [bootOk, setBootOk] = useState(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
-  const collectiveBrowseDetailsRef = useRef<HTMLDetailsElement>(null);
   const playerId = useMemo(() => getOrCreatePlayerId(), []);
   const showSyncDebug =
     import.meta.env.DEV ||
@@ -157,9 +147,14 @@ export function ChatPage() {
     const key = `collective-auto-open:${mapRoomId}:${activeNpcId}`;
     if (sessionStorage.getItem(key)) return;
     sessionStorage.setItem(key, "1");
-    const details = collectiveBrowseDetailsRef.current;
-    if (details) details.open = true;
+    setDrawerTab("collective");
+    setDrawerOpen(true);
   }, [collectiveSnapshot?.recentEvents, mapRoomId, activeNpcId, playerId]);
+
+  const openDrawer = useCallback((tab: DrawerTab) => {
+    setDrawerTab(tab);
+    setDrawerOpen(true);
+  }, []);
 
   useEffect(() => {
     if (forcePhaserFallback) {
@@ -344,33 +339,6 @@ export function ChatPage() {
       ? `${activeNpcName} ${bandLabelZh(collectiveSnapshot.band)} eff=${collectiveSnapshot.effectiveScore}`
       : null;
 
-  useEffect(() => {
-    if (roomState) setStateUpdated(true);
-  }, [roomState]);
-
-  const onSubmit = async (event: FormEvent) => {
-    event.preventDefault();
-    if (composerBusyForActiveNpc) return;
-    const text = draft;
-    if (!text.trim()) return;
-    setDraft("");
-    await sendMessage(text, activeNpcId);
-  };
-
-  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      if (composerBusyForActiveNpc || !draft.trim()) return;
-      const text = draft;
-      setDraft("");
-      void sendMessage(text, activeNpcId);
-    }
-  };
-
-  const composerPlaceholder = composerBusyForActiveNpc
-    ? `请等待${activeNpcName}回复…`
-    : `你想让${activeNpcName}做什么？`;
-
   const composerSpeakBusyOtherPlayer =
     speakBusyNpcId === activeNpcId &&
     thinkingNpcId !== activeNpcId &&
@@ -383,6 +351,34 @@ export function ChatPage() {
     <ImmersiveShell
       overlays={
         <>
+          <CornerMenu
+            connected={connected}
+            colyseusError={colyseusError}
+            roomFull={roomFull}
+            mapRoomId={mapRoomId}
+            players={players}
+            sessionId={sessionId}
+            onResetOpen={() => setResetConfirmOpen(true)}
+            showSyncDebug={showSyncDebug}
+            showCollectiveDebug={showCollectiveDebug}
+          />
+          <ShellDrawer
+            open={drawerOpen}
+            tab={drawerTab}
+            onTabChange={setDrawerTab}
+            onClose={() => setDrawerOpen(false)}
+            messages={messages}
+            thinkingNpcId={thinkingNpcId}
+            activeNpcId={activeNpcId}
+            activeNpcName={activeNpcName}
+            streamingReply={streamingReply}
+            collectiveSnapshot={collectiveSnapshot}
+            collectiveLoading={collectiveLoading}
+            roomId={mapRoomId}
+            roomConnected={connected}
+            lastParsedIntent={lastParsedIntent}
+            parseError={parseError}
+          />
           {resetConfirmOpen ? (
             <div
               className="reset-confirm-backdrop"
@@ -444,18 +440,6 @@ export function ChatPage() {
       }
       world={
         <>
-          <header className="chat-header">
-            <h1 className="chat-header__title">以太人生</h1>
-            <button
-              type="button"
-              className="btn btn--destructive"
-              data-testid="reset-game-open"
-              onClick={() => setResetConfirmOpen(true)}
-            >
-              新游戏
-            </button>
-          </header>
-
           <main className="chat-main">
             {roomFull ? (
               <div className="error-banner error-banner--warn" data-testid="banner-room-full">
@@ -540,40 +524,6 @@ export function ChatPage() {
                 onViewportVisibleNpcIdsChange={setViewportVisibleNpcIds}
               />
             )}
-            <div
-              role="tabpanel"
-              id={`npc-panel-${activeNpcId}`}
-              aria-labelledby={`npc-avatar-${activeNpcId}`}
-            >
-              <MessageList
-                messages={messages}
-                thinkingNpcId={thinkingNpcId}
-                activeNpcId={activeNpcId}
-                thinkingNpcName={activeNpcName}
-                streamingReply={streamingReply}
-              />
-            </div>
-            <CollectiveBrowsePanel
-              activeNpcName={activeNpcName}
-              snapshot={collectiveSnapshot}
-              loading={collectiveLoading}
-              detailsRef={collectiveBrowseDetailsRef}
-            />
-            {roomState ? (
-              <RoomStatePanel
-                state={roomState}
-                activeNpcId={activeNpcId}
-                updated={stateUpdated}
-              />
-            ) : null}
-            <NpcMemoryPanel
-              roomId={mapRoomId}
-              activeNpcId={activeNpcId}
-              activeNpcName={activeNpcName}
-              roomConnected={connected}
-              lastParsedIntent={lastParsedIntent}
-              parseError={parseError}
-            />
           </main>
         </>
       }
@@ -587,53 +537,24 @@ export function ChatPage() {
             thinkingNpcId={thinkingNpcId}
             reducedMotion={reducedMotion}
           />
-          <form className="composer" onSubmit={onSubmit}>
-            {collectiveFeedbackKind ? (
-              <CollectiveFeedbackBanner kind={collectiveFeedbackKind} />
-            ) : null}
-            {attitudeGateHint ? (
-              <p
-                className="attitude-gate-hint"
-                data-testid="attitude-gate-hint"
-                role="status"
-              >
-                {attitudeGateHint}
-              </p>
-            ) : null}
-            {composerBusyForActiveNpc ? (
-              <p
-                className="composer__speak-status"
-                data-testid="composer-speak-status"
-                role="status"
-              >
-                {composerSpeakBusyOtherPlayer
-                  ? "该 NPC 正在响应其他玩家的指令，请稍候再试。"
-                  : `${activeNpcName} 正在思考…`}
-              </p>
-            ) : null}
-            <div className="composer__shell">
-              <div className="composer__inner">
-                <textarea
-                  ref={composerRef}
-                  className="composer__input"
-                  rows={2}
-                  placeholder={composerPlaceholder}
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  onKeyDown={onKeyDown}
-                  disabled={roomFull || composerBusyForActiveNpc}
-                  aria-busy={composerBusyForActiveNpc}
-                />
-                <button
-                  type="submit"
-                  className="btn btn--primary composer__submit"
-                  disabled={roomFull || composerBusyForActiveNpc || !draft.trim()}
-                >
-                  发送指令
-                </button>
-              </div>
-            </div>
-          </form>
+          <DialogueBar
+            draft={draft}
+            setDraft={setDraft}
+            sendMessage={sendMessage}
+            activeNpcId={activeNpcId}
+            activeNpcName={activeNpcName}
+            messages={messages}
+            thinkingNpcId={thinkingNpcId}
+            composerBusyForActiveNpc={composerBusyForActiveNpc}
+            speakBusyNpcId={speakBusyNpcId}
+            sendingNpcId={sendingNpcId}
+            collectiveFeedbackKind={collectiveFeedbackKind}
+            attitudeGateHint={attitudeGateHint}
+            roomFull={roomFull}
+            reducedMotion={reducedMotion}
+            composerRef={composerRef}
+            onOpenDrawer={openDrawer}
+          />
 
           {connected && players.length > 0 ? (
             <div className="room-player-strip" data-testid="player-strip">

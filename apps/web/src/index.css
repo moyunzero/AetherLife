@@ -139,14 +139,365 @@ body {
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 8px 12px 8px;
+  overflow: hidden;
+  padding: 0;
 }
 
-.immersive-shell .chat-header {
-  margin: 8px 12px 4px;
+.immersive-shell .composer {
+  padding: 0;
+}
+
+/* Phase 19-03: Corner menu (UI-05) */
+.corner-menu {
+  position: fixed;
+  top: max(10px, env(safe-area-inset-top));
+  left: max(10px, env(safe-area-inset-left));
+  z-index: 100;
+}
+
+.corner-menu__trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 2px solid color-mix(in srgb, var(--shell-wood) 55%, #2a1f16);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--shell-parchment) 92%, #e8dcc4);
+  color: var(--shell-ink);
+  font-family: "Fraunces", "Noto Serif SC", serif;
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);
+}
+
+.corner-menu__trigger:hover {
+  filter: brightness(1.03);
+}
+
+.corner-menu__icon {
+  line-height: 1;
+}
+
+.corner-menu__status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
   flex-shrink: 0;
+}
+
+.corner-menu__status-dot--ok {
+  background: var(--status-ok);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--status-ok) 70%, transparent);
+}
+
+.corner-menu__status-dot--warn {
+  background: var(--status-warn);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--status-warn) 70%, transparent);
+}
+
+.corner-menu__status-dot--err {
+  background: var(--status-err);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--status-err) 70%, transparent);
+}
+
+.corner-menu__panel {
+  margin-top: 8px;
+  min-width: 220px;
+  max-width: min(320px, 90vw);
+  padding: 12px;
+  border: 2px solid color-mix(in srgb, var(--shell-wood) 45%, #2a1f16);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--shell-parchment) 96%, #fff8e8);
+  color: var(--shell-ink);
+  box-shadow: var(--shadow-soft);
+}
+
+.corner-menu__section-label {
+  margin: 0 0 8px;
+  font-family: "Fraunces", "Noto Serif SC", serif;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.corner-menu__item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  margin-bottom: 4px;
+  border: 1px solid color-mix(in srgb, var(--shell-wood) 25%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--shell-parchment) 80%, #fff);
+  color: var(--shell-ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.corner-menu__item--destructive {
+  color: var(--destructive);
+  border-color: color-mix(in srgb, var(--destructive) 35%, transparent);
+}
+
+.corner-menu__meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 2px;
+  font-size: 0.85rem;
+  border-top: 1px solid color-mix(in srgb, var(--shell-wood) 18%, transparent);
+}
+
+.corner-menu__meta-label {
+  color: var(--shell-muted);
+}
+
+.corner-menu__meta-value {
+  text-align: right;
+  font-weight: 600;
+}
+
+.corner-menu__meta-value--ok {
+  color: var(--status-ok);
+}
+
+.corner-menu__meta-value--warn {
+  color: var(--status-warn);
+}
+
+.corner-menu__meta-value--err {
+  color: var(--status-err);
+}
+
+.corner-menu__hint {
+  margin: 8px 0 0;
+  font-size: 0.8rem;
+  color: var(--shell-muted);
+}
+
+/* Phase 19-03: Shell drawer (UI-04) */
+.shell-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(8, 6, 4, 0.45);
+  display: flex;
+  justify-content: flex-end;
+  align-items: stretch;
+  pointer-events: auto;
+}
+
+.shell-drawer {
+  width: min(400px, 90vw);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: color-mix(in srgb, var(--shell-parchment) 94%, #fff8e8);
+  color: var(--shell-ink);
+  border-left: 3px solid var(--shell-wood);
+  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.35);
+}
+
+.shell-drawer__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 12px 8px;
+  border-bottom: 2px solid color-mix(in srgb, var(--shell-wood) 35%, transparent);
+  flex-shrink: 0;
+}
+
+.shell-drawer__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.shell-drawer__tab {
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--shell-wood) 30%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--shell-parchment) 70%, #fff);
+  color: var(--shell-ink);
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.shell-drawer__tab--active {
+  background: color-mix(in srgb, var(--shell-accent) 22%, var(--shell-parchment));
+  border-color: var(--shell-wood);
+  font-weight: 600;
+}
+
+.shell-drawer__close {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border: 1px solid color-mix(in srgb, var(--shell-wood) 30%, transparent);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--shell-ink);
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.shell-drawer__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.shell-drawer__body .message-list {
+  margin: 0;
+}
+
+.collective-browse-panel--embedded .collective-browse-panel__title {
+  margin: 0 0 10px;
+  font-family: "Fraunces", "Noto Serif SC", serif;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--shell-ink);
+}
+
+.collective-browse-panel--embedded {
+  border: none;
+  background: transparent;
+  padding: 0;
+}
+
+@media (max-width: 767px) {
+  .shell-drawer-backdrop {
+    align-items: flex-end;
+    justify-content: stretch;
+  }
+
+  .shell-drawer {
+    width: 100%;
+    height: auto;
+    max-height: 70dvh;
+    border-left: none;
+    border-top: 3px solid var(--shell-wood);
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.35);
+    padding-bottom: max(0px, env(safe-area-inset-bottom));
+  }
+}
+
+/* Phase 19-03: Dialogue bar (UI-SHELL-02) */
+.dialogue-bar {
+  padding: 0 12px max(12px, env(safe-area-inset-bottom));
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--shell-parchment) 18%, var(--bg-deep)) 0%,
+    transparent 100%
+  );
+  border-top: 3px solid var(--shell-wood);
+}
+
+.dialogue-bar__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 4px 6px;
+}
+
+.dialogue-bar__summary {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.dialogue-bar__npc-name {
+  font-family: "Fraunces", "Noto Serif SC", serif;
+  font-size: 1rem;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--shell-parchment) 92%, var(--text));
+}
+
+.dialogue-bar__summary-text {
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: color-mix(in srgb, var(--shell-parchment) 75%, var(--text-muted));
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.dialogue-bar__summary-text--thinking {
+  color: var(--shell-accent);
+  font-style: italic;
+}
+
+.dialogue-bar__thinking-pulse {
+  display: inline-block;
+  animation: dialogue-thinking-pulse 1.2s ease-in-out infinite;
+}
+
+.dialogue-bar--reduced-motion .dialogue-bar__thinking-pulse {
+  animation: none;
+}
+
+@keyframes dialogue-thinking-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.dialogue-bar__drawer-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.dialogue-bar__drawer-btn {
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--shell-wood) 40%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--shell-parchment) 85%, #e8dcc4);
+  color: var(--shell-ink);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.dialogue-bar__drawer-btn:hover {
+  filter: brightness(1.04);
+}
+
+.dialogue-bar .composer {
+  position: static;
+  background: transparent;
+  padding: 0 0 4px;
+}
+
+.dialogue-bar .composer__shell {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--shell-wood) 85%, #6b4f3a) 0%,
+    color-mix(in srgb, var(--shell-wood) 55%, #4a3628) 100%
+  );
+}
+
+.dialogue-bar .composer__inner {
+  background: color-mix(in srgb, var(--shell-parchment) 12%, rgba(26, 21, 16, 0.98));
+}
+
+.dialogue-bar .composer__input {
+  background: color-mix(in srgb, var(--shell-parchment) 22%, #2a2218);
+  color: var(--text);
 }
 
 .immersive-shell .npc-tab-bar {
@@ -157,10 +508,6 @@ body {
 .immersive-shell .npc-avatar-strip {
   margin: 0 12px 6px;
   flex-shrink: 0;
-}
-
-.immersive-shell .composer {
-  padding: 0 12px 8px;
 }
 
 .immersive-shell .room-player-strip {
