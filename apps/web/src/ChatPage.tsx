@@ -14,6 +14,7 @@ import { ShellDrawer } from "./components/ShellDrawer.js";
 import { useCollectiveAttitude } from "./hooks/useCollectiveAttitude.js";
 import { SyncMetricsOverlay } from "./components/SyncMetricsOverlay.js";
 import { getMapRoomId } from "./lib/mapRoomId.js";
+import { stripNpcsForViewport } from "./lib/stripNpcsForViewport.js";
 import {
   resolveCollectiveInitiatorPlayerId,
   shouldShowCollectiveFeedbackBanner,
@@ -227,10 +228,10 @@ export function ChatPage() {
     [displayNpcs],
   );
 
-  const stripNpcs = useMemo(() => {
-    const visible = new Set(viewportVisibleNpcIds);
-    return npcs.filter((npc) => visible.has(npc.id));
-  }, [npcs, viewportVisibleNpcIds]);
+  const stripNpcs = useMemo(
+    () => stripNpcsForViewport(npcs, phaserOk, viewportVisibleNpcIds),
+    [npcs, phaserOk, viewportVisibleNpcIds],
+  );
 
   const activeNpcName =
     npcs.find((npc) => npc.id === activeNpcId)?.name ?? "NPC";

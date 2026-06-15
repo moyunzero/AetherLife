@@ -183,7 +183,7 @@ body {
 }
 
 .dialogue-overlay__npc-name {
-  font-family: "Fraunces", "Noto Serif SC", serif;
+  font-family: Fraunces, "Noto Serif SC", serif;
   font-size: 0.95rem;
   font-weight: 600;
   color: var(--shell-ink);
@@ -333,7 +333,7 @@ body {
 }
 
 .chat-header__title {
-  font-family: "Fraunces", "Noto Serif SC", serif;
+  font-family: Fraunces, "Noto Serif SC", serif;
   font-size: 1.15rem;
   font-weight: 600;
   margin: 0;
@@ -378,7 +378,7 @@ body {
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--shell-parchment) 92%, #e8dcc4);
   color: var(--shell-ink);
-  font-family: "Fraunces", "Noto Serif SC", serif;
+  font-family: Fraunces, "Noto Serif SC", serif;
   font-size: 1.1rem;
   font-weight: 600;
   cursor: pointer;
@@ -429,7 +429,7 @@ body {
 
 .corner-menu__section-label {
   margin: 0 0 8px;
-  font-family: "Fraunces", "Noto Serif SC", serif;
+  font-family: Fraunces, "Noto Serif SC", serif;
   font-size: 0.95rem;
   font-weight: 600;
 }
@@ -635,7 +635,7 @@ body {
 
 .collective-browse-panel--embedded .collective-browse-panel__title {
   margin: 0 0 10px;
-  font-family: "Fraunces", "Noto Serif SC", serif;
+  font-family: Fraunces, "Noto Serif SC", serif;
   font-size: 1rem;
   font-weight: 600;
   color: var(--shell-ink);
@@ -699,7 +699,7 @@ body {
 }
 
 .dialogue-bar__npc-name {
-  font-family: "Fraunces", "Noto Serif SC", serif;
+  font-family: Fraunces, "Noto Serif SC", serif;
   font-size: 1rem;
   font-weight: 600;
   color: color-mix(in srgb, var(--shell-parchment) 92%, var(--text));
@@ -838,7 +838,7 @@ body {
   padding: 0;
   margin: -1px;
   overflow: hidden;
-  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
   white-space: nowrap;
   border: 0;
 }
@@ -1649,7 +1649,7 @@ body {
 
 .room-scene-panel__title {
   margin: 0;
-  font-family: "Fraunces", serif;
+  font-family: Fraunces, serif;
   font-size: 1.05rem;
   letter-spacing: 0.02em;
   color: color-mix(in srgb, var(--text) 92%, var(--accent));
@@ -1920,7 +1920,7 @@ body {
 
 .movement-panel__title {
   margin: 0 0 8px;
-  font-family: "Fraunces", serif;
+  font-family: Fraunces, serif;
   font-size: 1rem;
 }
 

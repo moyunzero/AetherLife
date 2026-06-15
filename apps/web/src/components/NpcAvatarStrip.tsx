@@ -1,3 +1,4 @@
+import type { KeyboardEvent } from "react";
 import type { AttitudeBand } from "@aetherlife/shared";
 import { AttitudeBandChip } from "./AttitudeBandChip.js";
 
@@ -14,6 +15,47 @@ type Props = {
   thinkingNpcId?: string | null;
   reducedMotion?: boolean;
 };
+
+const DIALOGUE_OVERLAY_PANEL_ID = "dialogue-overlay";
+
+function npcAvatarTabId(npcId: string): string {
+  return `npc-avatar-${npcId}`;
+}
+
+function focusNpcAvatarTab(npcId: string): void {
+  document.getElementById(npcAvatarTabId(npcId))?.focus();
+}
+
+function handleChipKeyDown(
+  event: KeyboardEvent<HTMLButtonElement>,
+  index: number,
+  npcs: NpcChip[],
+  onSelect: (npcId: string) => void,
+): void {
+  const { key } = event;
+  if (key === "Enter" || key === " ") {
+    event.preventDefault();
+    onSelect(npcs[index].id);
+    return;
+  }
+  if (key !== "ArrowLeft" && key !== "ArrowRight" && key !== "Home" && key !== "End") {
+    return;
+  }
+  event.preventDefault();
+  let nextIndex = index;
+  if (key === "ArrowLeft") {
+    nextIndex = (index - 1 + npcs.length) % npcs.length;
+  } else if (key === "ArrowRight") {
+    nextIndex = (index + 1) % npcs.length;
+  } else if (key === "Home") {
+    nextIndex = 0;
+  } else {
+    nextIndex = npcs.length - 1;
+  }
+  const nextId = npcs[nextIndex].id;
+  onSelect(nextId);
+  focusNpcAvatarTab(nextId);
+}
 
 export function NpcAvatarStrip({
   npcs,
@@ -41,7 +83,7 @@ export function NpcAvatarStrip({
       aria-label="视口内 NPC"
       data-testid="npc-avatar-strip"
     >
-      {npcs.map((npc) => {
+      {npcs.map((npc, index) => {
         const isActive = npc.id === activeNpcId;
         const isThinking = thinkingNpcId === npc.id;
         const className = [
@@ -56,12 +98,13 @@ export function NpcAvatarStrip({
             key={npc.id}
             type="button"
             role="tab"
-            id={`npc-avatar-${npc.id}`}
-            aria-controls={`npc-panel-${npc.id}`}
+            id={npcAvatarTabId(npc.id)}
+            aria-controls={DIALOGUE_OVERLAY_PANEL_ID}
             aria-selected={isActive}
             tabIndex={isActive ? 0 : -1}
             className={className}
-            onPointerDown={() => onSelect(npc.id)}
+            onClick={() => onSelect(npc.id)}
+            onKeyDown={(event) => handleChipKeyDown(event, index, npcs, onSelect)}
           >
             <span className="npc-avatar-strip__label">{npc.name}</span>
             {isActive && activeBand ? (

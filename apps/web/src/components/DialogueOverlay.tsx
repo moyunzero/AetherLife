@@ -53,6 +53,7 @@ export function DialogueOverlay({
 
   return (
     <div
+      id="dialogue-overlay"
       className={`dialogue-overlay${engaged ? " dialogue-overlay--engaged" : ""}`}
       data-testid="dialogue-overlay"
       data-engaged={engaged ? "true" : "false"}

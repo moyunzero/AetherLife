@@ -1,3 +1,4 @@
+import type { KeyboardEvent } from "react";
 import type { ChatMessage } from "../hooks/useNpcChat.js";
 import type { CollectiveAttitudeSnapshot } from "../hooks/useCollectiveAttitude.js";
 import { CollectiveBrowsePanel } from "./CollectiveBrowsePanel.js";
@@ -30,6 +31,48 @@ const TABS: { id: DrawerTab; label: string }[] = [
   { id: "collective", label: "集体见闻" },
   { id: "memory", label: "记忆" },
 ];
+
+function drawerTabId(id: DrawerTab): string {
+  return `shell-drawer-tab-${id}`;
+}
+
+function drawerPanelId(id: DrawerTab): string {
+  return `shell-drawer-panel-${id}`;
+}
+
+function focusDrawerTab(id: DrawerTab): void {
+  document.getElementById(drawerTabId(id))?.focus();
+}
+
+function handleDrawerTabKeyDown(
+  event: KeyboardEvent<HTMLButtonElement>,
+  index: number,
+  onTabChange: (tab: DrawerTab) => void,
+): void {
+  const { key } = event;
+  if (key === "Enter" || key === " ") {
+    event.preventDefault();
+    onTabChange(TABS[index].id);
+    return;
+  }
+  if (key !== "ArrowLeft" && key !== "ArrowRight" && key !== "Home" && key !== "End") {
+    return;
+  }
+  event.preventDefault();
+  let nextIndex = index;
+  if (key === "ArrowLeft") {
+    nextIndex = (index - 1 + TABS.length) % TABS.length;
+  } else if (key === "ArrowRight") {
+    nextIndex = (index + 1) % TABS.length;
+  } else if (key === "Home") {
+    nextIndex = 0;
+  } else {
+    nextIndex = TABS.length - 1;
+  }
+  const nextTab = TABS[nextIndex].id;
+  onTabChange(nextTab);
+  focusDrawerTab(nextTab);
+}
 
 export function ShellDrawer({
   open,
@@ -67,14 +110,18 @@ export function ShellDrawer({
       >
         <div className="shell-drawer__header">
           <div className="shell-drawer__tabs" role="tablist" aria-label="抽屉标签">
-            {TABS.map((item) => (
+            {TABS.map((item, index) => (
               <button
                 key={item.id}
+                id={drawerTabId(item.id)}
                 type="button"
                 role="tab"
                 aria-selected={tab === item.id}
+                aria-controls={drawerPanelId(item.id)}
+                tabIndex={tab === item.id ? 0 : -1}
                 className={`shell-drawer__tab${tab === item.id ? " shell-drawer__tab--active" : ""}`}
                 onClick={() => onTabChange(item.id)}
+                onKeyDown={(event) => handleDrawerTabKeyDown(event, index, onTabChange)}
               >
                 {item.label}
               </button>
@@ -90,21 +137,20 @@ export function ShellDrawer({
           </button>
         </div>
 
-        <div className="shell-drawer__body">
+        <div
+          className="shell-drawer__body"
+          role="tabpanel"
+          id={drawerPanelId(tab)}
+          aria-labelledby={drawerTabId(tab)}
+        >
           {tab === "history" ? (
-            <div
-              role="tabpanel"
-              id={`npc-panel-${activeNpcId}`}
-              aria-labelledby={`npc-avatar-${activeNpcId}`}
-            >
-              <MessageList
-                messages={messages}
-                thinkingNpcId={thinkingNpcId}
-                activeNpcId={activeNpcId}
-                thinkingNpcName={activeNpcName}
-                streamingReply={streamingReply}
-              />
-            </div>
+            <MessageList
+              messages={messages}
+              thinkingNpcId={thinkingNpcId}
+              activeNpcId={activeNpcId}
+              thinkingNpcName={activeNpcName}
+              streamingReply={streamingReply}
+            />
           ) : null}
 
           {tab === "collective" ? (
