@@ -63,6 +63,10 @@ type Props = {
   npcAmbientById?: Record<string, NpcAmbientSnapshot>;
   speakBusyNpcId?: string | null;
   onBootFailed?: () => void;
+  /** Map click on NPC sprite — same as avatar strip selectNpc. */
+  onNpcSpriteClick?: (npcId: string) => void;
+  /** Camera-visible NPC ids for NpcAvatarStrip (registry bridge). */
+  onViewportVisibleNpcIdsChange?: (npcIds: string[]) => void;
 };
 
 const BOOT_TIMEOUT_MS = 5000;
@@ -104,6 +108,7 @@ type RegistrySnapshot = {
   npcActivityById: Record<string, string>;
   npcAmbientById: Record<string, NpcAmbientSnapshot>;
   speakBusyNpcId: string | null;
+  onNpcSpriteClick: ((npcId: string) => void) | null;
 };
 
 function pushRoomRegistry(game: Phaser.Game, snap: RegistrySnapshot): void {
@@ -132,6 +137,7 @@ function pushRoomRegistry(game: Phaser.Game, snap: RegistrySnapshot): void {
   game.registry.set("npcActivityById", snap.npcActivityById);
   game.registry.set("npcAmbientById", snap.npcAmbientById);
   game.registry.set("speakBusyNpcId", snap.speakBusyNpcId);
+  game.registry.set("onNpcSpriteClick", snap.onNpcSpriteClick);
   game.registry.set("roomSync", Date.now());
 }
 
@@ -175,8 +181,8 @@ export async function probePhaserBoot(timeoutMs = BOOT_TIMEOUT_MS): Promise<bool
         roundPixels: true,
         render: { preserveDrawingBuffer: true, antialias: false },
         scale: {
-          mode: Phaser.Scale.FIT,
-          autoCenter: Phaser.Scale.CENTER_BOTH,
+          mode: Phaser.Scale.RESIZE,
+          autoCenter: Phaser.Scale.NO_CENTER,
         },
         scene: [RoomScene],
       });
@@ -208,6 +214,7 @@ export async function probePhaserBoot(timeoutMs = BOOT_TIMEOUT_MS): Promise<bool
         npcActivityById: {},
         npcAmbientById: {},
         speakBusyNpcId: null,
+        onNpcSpriteClick: null,
       });
       game.events.once("ready", () => finish(true));
     } catch {
@@ -247,11 +254,18 @@ export function PhaserGame({
   npcAmbientById = {},
   speakBusyNpcId = null,
   onBootFailed,
+  onNpcSpriteClick,
+  onViewportVisibleNpcIdsChange,
 }: Props) {
   const parentRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<Phaser.Game | null>(null);
   const onBootFailedRef = useRef(onBootFailed);
   onBootFailedRef.current = onBootFailed;
+
+  const onViewportVisibleNpcIdsChangeRef = useRef(onViewportVisibleNpcIdsChange);
+  onViewportVisibleNpcIdsChangeRef.current = onViewportVisibleNpcIdsChange;
+  const onNpcSpriteClickRef = useRef(onNpcSpriteClick);
+  onNpcSpriteClickRef.current = onNpcSpriteClick;
 
   const [exploreGrid, setExploreGrid] = useState<{ gx: number; gy: number } | null>(null);
   const exploreCoords = useMemo(() => {
@@ -303,6 +317,7 @@ export function PhaserGame({
     npcActivityById,
     npcAmbientById,
     speakBusyNpcId,
+    onNpcSpriteClick: onNpcSpriteClick ?? null,
   });
   registryRef.current = {
     width,
@@ -328,6 +343,7 @@ export function PhaserGame({
     npcActivityById,
     npcAmbientById,
     speakBusyNpcId,
+    onNpcSpriteClick: onNpcSpriteClick ?? null,
   };
 
   useEffect(() => {
@@ -349,8 +365,8 @@ export function PhaserGame({
       roundPixels: true,
       render: { preserveDrawingBuffer: true, antialias: false },
       scale: {
-        mode: Phaser.Scale.FIT,
-        autoCenter: Phaser.Scale.CENTER_BOTH,
+        mode: Phaser.Scale.RESIZE,
+        autoCenter: Phaser.Scale.NO_CENTER,
       },
       scene: [RoomScene],
     });
@@ -382,6 +398,7 @@ export function PhaserGame({
       npcActivityById,
       npcAmbientById,
       speakBusyNpcId,
+      onNpcSpriteClick: snap.onNpcSpriteClick,
     });
 
     gameRef.current = game;
@@ -453,6 +470,30 @@ export function PhaserGame({
     const game = gameRef.current;
     if (!game) return;
 
+    const onViewportVisible = (
+      _parent: Phaser.Data.DataManager,
+      key: string,
+      value: string[] | undefined,
+    ) => {
+      if (key === "viewportVisibleNpcIds") {
+        onViewportVisibleNpcIdsChangeRef.current?.(value ?? []);
+      }
+    };
+    game.registry.events.on("setdata", onViewportVisible);
+    game.registry.events.on("changedata", onViewportVisible);
+    const initial = game.registry.get("viewportVisibleNpcIds") as string[] | undefined;
+    onViewportVisibleNpcIdsChangeRef.current?.(initial ?? []);
+
+    return () => {
+      game.registry.events.off("setdata", onViewportVisible);
+      game.registry.events.off("changedata", onViewportVisible);
+    };
+  }, [bootOk]);
+
+  useEffect(() => {
+    const game = gameRef.current;
+    if (!game) return;
+
     const reducedMotion = readReducedMotion();
 
     pushRoomRegistry(game, {
@@ -481,6 +522,7 @@ export function PhaserGame({
       npcActivityById,
       npcAmbientById,
       speakBusyNpcId,
+      onNpcSpriteClick: onNpcSpriteClick ?? null,
     });
 
     const scene = game.scene.getScene(ROOM_SCENE_KEY) as RoomScene | undefined;
@@ -511,6 +553,7 @@ export function PhaserGame({
     npcActivityById,
     npcAmbientById,
     speakBusyNpcId,
+    onNpcSpriteClick,
   ]);
 
   return (
@@ -541,8 +584,11 @@ export function PhaserGame({
       {connected && exploreCoords && journalStoryHook ? (
         <JournalQuestStrip storyHook={journalStoryHook} />
       ) : null}
-      <div className="room-scene-panel__viewport">
-        <div className="room-scene-panel__stage">
+      <div className="room-scene-panel__viewport phaser-stage-fill">
+        <div
+          className="room-scene-panel__stage phaser-stage-fill"
+          data-testid="phaser-stage-fill"
+        >
           <div
             ref={parentRef}
             data-testid="phaser-parent"

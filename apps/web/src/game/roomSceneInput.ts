@@ -5,6 +5,8 @@ import { isGlobalFloorBlocked } from "./floorBlocked.js";
 import { CELL_PX, gridToWorld, worldToGrid } from "./gridLayout.js";
 import { attachGridMovementKeys, GRID_STEP_MS, type GridMovementKeyHandle } from "./gridMovement.js";
 import type { MovementSyncController } from "./MovementSyncController.js";
+import { pickNpcAtWorldPoint } from "./roomSceneViewport.js";
+import { refreshNpcChatBubbles } from "./entitySprites.js";
 import type { EntitySprite, PlayerSnap } from "./roomSceneTypes.js";
 import { theme } from "./theme.js";
 
@@ -17,6 +19,8 @@ export type RoomSceneInputCtx = {
   flashGfx: Phaser.GameObjects.Graphics;
   pathGfx: Phaser.GameObjects.Graphics;
   playerSprites: Map<string, EntitySprite>;
+  npcSprites: Map<string, EntitySprite>;
+  onNpcSelected?: (npcId: string) => void;
   getMoveMap: () => RoomState;
   getLoadedChunks: () => ChunkView[];
   getMovementSync: () => MovementSyncController | undefined;
@@ -99,20 +103,47 @@ export function clearPathPreview(ctx: RoomSceneInputCtx): void {
 }
 
 export function setupRoomSceneInput(ctx: RoomSceneInputCtx): void {
-  let pendingTap: { x: number; y: number } | null = null;
+  let pendingTap: { x: number; y: number; worldX: number; worldY: number } | null = null;
 
-  const activePointerCount = (): number =>
-    [ctx.input.pointer1, ctx.input.pointer2].filter((p) => p.isDown).length;
+  if (!ctx.input.pointer2) {
+    ctx.input.addPointer(1);
+  }
 
-  ctx.input.on("pointerdown", () => {
-    if (ctx.movementDisabled()) return;
+  const worldFromPointer = (pointer: Phaser.Input.Pointer) =>
+    pointer.positionToCamera(ctx.cameras.main) as Phaser.Math.Vector2;
+
+  const activePointerCount = (): number => {
+    let count = 0;
+    if (ctx.input.mousePointer?.isDown) count += 1;
+    if (ctx.input.pointer1?.isDown) count += 1;
+    if (ctx.input.pointer2?.isDown) count += 1;
+    return count;
+  };
+
+  const updateNpcHover = (worldX: number, worldY: number) => {
+    const { x, y } = worldToGrid(worldX, worldY);
+    const hitNpcId = pickNpcAtWorldPoint(worldX, worldY, x, y, ctx.npcSprites);
+    const nextId = hitNpcId ?? null;
+    const prevId = ctx.registry.get("hoveredNpcId") as string | null | undefined;
+    if (nextId === prevId) return;
+    ctx.registry.set("hoveredNpcId", nextId);
+    refreshNpcChatBubbles(ctx.npcSprites, ctx.registry);
+  };
+
+  const clearNpcHover = () => {
+    if (ctx.registry.get("hoveredNpcId") == null) return;
+    ctx.registry.set("hoveredNpcId", null);
+    refreshNpcChatBubbles(ctx.npcSprites, ctx.registry);
+  };
+
+  ctx.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
     if (activePointerCount() > 1) {
       pendingTap = null;
       return;
     }
-    const world = ctx.cameras.main.getWorldPoint(ctx.input.pointer1.x, ctx.input.pointer1.y);
+    const world = worldFromPointer(pointer);
     const { x, y } = worldToGrid(world.x, world.y);
-    pendingTap = { x, y };
+    pendingTap = { x, y, worldX: world.x, worldY: world.y };
   });
 
   ctx.input.on(
@@ -131,35 +162,38 @@ export function setupRoomSceneInput(ctx: RoomSceneInputCtx): void {
   );
 
   ctx.input.on("pointerdown", () => {
-    if (ctx.input.pointer1.isDown && ctx.input.pointer2.isDown) {
+    const p1 = ctx.input.pointer1;
+    const p2 = ctx.input.pointer2;
+    if (p1?.isDown && p2?.isDown) {
       pendingTap = null;
-      const dist = Phaser.Math.Distance.Between(
-        ctx.input.pointer1.x,
-        ctx.input.pointer1.y,
-        ctx.input.pointer2.x,
-        ctx.input.pointer2.y,
-      );
+      const dist = Phaser.Math.Distance.Between(p1.x, p1.y, p2.x, p2.y);
       ctx.setPinchState(dist, ctx.cameras.main.zoom);
     }
   });
 
-  ctx.input.on("pointermove", () => {
-    if (!ctx.input.pointer1.isDown || !ctx.input.pointer2.isDown) return;
-    const pinch = ctx.getPinchState();
-    if (pinch.startDist <= 0) return;
-    const dist = Phaser.Math.Distance.Between(
-      ctx.input.pointer1.x,
-      ctx.input.pointer1.y,
-      ctx.input.pointer2.x,
-      ctx.input.pointer2.y,
-    );
-    const ratio = dist / pinch.startDist;
-    const { min, max } = ctx.getZoomBounds();
-    const next = Phaser.Math.Clamp(pinch.startZoom * ratio, min, max);
-    ctx.cameras.main.setZoom(next);
+  ctx.input.on("pointermove", (pointer: Phaser.Input.Pointer) => {
+    const p1 = ctx.input.pointer1;
+    const p2 = ctx.input.pointer2;
+    if (p1?.isDown && p2?.isDown) {
+      const pinch = ctx.getPinchState();
+      if (pinch.startDist <= 0) return;
+      const dist = Phaser.Math.Distance.Between(p1.x, p1.y, p2.x, p2.y);
+      const ratio = dist / pinch.startDist;
+      const { min, max } = ctx.getZoomBounds();
+      const next = Phaser.Math.Clamp(pinch.startZoom * ratio, min, max);
+      ctx.cameras.main.setZoom(next);
+      return;
+    }
+    if (activePointerCount() > 0) return;
+    const world = pointer.positionToCamera(ctx.cameras.main) as Phaser.Math.Vector2;
+    updateNpcHover(world.x, world.y);
   });
 
-  ctx.input.on("pointerup", () => {
+  ctx.input.on("pointerout", () => {
+    clearNpcHover();
+  });
+
+  ctx.input.on("pointerup", (pointer: Phaser.Input.Pointer) => {
     ctx.setPinchState(0, ctx.cameras.main.zoom);
 
     if (activePointerCount() > 0) {
@@ -167,25 +201,46 @@ export function setupRoomSceneInput(ctx: RoomSceneInputCtx): void {
       return;
     }
 
-    if (!pendingTap || ctx.movementDisabled()) {
-      pendingTap = null;
+    if (!pendingTap) {
       return;
     }
 
-    const { x, y } = pendingTap;
+    const { x, y, worldX, worldY } = pendingTap;
     pendingTap = null;
 
+    const releaseWorld = worldFromPointer(pointer);
+    const releaseGrid = worldToGrid(releaseWorld.x, releaseWorld.y);
+    const hitNpcId =
+      pickNpcAtWorldPoint(
+        releaseWorld.x,
+        releaseWorld.y,
+        releaseGrid.x,
+        releaseGrid.y,
+        ctx.npcSprites,
+      )
+      ?? pickNpcAtWorldPoint(worldX, worldY, x, y, ctx.npcSprites);
+    if (hitNpcId) {
+      ctx.onNpcSelected?.(hitNpcId);
+      return;
+    }
+
+    if (ctx.movementDisabled()) {
+      return;
+    }
+
+    const moveGx = releaseGrid.x;
+    const moveGy = releaseGrid.y;
     const map = ctx.getMoveMap();
     const chunks = ctx.getLoadedChunks();
-    if (isGlobalFloorBlocked(map, chunks, x, y)) {
-      flashBlockedCell(ctx, x, y);
+    if (isGlobalFloorBlocked(map, chunks, moveGx, moveGy)) {
+      flashBlockedCell(ctx, moveGx, moveGy);
       return;
     }
 
     const sync = ctx.getMovementSync();
-    void sync?.sendMoveTo(x, y);
-    ctx.setPathTarget({ x, y });
-    drawPathPreview(ctx, x, y);
+    void sync?.sendMoveTo(moveGx, moveGy);
+    ctx.setPathTarget({ x: moveGx, y: moveGy });
+    drawPathPreview(ctx, moveGx, moveGy);
   });
 
   const handle = attachGridMovementKeys({

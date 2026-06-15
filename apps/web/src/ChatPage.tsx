@@ -1,29 +1,20 @@
 import { bandLabelZh, createDefaultRoom, isBackgroundNpc, type RoomState } from "@aetherlife/shared";
-import {
-  FormEvent,
-  KeyboardEvent,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useColyseusRoom } from "./hooks/useColyseusRoom.js";
 import { useNpcChat } from "./hooks/useNpcChat.js";
 import { MovementPanel } from "./components/MovementPanel.js";
-import { PhaserGame, probePhaserBoot } from "./components/PhaserGame.js";
-import { MessageList } from "./components/MessageList.js";
+import { PhaserGame, probePhaserBoot, readReducedMotion } from "./components/PhaserGame.js";
 import { CollectiveAttitudeOverlay } from "./components/CollectiveAttitudeOverlay.js";
-import { CollectiveBrowsePanel } from "./components/CollectiveBrowsePanel.js";
 import { CollectiveDebugPanel } from "./components/CollectiveDebugPanel.js";
-import { CollectiveFeedbackBanner } from "./components/CollectiveFeedbackBanner.js";
-import { NpcTabBar } from "./components/NpcTabBar.js";
+import { CornerMenu } from "./components/CornerMenu.js";
+import { DialogueOverlay } from "./components/DialogueOverlay.js";
+import type { DrawerTab } from "./components/DialogueBar.js";
+import { ShellDrawer } from "./components/ShellDrawer.js";
 import { useCollectiveAttitude } from "./hooks/useCollectiveAttitude.js";
-import { RoomStatePanel } from "./components/RoomStatePanel.js";
-import { NpcMemoryPanel } from "./components/NpcMemoryPanel.js";
 import { SyncMetricsOverlay } from "./components/SyncMetricsOverlay.js";
 import { getMapRoomId } from "./lib/mapRoomId.js";
+import { stripNpcsForViewport } from "./lib/stripNpcsForViewport.js";
 import {
   resolveCollectiveInitiatorPlayerId,
   shouldShowCollectiveFeedbackBanner,
@@ -31,7 +22,7 @@ import {
 import { getOrCreatePlayerId } from "./lib/playerSession.js";
 import { playerRequestsMove } from "./lib/playerMoveIntent.js";
 import { subscribeTabPresence } from "./lib/playerSession.js";
-import { playerDisplayName } from "./lib/playerDisplayName.js";
+import { ImmersiveShell } from "./ImmersiveShell.js";
 
 /** Merge HTTP room snapshot into moveMap; Colyseus grid wins over stale HTTP npc coords. */
 function mergeRoomStateIntoMoveMap(
@@ -107,7 +98,8 @@ export function ChatPage() {
     onCollectiveUpdated: () => onCollectiveUpdatedRef.current?.(),
   });
   const [draft, setDraft] = useState("");
-  const [stateUpdated, setStateUpdated] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerTab, setDrawerTab] = useState<DrawerTab>("history");
   const [npcMoveHint, setNpcMoveHint] = useState<string | null>(null);
   /** After first roomState sync, NPC live moves may animate; load/reset always snap. */
   const [npcWorldLive, setNpcWorldLive] = useState(false);
@@ -125,17 +117,17 @@ export function ChatPage() {
   const [phaserOk, setPhaserOk] = useState(false);
   const [bootOk, setBootOk] = useState(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [dialogueEngaged, setDialogueEngaged] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
-  const collectiveBrowseDetailsRef = useRef<HTMLDetailsElement>(null);
   const playerId = useMemo(() => getOrCreatePlayerId(), []);
+  const debugQuery =
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search)
+      : null;
   const showSyncDebug =
-    import.meta.env.DEV ||
-    (typeof window !== "undefined" &&
-      new URLSearchParams(window.location.search).get("syncDebug") === "1");
+    debugQuery?.get("syncDebug") === "1" || debugQuery?.get("debug") === "1";
   const showCollectiveDebug =
-    import.meta.env.DEV ||
-    (typeof window !== "undefined" &&
-      new URLSearchParams(window.location.search).get("collectiveDebug") === "1");
+    debugQuery?.get("collectiveDebug") === "1" || debugQuery?.get("debug") === "1";
   const [attitudeGateHint, setAttitudeGateHint] = useState<string | null>(null);
   const { snapshot: collectiveSnapshot, loading: collectiveLoading, invalidateCollective, refetchCollective } =
     useCollectiveAttitude(mapRoomId, activeNpcId, connected);
@@ -156,9 +148,14 @@ export function ChatPage() {
     const key = `collective-auto-open:${mapRoomId}:${activeNpcId}`;
     if (sessionStorage.getItem(key)) return;
     sessionStorage.setItem(key, "1");
-    const details = collectiveBrowseDetailsRef.current;
-    if (details) details.open = true;
+    setDrawerTab("collective");
+    setDrawerOpen(true);
   }, [collectiveSnapshot?.recentEvents, mapRoomId, activeNpcId, playerId]);
+
+  const openDrawer = useCallback((tab: DrawerTab) => {
+    setDrawerTab(tab);
+    setDrawerOpen(true);
+  }, []);
 
   useEffect(() => {
     if (forcePhaserFallback) {
@@ -177,13 +174,34 @@ export function ChatPage() {
     };
   }, [forcePhaserFallback]);
 
-  const selectNpc = useCallback(
+  const engageNpc = useCallback(
     (npcId: string) => {
       composerRef.current?.blur();
       setActiveNpcId(npcId);
+      setDialogueEngaged(true);
+      requestAnimationFrame(() => composerRef.current?.focus());
     },
     [setActiveNpcId],
   );
+
+  const endDialogue = useCallback(() => {
+    setDialogueEngaged(false);
+    composerRef.current?.blur();
+  }, []);
+
+  useEffect(() => {
+    if (!dialogueEngaged) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      endDialogue();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [dialogueEngaged, endDialogue]);
+
+  const [viewportVisibleNpcIds, setViewportVisibleNpcIds] = useState<string[]>([]);
+  const reducedMotion = useMemo(() => readReducedMotion(), []);
 
   const displayNpcs = useMemo(() => {
     const meta = roomState?.npcs ?? moveMap.npcs;
@@ -208,6 +226,11 @@ export function ChatPage() {
           name: npc.name,
         })),
     [displayNpcs],
+  );
+
+  const stripNpcs = useMemo(
+    () => stripNpcsForViewport(npcs, phaserOk, viewportVisibleNpcIds),
+    [npcs, phaserOk, viewportVisibleNpcIds],
   );
 
   const activeNpcName =
@@ -335,33 +358,6 @@ export function ChatPage() {
       ? `${activeNpcName} ${bandLabelZh(collectiveSnapshot.band)} eff=${collectiveSnapshot.effectiveScore}`
       : null;
 
-  useEffect(() => {
-    if (roomState) setStateUpdated(true);
-  }, [roomState]);
-
-  const onSubmit = async (event: FormEvent) => {
-    event.preventDefault();
-    if (composerBusyForActiveNpc) return;
-    const text = draft;
-    if (!text.trim()) return;
-    setDraft("");
-    await sendMessage(text, activeNpcId);
-  };
-
-  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      if (composerBusyForActiveNpc || !draft.trim()) return;
-      const text = draft;
-      setDraft("");
-      void sendMessage(text, activeNpcId);
-    }
-  };
-
-  const composerPlaceholder = composerBusyForActiveNpc
-    ? `请等待${activeNpcName}回复…`
-    : `你想让${activeNpcName}做什么？`;
-
   const composerSpeakBusyOtherPlayer =
     speakBusyNpcId === activeNpcId &&
     thinkingNpcId !== activeNpcId &&
@@ -371,262 +367,212 @@ export function ChatPage() {
   const sceneMapObjects = roomState?.objects ?? moveMap.objects;
 
   return (
-    <div className="chat-page">
-      <header className="chat-header">
-        <h1 className="chat-header__title">以太人生</h1>
-        <button
-          type="button"
-          className="btn btn--destructive"
-          data-testid="reset-game-open"
-          onClick={() => setResetConfirmOpen(true)}
-        >
-          新游戏
-        </button>
-      </header>
-
-      {resetConfirmOpen ? (
-        <div
-          className="reset-confirm-backdrop"
-          role="presentation"
-          onClick={() => setResetConfirmOpen(false)}
-        >
-          <div
-            className="reset-confirm-dialog"
-            role="alertdialog"
-            aria-labelledby="reset-confirm-title"
-            aria-describedby="reset-confirm-desc"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 id="reset-confirm-title" className="reset-confirm-dialog__title">
-              开始新游戏？
-            </h2>
-            <p id="reset-confirm-desc" className="reset-confirm-dialog__desc">
-              将重置房间状态，并清空本浏览器中你与所有 NPC 的对话记忆（其他玩家不受影响）。
-            </p>
-            <div className="reset-confirm-dialog__actions">
-              <button
-                type="button"
-                className="btn"
-                onClick={() => setResetConfirmOpen(false)}
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                className="btn btn--destructive"
-                data-testid="reset-confirm-start"
-                onClick={() => {
-                  setResetConfirmOpen(false);
-                  void performResetGame();
-                }}
-              >
-                确认开始
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {npcs.length > 0 ? (
-        <NpcTabBar
-          npcs={npcs}
-          activeNpcId={activeNpcId}
-          onSelect={selectNpc}
-          activeBand={collectiveSnapshot?.band ?? null}
-        />
-      ) : null}
-
-      <main className="chat-main">
-        {roomFull ? (
-          <div className="error-banner error-banner--warn" data-testid="banner-room-full">
-            房间已满（最多 4 人同时在线），请关闭其他标签页或稍后再试。
-          </div>
-        ) : null}
-        {colyseusError && !roomFull ? <div className="error-banner">{colyseusError}</div> : null}
-        {composerSpeakBusyOtherPlayer ? (
-          <div className="error-banner error-banner--warn" data-testid="banner-speak-queue">
-            该 NPC 正在响应其他玩家的指令，请稍候再试。
-          </div>
-        ) : null}
-        {duplicateTab ? (
-          <div className="error-banner error-banner--info">
-            检测到另一个标签页也在使用同一存档。同时游玩可能导致记忆与对话不同步，建议只保留一个标签页。
-          </div>
-        ) : null}
-        {error ? <div className="error-banner">{error}</div> : null}
-        {bootPending ? (
-          <section className="room-scene-panel" data-testid="room-scene">
-            <h2 className="room-scene-panel__title">房间</h2>
-            <p className="room-scene-panel__subtitle">地球Online 像素世界 · 最多 4 人同房间 · WASD 或点格移动</p>
-            <p className="room-scene-panel__hint" data-testid="phaser-boot-loading">
-              地图加载中…
-            </p>
-          </section>
-        ) : !phaserOk ? (
-          <>
-            <p className="room-scene-panel__hint" data-testid="phaser-fallback-banner">
-              当前设备无法启用 2D 地图视图，已切换为网格地图。请更新浏览器或启用硬件加速后刷新。
-            </p>
-            <MovementPanel
-              connected={connected}
-              players={players}
-              sessionId={sessionId}
-              width={moveMap.width}
-              height={moveMap.height}
-              mapNpcs={sceneMapNpcs}
-              mapObjects={sceneMapObjects}
-              animating={animating}
-              moveHint={sceneHint}
-              onMove={sendMove}
-              onMoveTo={(x, y) => void sendMoveTo(x, y)}
-              fallbackMode
-            />
-          </>
-        ) : (
-          <PhaserGame
-            bootOk={bootOk}
+    <ImmersiveShell
+      overlays={
+        <>
+          <CornerMenu
             connected={connected}
+            colyseusError={colyseusError}
+            roomFull={roomFull}
+            mapRoomId={mapRoomId}
             players={players}
             sessionId={sessionId}
-            width={moveMap.width}
-            height={moveMap.height}
-            moveMap={moveMap}
-            mapNpcs={sceneMapNpcs}
-            mapObjects={sceneMapObjects}
-            animating={animating}
-            moveHint={sceneHint}
-            thinkingNpcId={thinkingNpcId}
-            thinkingNpcIds={thinkingNpcIds}
+            onResetOpen={() => setResetConfirmOpen(true)}
+            showSyncDebug={showSyncDebug}
+            showCollectiveDebug={showCollectiveDebug}
+            nearbyNpcs={stripNpcs}
             activeNpcId={activeNpcId}
-            npcAnimateMoves={npcWorldLive}
-            npcResetEpoch={npcResetEpoch}
-            remoteInterpMs={remoteInterpMs}
-            loadedChunks={loadedChunks}
-            loreForChunk={loreForChunk}
-            discoverToast={discoverToast}
-            onDismissDiscoverToast={dismissDiscoverToast}
-            motionBridgeRef={motionBridgeRef}
-            movementSyncRef={movementSyncRef}
-            collectiveAttitudeLine={collectiveAttitudeLine}
-            gameClock={gameClock}
-            npcActivityById={npcActivityById}
-            npcAmbientById={npcAmbientById}
-            speakBusyNpcId={speakBusyNpcId}
-            onBootFailed={() => {
-              setPhaserOk(false);
-              setBootOk(false);
-            }}
+            onSelectNpc={engageNpc}
+            dialogueEngaged={dialogueEngaged}
+            onEndDialogue={endDialogue}
+            activeBand={collectiveSnapshot?.band ?? null}
+            thinkingNpcId={thinkingNpcId}
           />
-        )}
-        <div
-          role="tabpanel"
-          id={`npc-panel-${activeNpcId}`}
-          aria-labelledby={`npc-tab-${activeNpcId}`}
-        >
-          <MessageList
+          <ShellDrawer
+            open={drawerOpen}
+            tab={drawerTab}
+            onTabChange={setDrawerTab}
+            onClose={() => setDrawerOpen(false)}
             messages={messages}
             thinkingNpcId={thinkingNpcId}
             activeNpcId={activeNpcId}
-            thinkingNpcName={activeNpcName}
-            streamingReply={streamingReply}
-          />
-        </div>
-        <CollectiveBrowsePanel
-          activeNpcName={activeNpcName}
-          snapshot={collectiveSnapshot}
-          loading={collectiveLoading}
-          detailsRef={collectiveBrowseDetailsRef}
-        />
-        {roomState ? (
-          <RoomStatePanel
-            state={roomState}
-            activeNpcId={activeNpcId}
-            updated={stateUpdated}
-          />
-        ) : null}
-        <NpcMemoryPanel
-          roomId={mapRoomId}
-          activeNpcId={activeNpcId}
-          activeNpcName={activeNpcName}
-          roomConnected={connected}
-          lastParsedIntent={lastParsedIntent}
-          parseError={parseError}
-        />
-      </main>
-
-      <form className="composer" onSubmit={onSubmit}>
-        {collectiveFeedbackKind ? (
-          <CollectiveFeedbackBanner kind={collectiveFeedbackKind} />
-        ) : null}
-        {attitudeGateHint ? (
-          <p
-            className="attitude-gate-hint"
-            data-testid="attitude-gate-hint"
-            role="status"
-          >
-            {attitudeGateHint}
-          </p>
-        ) : null}
-        {composerBusyForActiveNpc ? (
-          <p
-            className="composer__speak-status"
-            data-testid="composer-speak-status"
-            role="status"
-          >
-            {composerSpeakBusyOtherPlayer
-              ? "该 NPC 正在响应其他玩家的指令，请稍候再试。"
-              : `${activeNpcName} 正在思考…`}
-          </p>
-        ) : null}
-        <div className="composer__shell">
-          <div className="composer__inner">
-            <textarea
-              ref={composerRef}
-              className="composer__input"
-              rows={2}
-              placeholder={composerPlaceholder}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={onKeyDown}
-              disabled={roomFull || composerBusyForActiveNpc}
-              aria-busy={composerBusyForActiveNpc}
-            />
-            <button
-              type="submit"
-              className="btn btn--primary composer__submit"
-              disabled={roomFull || composerBusyForActiveNpc || !draft.trim()}
-            >
-              发送指令
-            </button>
-          </div>
-        </div>
-      </form>
-
-      {connected && players.length > 0 ? (
-        <div className="room-player-strip" data-testid="player-strip">
-          {players.slice(0, 4).map((p) => (
-            <span key={p.sessionId} className="room-player-strip__name">
-              {playerDisplayName(p.playerId, p.sessionId === sessionId)}
-            </span>
-          ))}
-        </div>
-      ) : null}
-
-      {showSyncDebug ? <SyncMetricsOverlay metrics={syncMetrics} /> : null}
-      {showCollectiveDebug ? (
-        <>
-          <CollectiveAttitudeOverlay
-            snapshot={collectiveSnapshot}
-            npcName={activeNpcName}
-            showDebug={showCollectiveDebug}
-          />
-          <CollectiveDebugPanel
-            snapshot={collectiveSnapshot}
             activeNpcName={activeNpcName}
-            loading={collectiveLoading}
+            streamingReply={streamingReply}
+            collectiveSnapshot={collectiveSnapshot}
+            collectiveLoading={collectiveLoading}
+            roomId={mapRoomId}
+            roomConnected={connected}
+            lastParsedIntent={lastParsedIntent}
+            parseError={parseError}
           />
+          {resetConfirmOpen ? (
+            <div
+              className="reset-confirm-backdrop"
+              role="presentation"
+              onClick={() => setResetConfirmOpen(false)}
+            >
+              <div
+                className="reset-confirm-dialog"
+                role="alertdialog"
+                aria-labelledby="reset-confirm-title"
+                aria-describedby="reset-confirm-desc"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <h2 id="reset-confirm-title" className="reset-confirm-dialog__title">
+                  开始新游戏？
+                </h2>
+                <p id="reset-confirm-desc" className="reset-confirm-dialog__desc">
+                  将重置房间状态，并清空本浏览器中你与所有 NPC 的对话记忆（其他玩家不受影响）。
+                </p>
+                <div className="reset-confirm-dialog__actions">
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => setResetConfirmOpen(false)}
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--destructive"
+                    data-testid="reset-confirm-start"
+                    onClick={() => {
+                      setResetConfirmOpen(false);
+                      void performResetGame();
+                    }}
+                  >
+                    确认开始
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+          {showSyncDebug ? <SyncMetricsOverlay metrics={syncMetrics} /> : null}
+          {showCollectiveDebug ? (
+            <>
+              <CollectiveAttitudeOverlay
+                snapshot={collectiveSnapshot}
+                npcName={activeNpcName}
+                showDebug={showCollectiveDebug}
+              />
+              <CollectiveDebugPanel
+                snapshot={collectiveSnapshot}
+                activeNpcName={activeNpcName}
+                loading={collectiveLoading}
+              />
+            </>
+          ) : null}
         </>
-      ) : null}
-    </div>
+      }
+      world={
+        <main
+          className={`chat-main${dialogueEngaged ? " chat-main--dialogue-engaged" : ""}`}
+        >
+          {roomFull ? (
+            <div className="error-banner error-banner--warn" data-testid="banner-room-full">
+              房间已满（最多 4 人同时在线），请关闭其他标签页或稍后再试。
+            </div>
+          ) : null}
+          {colyseusError && !roomFull ? <div className="error-banner">{colyseusError}</div> : null}
+          {composerSpeakBusyOtherPlayer ? (
+            <div className="error-banner error-banner--warn" data-testid="banner-speak-queue">
+              该 NPC 正在响应其他玩家的指令，请稍候再试。
+            </div>
+          ) : null}
+          {duplicateTab ? (
+            <div className="error-banner error-banner--info">
+              检测到另一个标签页也在使用同一存档。同时游玩可能导致记忆与对话不同步，建议只保留一个标签页。
+            </div>
+          ) : null}
+          {error ? <div className="error-banner">{error}</div> : null}
+          <div className="world-stage" data-testid="world-stage">
+            {bootPending ? (
+              <section className="room-scene-panel room-scene-panel--boot" data-testid="room-scene">
+                <p className="room-scene-panel__hint" data-testid="phaser-boot-loading">
+                  地图加载中…
+                </p>
+              </section>
+            ) : !phaserOk ? (
+              <>
+                <p className="room-scene-panel__hint" data-testid="phaser-fallback-banner">
+                  当前设备无法启用 2D 地图视图，已切换为网格地图。请更新浏览器或启用硬件加速后刷新。
+                </p>
+                <MovementPanel
+                  connected={connected}
+                  players={players}
+                  sessionId={sessionId}
+                  width={moveMap.width}
+                  height={moveMap.height}
+                  mapNpcs={sceneMapNpcs}
+                  mapObjects={sceneMapObjects}
+                  animating={animating}
+                  moveHint={sceneHint}
+                  onMove={sendMove}
+                  onMoveTo={(x, y) => void sendMoveTo(x, y)}
+                  fallbackMode
+                />
+              </>
+            ) : (
+              <PhaserGame
+                bootOk={bootOk}
+                connected={connected}
+                players={players}
+                sessionId={sessionId}
+                width={moveMap.width}
+                height={moveMap.height}
+                moveMap={moveMap}
+                mapNpcs={sceneMapNpcs}
+                mapObjects={sceneMapObjects}
+                animating={animating}
+                moveHint={sceneHint}
+                thinkingNpcId={thinkingNpcId}
+                thinkingNpcIds={thinkingNpcIds}
+                activeNpcId={activeNpcId}
+                npcAnimateMoves={npcWorldLive}
+                npcResetEpoch={npcResetEpoch}
+                remoteInterpMs={remoteInterpMs}
+                loadedChunks={loadedChunks}
+                loreForChunk={loreForChunk}
+                discoverToast={discoverToast}
+                onDismissDiscoverToast={dismissDiscoverToast}
+                motionBridgeRef={motionBridgeRef}
+                movementSyncRef={movementSyncRef}
+                collectiveAttitudeLine={collectiveAttitudeLine}
+                gameClock={gameClock}
+                npcActivityById={npcActivityById}
+                npcAmbientById={npcAmbientById}
+                speakBusyNpcId={speakBusyNpcId}
+                onBootFailed={() => {
+                  setPhaserOk(false);
+                  setBootOk(false);
+                }}
+                onNpcSpriteClick={engageNpc}
+                onViewportVisibleNpcIdsChange={setViewportVisibleNpcIds}
+              />
+            )}
+            <DialogueOverlay
+              engaged={dialogueEngaged}
+              draft={draft}
+              setDraft={setDraft}
+              sendMessage={sendMessage}
+              activeNpcId={activeNpcId}
+              activeNpcName={activeNpcName}
+              messages={messages}
+              thinkingNpcId={thinkingNpcId}
+              composerBusyForActiveNpc={composerBusyForActiveNpc}
+              speakBusyNpcId={speakBusyNpcId}
+              sendingNpcId={sendingNpcId}
+              collectiveFeedbackKind={collectiveFeedbackKind}
+              attitudeGateHint={attitudeGateHint}
+              roomFull={roomFull}
+              reducedMotion={reducedMotion}
+              composerRef={composerRef}
+              onOpenDrawer={openDrawer}
+              onEndDialogue={endDialogue}
+            />
+          </div>
+        </main>
+      }
+    />
   );
 }

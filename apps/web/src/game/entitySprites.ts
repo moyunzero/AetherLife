@@ -28,6 +28,14 @@ const SPRITE_TOP_Y = SPRITE_FOOT_Y - CHAR_FRAME_H * SPRITE_SCALE;
 /** Nameplate baseline above sprite head (label origin 0.5, 1). */
 export const SPRITE_NAMEPLATE_Y = SPRITE_TOP_Y + 10;
 
+/** Chat cue beside nameplate (Stardew-style, tilted). */
+export const SPRITE_CHAT_BUBBLE_X = 26;
+export const SPRITE_CHAT_BUBBLE_Y = SPRITE_NAMEPLATE_Y - 10;
+export const SPRITE_CHAT_BUBBLE_ANGLE = 30;
+export const SPRITE_CHAT_BUBBLE_SCALE = 1.75;
+
+const CHAT_BUBBLE_TWEEN_KEY = "chatBubbleTween";
+
 const CARDINALS: CardinalFacing[] = ["down", "left", "right", "up"];
 
 export type AnimatableEntity = {
@@ -179,11 +187,44 @@ export function createNpcSprite(
 }
 
 export function createSpeechBubble(scene: Phaser.Scene): Phaser.GameObjects.Image {
-  const bubble = scene.add.image(0, SPRITE_TOP_Y - 8, ASSET_KEYS.spritesUiSpeech);
-  bubble.setOrigin(0.5, 1);
-  bubble.setScale(0.75);
+  const bubble = scene.add.image(
+    SPRITE_CHAT_BUBBLE_X,
+    SPRITE_CHAT_BUBBLE_Y,
+    ASSET_KEYS.spritesUiSpeech,
+  );
+  bubble.setOrigin(0, 0.5);
+  bubble.setScale(SPRITE_CHAT_BUBBLE_SCALE);
+  bubble.setAngle(SPRITE_CHAT_BUBBLE_ANGLE);
   bubble.setVisible(false);
   return bubble;
+}
+
+function stopChatBubbleBob(bubble: Phaser.GameObjects.Image): void {
+  const tween = bubble.getData(CHAT_BUBBLE_TWEEN_KEY) as Phaser.Tweens.Tween | undefined;
+  if (tween) {
+    tween.stop();
+    tween.destroy();
+    bubble.setData(CHAT_BUBBLE_TWEEN_KEY, undefined);
+  }
+  bubble.y = SPRITE_CHAT_BUBBLE_Y;
+  bubble.setAngle(SPRITE_CHAT_BUBBLE_ANGLE);
+}
+
+function startChatBubbleBob(bubble: Phaser.GameObjects.Image, registry: Phaser.Data.DataManager): void {
+  if (bubble.getData(CHAT_BUBBLE_TWEEN_KEY)) return;
+  if (registry.get("reducedMotion")) return;
+  const scene = bubble.scene;
+  if (!scene?.tweens) return;
+  const tween = scene.tweens.add({
+    targets: bubble,
+    y: SPRITE_CHAT_BUBBLE_Y - 5,
+    angle: SPRITE_CHAT_BUBBLE_ANGLE + 4,
+    duration: 550,
+    yoyo: true,
+    repeat: -1,
+    ease: "Sine.easeInOut",
+  });
+  bubble.setData(CHAT_BUBBLE_TWEEN_KEY, tween);
 }
 
 export function createDoorSprite(scene: Phaser.Scene, closed: boolean): Phaser.GameObjects.Image {
@@ -234,4 +275,35 @@ export function applyFacingFromSchema(ent: AnimatableEntity, facing: string): vo
 
 export function setThinkingBubble(ent: AnimatableEntity, visible: boolean): void {
   ent.bubble?.setVisible(visible);
+}
+
+function npcIsThinking(
+  npcId: string,
+  thinkingNpcId: string | null | undefined,
+  thinkingNpcIds: string[] | undefined,
+): boolean {
+  if (thinkingNpcId === npcId) return true;
+  return (thinkingNpcIds ?? []).includes(npcId);
+}
+
+/** Thinking bubble wins over hover cue; both use sprites/ui-speech (expression_chat). */
+export function refreshNpcChatBubbles(
+  npcSprites: Map<string, { npcId?: string; bubble?: Phaser.GameObjects.Image }>,
+  registry: Phaser.Data.DataManager,
+): void {
+  const thinkingNpcId = registry.get("thinkingNpcId") as string | null | undefined;
+  const thinkingNpcIds = registry.get("thinkingNpcIds") as string[] | undefined;
+  const hoveredNpcId = registry.get("hoveredNpcId") as string | null | undefined;
+  for (const [npcId, ent] of npcSprites) {
+    if (!ent.npcId || !ent.bubble) continue;
+    const thinking = npcIsThinking(npcId, thinkingNpcId, thinkingNpcIds);
+    const hovered = hoveredNpcId === npcId;
+    const show = thinking || hovered;
+    ent.bubble.setVisible(show);
+    if (show) {
+      startChatBubbleBob(ent.bubble, registry);
+    } else {
+      stopChatBubbleBob(ent.bubble);
+    }
+  }
 }

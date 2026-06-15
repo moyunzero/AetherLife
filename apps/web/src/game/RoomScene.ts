@@ -108,6 +108,10 @@ import {
   syncRoomEntities,
   type RoomSceneSyncHost,
 } from "./roomSceneSync.js";
+import {
+  tickViewportVisibleNpcIds,
+  VIEWPORT_NPC_TICK_MS,
+} from "./roomSceneViewport.js";
 
 export type { AetherlifeNpcDebug } from "./roomSceneSync.js";
 import {
@@ -144,6 +148,8 @@ export class RoomScene extends Phaser.Scene {
   private cameraLerpY: number | null = null;
   private lastExploreGx = Number.NaN;
   private lastExploreGy = Number.NaN;
+  private lastViewportTickMs = 0;
+  private lastViewportNpcIdsKey = "";
   private collectiveDebugText: Phaser.GameObjects.Text | null = null;
   private preloadStartMs = 0;
   private readonly onLoadError = (): void => {
@@ -202,6 +208,11 @@ export class RoomScene extends Phaser.Scene {
       flashGfx: this.flashGfx,
       pathGfx: this.pathGfx,
       playerSprites: this.playerSprites,
+      npcSprites: this.npcSprites,
+      onNpcSelected: (npcId) => {
+        const cb = this.registry.get("onNpcSpriteClick") as ((id: string) => void) | undefined;
+        cb?.(npcId);
+      },
       getMoveMap: () => this.getMoveMap(),
       getLoadedChunks: () => this.getLoadedChunks(),
       getMovementSync: () => this.getMovementSync(),
@@ -387,6 +398,7 @@ export class RoomScene extends Phaser.Scene {
     );
     this.tickCameraFollow(delta);
     this.tickExploreGrid();
+    this.tickViewportVisibleNpcIds();
     this.tickCollectiveDebug();
     this.refreshNameplates();
     this.refreshNpcAmbientLabels();
@@ -530,6 +542,19 @@ export class RoomScene extends Phaser.Scene {
     this.lastExploreGx = gx;
     this.lastExploreGy = gy;
     this.registry.set("exploreGrid", { gx, gy });
+  }
+
+  /** Avatar strip filter — publish sorted ids when camera overlap set changes (≤10Hz). */
+  private tickViewportVisibleNpcIds(): void {
+    const now = this.time.now;
+    if (now - this.lastViewportTickMs < VIEWPORT_NPC_TICK_MS) return;
+    this.lastViewportTickMs = now;
+
+    const ids = tickViewportVisibleNpcIds(this.cameras.main, this.npcSprites);
+    const key = ids.join(",");
+    if (key === this.lastViewportNpcIdsKey) return;
+    this.lastViewportNpcIdsKey = key;
+    this.registry.set("viewportVisibleNpcIds", ids);
   }
 
   getLocalPlayerMotionBridge(): LocalPlayerMotionBridge | null {

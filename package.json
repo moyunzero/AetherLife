@@ -47,6 +47,7 @@
     "bake:one-city": "node scripts/bake-beginning-fields.mjs",
     "bake:village-plaza": "node scripts/bake-village-plaza.mjs",
     "verify:phase13": "node scripts/verify-phase13.mjs",
+    "verify:phase19": "node scripts/verify-phase19.mjs",
     "verify:phase14": "node scripts/verify-phase14.mjs",
     "verify:phase16": "node scripts/verify-phase16.mjs",
     "e2e:phase16": "node scripts/run-phase16-e2e.mjs",
