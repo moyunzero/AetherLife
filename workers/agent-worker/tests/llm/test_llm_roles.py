@@ -9,10 +9,12 @@ from src.llm.roles import (
 )
 
 
-def test_social_defaults_to_nvidia_397b():
-    provider, model = social_provider_model(Settings())
+def test_social_defaults_to_nvidia_llama_70b(monkeypatch):
+    monkeypatch.delenv("LLM_MODEL_SOCIAL", raising=False)
+    monkeypatch.delenv("LLM_MODEL_NVIDIA_FAST", raising=False)
+    provider, model = social_provider_model(Settings(_env_file=None))
     assert provider == "nvidia"
-    assert model == "qwen/qwen3.5-397b-a17b"
+    assert model == "meta/llama-3.3-70b-instruct"
 
 
 def test_summarize_respects_env_override():
@@ -64,7 +66,7 @@ def test_auxiliary_attempts_optional_fallback():
 def test_default_model_for_siliconflow_and_nvidia():
     settings = Settings()
     assert "Qwen" in default_model_for_provider(settings, "siliconflow")
-    assert "qwen" in default_model_for_provider(settings, "nvidia")
+    assert "llama" in default_model_for_provider(settings, "nvidia")
 
 
 def test_openrouter_fallback_uses_openrouter_model_not_zhipu():

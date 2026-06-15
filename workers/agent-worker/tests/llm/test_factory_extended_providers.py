@@ -50,12 +50,13 @@ def test_create_nvidia_model_uses_integrate_base(monkeypatch):
             captured.update(kwargs)
 
     monkeypatch.setattr("src.llm.factory.ChatOpenAI", FakeChatOpenAI)
+    monkeypatch.delenv("LLM_MODEL_NVIDIA_FAST", raising=False)
     create_chat_model(
         provider="nvidia",
-        settings=Settings(nvidia_api_key="nv-test"),
+        settings=Settings(_env_file=None, nvidia_api_key="nv-test"),
     )
     assert captured["base_url"] == "https://integrate.api.nvidia.com/v1"
-    assert captured["model"] == "qwen/qwen3.5-397b-a17b"
+    assert captured["model"] == "meta/llama-3.3-70b-instruct"
 
 
 def test_missing_siliconflow_key_raises():

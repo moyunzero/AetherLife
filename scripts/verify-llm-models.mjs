@@ -577,7 +577,7 @@ async function main() {
   // --- Social JSON (LLM_PROVIDER_SOCIAL, Phase 11.7) ---
   const socialProvider = (env.LLM_PROVIDER_SOCIAL ?? "nvidia").toLowerCase();
   const socialModel =
-    env.LLM_MODEL_SOCIAL ?? env.LLM_MODEL_NVIDIA_FAST ?? "qwen/qwen3.5-397b-a17b";
+    env.LLM_MODEL_SOCIAL ?? env.LLM_MODEL_NVIDIA_FAST ?? "meta/llama-3.3-70b-instruct";
   const socialCfg = loreProviderConfig[socialProvider];
   if (!socialCfg) {
     push({
@@ -646,7 +646,7 @@ async function main() {
   }
 
   // --- Production catalog (always probe when keys present; 2026-06-09) ---
-  const nvidiaFastCatalog = env.LLM_MODEL_NVIDIA_FAST ?? "qwen/qwen3.5-397b-a17b";
+  const nvidiaFastCatalog = env.LLM_MODEL_NVIDIA_FAST ?? "meta/llama-3.3-70b-instruct";
   const nvidiaAgentCatalog = env.LLM_MODEL_NVIDIA_AGENT ?? "z-ai/glm-5.1";
   const orFallbackModel = env.LLM_MODEL_OPENROUTER_FALLBACK ?? "openai/gpt-oss-120b:free";
 

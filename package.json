@@ -18,6 +18,7 @@
     "verify:llm-models": "node scripts/verify-llm-models.mjs",
     "benchmark:llm-e2e": "node scripts/benchmark-llm-e2e-latency.mjs",
     "benchmark:speak-browser": "node scripts/benchmark-speak-browser.mjs",
+    "benchmark:social-providers": "cd workers/agent-worker && uv run python ../../scripts/benchmark-social-providers.py",
     "verify:phase2": "node scripts/verify-phase2.mjs",
     "verify:phase3": "node scripts/verify-phase3.mjs",
     "verify:phase4": "node scripts/verify-phase4.mjs",
