@@ -1,6 +1,6 @@
 # LLM 端到端流程与延迟报告
 
-> 生成时间：2026-06-09  
+> 生成时间：2026-06-09 · 最后更新：2026-06-15  
 > 方法：Codegraph 架构梳理 + 真实 LLM E2E（`pnpm dev:stack`，**无** `LLM_MOCK`）  
 > 相关：[LLM-ROUTING.md](./LLM-ROUTING.md) · [E2E-POLICY.md](./E2E-POLICY.md) · [LLM-MODEL-VERIFY.md](./LLM-MODEL-VERIFY.md)
 

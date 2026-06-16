@@ -75,7 +75,8 @@ def probe(label: str, provider: str, model: str) -> dict:
 
 
 def main() -> None:
-    if os.getenv("LLM_MOCK") == "1":
+    settings = get_settings()
+    if settings.llm_mock or os.getenv("LLM_MOCK") == "1":
         print("Unset LLM_MOCK before benchmarking.")
         sys.exit(1)
     results = [probe(*c) for c in CANDIDATES]
