@@ -137,6 +137,8 @@ def test_recall_action_loads_memory_with_full_embed():
 
     _, kwargs = load_memory.call_args
     assert kwargs.get("skip_embed") is False
+    assert kwargs.get("memory_timeout") == 18.0
+    assert kwargs.get("memory_attempts") == 2
 
 
 def test_fetch_state_uses_stale_snapshot_after_timeout():

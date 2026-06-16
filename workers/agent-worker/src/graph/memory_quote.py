@@ -1,7 +1,12 @@
 import re
 from typing import Any
 
-from src.graph.recall_merge import DEFAULT_RECALL_MIN_SCORE, best_retrieved_memory
+from src.graph.recall_merge import (
+    DEFAULT_RECALL_MIN_SCORE,
+    best_retrieved_memory,
+    is_recall_question,
+    pick_recall_memory,
+)
 
 _ROLE_PREFIX = re.compile(r"^(?:player|npc)\s*:\s*", re.IGNORECASE)
 _MAX_WIRE_CHARS = 500
@@ -15,11 +20,19 @@ def pick_memory_quote(
     retrieved_memories: list[dict[str, Any]] | None,
     memory_count: int,
     *,
+    player_message: str | None = None,
     min_score: float = DEFAULT_RECALL_MIN_SCORE,
 ) -> str | None:
     if memory_count <= 0:
         return None
-    best = best_retrieved_memory(retrieved_memories, min_score=min_score)
+    if player_message and is_recall_question(player_message):
+        best = pick_recall_memory(
+            player_message,
+            retrieved_memories,
+            min_score=min_score,
+        )
+    else:
+        best = best_retrieved_memory(retrieved_memories, min_score=min_score)
     if best is None:
         return None
     raw = str(best.get("text") or "").strip()

@@ -22,7 +22,12 @@ from src.graph.prompt import build_turn_messages, format_memory_summary
 from src.graph.reflect import run_reflect_llm, should_reflect
 from src.graph.state import GraphState
 from src.graph.summarize import maybe_bulk_summarize
-from src.graph.recall_merge import merge_recall_into_reply
+from src.graph.recall_merge import (
+    augment_retrieved_with_recent,
+    is_recall_question,
+    merge_recall_into_reply,
+    needs_recency_augment,
+)
 from src.graph.reply_sanitize import sanitize_npc_reply
 from src.graph.tools import load_tools_for_binding, parse_tool_calls, reply_from_turn
 from src.http_json import safe_response_json
@@ -57,6 +62,8 @@ from src.graph.speak_intent import (
 from src.llm.call_budget import record_llm_call
 from src.memory.client import (
     _MEMORY_CONTEXT_INTERACTIVE_TIMEOUT_S,
+    _MEMORY_CONTEXT_RECALL_ATTEMPTS,
+    _MEMORY_CONTEXT_RECALL_TIMEOUT_S,
     append_npc_memory,
     append_player_memory,
     fetch_memory_context,
@@ -277,6 +284,40 @@ def load_memory_context(
             file=sys.stderr,
         )
         ctx = {}
+    player_msg = (state.get("player_message") or "").strip()
+    if needs_recency_augment(player_msg) and not skip_embed:
+        try:
+            recent = fetch_recent_memories(
+                client,
+                settings,
+                state["room_id"],
+                limit=20,
+                npc_id=npc_id,
+                player_id=_player_id(state),
+            )
+            augmented = augment_retrieved_with_recent(
+                ctx.get("retrieved"),
+                recent,
+            )
+            if augmented:
+                ctx = {
+                    **ctx,
+                    "retrieved": augmented,
+                    "memoryCount": max(
+                        int(ctx.get("memoryCount") or 0),
+                        len(augmented),
+                    ),
+                }
+                print(
+                    f"memory-context recall recency-augment room={state['room_id']} "
+                    f"npc={npc_id} rows={len(augmented)}",
+                    file=sys.stderr,
+                )
+        except Exception as exc:
+            print(
+                f"memory-context recall recency-augment failed room={state['room_id']}: {exc}",
+                file=sys.stderr,
+            )
     summary = format_memory_summary(
         latest_bulk=ctx.get("latestBulkSummary"),
         latest_reflection=ctx.get("latestReflection"),
@@ -365,13 +406,18 @@ def fetch_state_and_memory(
 
     def _memory() -> GraphState:
         t0 = time.perf_counter()
+        recall = intent == SpeakIntent.RECALL
+        memory_timeout = (
+            _MEMORY_CONTEXT_RECALL_TIMEOUT_S if recall else _MEMORY_CONTEXT_INTERACTIVE_TIMEOUT_S
+        )
+        memory_attempts = _MEMORY_CONTEXT_RECALL_ATTEMPTS if recall else 1
         with httpx.Client() as thread_client:
             out = load_memory_context(
                 state,
                 settings=settings,
                 client=thread_client,
-                memory_timeout=_MEMORY_CONTEXT_INTERACTIVE_TIMEOUT_S,
-                memory_attempts=1,
+                memory_timeout=memory_timeout,
+                memory_attempts=memory_attempts,
                 skip_embed=skip_embed,
             )
         record_phase_ms("t_memory_ms", int((time.perf_counter() - t0) * 1000))

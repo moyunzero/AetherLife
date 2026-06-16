@@ -287,6 +287,7 @@ def process_job(client: httpx.Client, settings: Settings, payload: dict) -> None
     memory_quote = pick_memory_quote(
         result.get("retrieved_memories"),
         int(result.get("memory_count") or 0),
+        player_message=str(result.get("player_message") or ""),
     )
     if memory_quote:
         done_payload["memoryQuote"] = memory_quote

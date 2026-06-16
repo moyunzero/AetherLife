@@ -136,7 +136,7 @@
 59. **已验收 UX/视觉代码 — 最小 diff**：ISSUE 标 `fixed` 且 UAT/verify 通过的 hook、铭牌、composer 状态机，后续 phase 不得 drive-by 重构；scope 外改动 `pnpm agent:verify:scope` 应 fail。
 60. **Decor 须低于同格实体 depth**：`DecorRenderer` 用 `entityDepth(gx, gy, 0)`；玩家/NPC 至少 layer 1。禁止 decor 与实体同 layer 1（同格时后 spawn 的 decor 会盖住角色，如 home 土路围栏）。回归：`entityLayout.test.ts`「同格 entity > decor」+ 实机站 pathRow=6。
 61. **被挡 WASD 须转向输入方向**：`clientCanStep` 失败时 `ClientMovementPredictor.notifyBlockedStep` 调用 `onBlockedFace` + `sendMove({ dx, dy })`（**无 clientSeq/pending**）；`LocalPlayerMotionBridge.faceInputDirection` → `playIdleAnim`；服务端 `applyPlayerMove` blocked 分支更新 `player.facing`。禁止仅 `onHint` 而不转向。回归：`clientMovementPredictor.test.ts` + `move-handler.test.ts`。
-62. **Interactive speak 记忆召回（PLAY-03）**：`llm_social_turn._build_social_messages` 须注入 `memory_summary`；口播用**当下口吻直接给事实**，禁止 meta 套话（「你上次说过/还记得吗」）；LLM 拒答时 `compose_reply` → `merge_recall_into_reply` 确定性补全（`recall_merge.py`）。Interactive 图 `fetch_state_and_memory` 并行 fetch+memory；**Phase 17** memory-context interactive **8s×1**（`skipEmbed=1` 用于 CASUAL/SOCIAL_EDGE/NARRATIVE；RECALL full embed）；game-server 5s memory cache。Social LLM 每 provider 仅 1 次 invoke，timeout 20s；fallback 优先 nvidia nano。回归：`test_recall_merge.py` · `test_llm_social_memory.py` · `test_llm_social_degrade.py` · `test_fetch_state_and_memory.py`.
+62. **Interactive speak 记忆召回（PLAY-03 / Phase 20）**：`llm_social_turn._build_social_messages` 须注入 `memory_summary`；口播用**当下口吻直接给事实**，禁止 meta 套话；LLM 拒答或 echo FACT token 时 `compose_reply` → `merge_recall_into_reply` 确定性补全（`recall_merge.py` — **密码/昵称追问须真实值在 reply 内且非含糊多值才可 skip merge**；**`pick_recall_memory` 按问题类型选行**，无匹配行时 **return None**；**密码 `_pick_password_memory` 优先 player seed 行**（`player: 请记住…`），**排除 npc 复述**（「你刚刚说…密码」）；**recency augment** topic/recency/embed）；**`_PASSWORD_ANS_RE` 须 `密码是|为`（非 optional）**；recall 问句行不得当 password fact；含糊 LLM（多数字 / 「不确定」）→ **整句替换为 fact**，禁止 append；**无匹配记忆时 `recall_no_memory_reply`**。**RECALL** intent memory-context **18s×2** + recency augment（ISSUE-050）；CASUAL/SOCIAL_EDGE/NARRATIVE 仍 **8s×1 skipEmbed**。回归：`test_recall_merge.py` · `test_memory_quote.py` · `pnpm verify:phase20`。
 
 ### Beginning Fields / Tiled home 地图（Fan-tasy）
 
@@ -1905,6 +1905,58 @@ Worker 主循环仅在 npc-turn 队列 **连续 5s 为空** 时才 `BLPOP` chunk
 **关联**
 
 - TECH-DEBT-v3 WR-01
+
+---
+
+### ISSUE-050 — Phase 20 SOLO-01 跨 session 记忆召回失败（token echo + memory-context 超时）
+
+- **状态:** fixed
+- **发现:** 2026-06-16
+- **阶段/范围:** Phase 20 · `workers/agent-worker/src/graph/recall_merge.py` · `npc_loop.py` · `memory/client.py`
+- **严重性:** major
+
+**复现**
+
+1. `pnpm dev:stack` + 真实 LLM
+2. 种子密码/昵称 → reload → 追问「门禁密码是多少」「我叫什么」
+3. **期望：** 口播含正确密码/昵称；对话历史有 memoryQuote。**实际：** 拒答、echo FACT token（如 sunset42）、或「你的名字是…」截断；记忆 tab 有 6 条但 speak 路径无 memoryQuote
+4. `pnpm verify:phase20` → exit 1（memory wait 超时 / firstTextMs>8s）
+
+**根因**
+
+1. `reply_covers_recall` 在 LLM 回复含 FACT seed token 但无真实密码/昵称时仍返回 True → `merge_recall_into_reply` 跳过确定性补全
+2. RECALL speak 使用 interactive memory-context **8s×1**（相对 ISSUE-041 的 18s×2 回归）→ 慢 embed 时常 `retrieved=[]` → 无 `pick_memory_quote`、merge 无输入
+3. **（2026-06-16 续）** `merge_recall_into_reply` / `pick_memory_quote` 仅取 **最高分** 记忆行；密码追问时 embed 常把昵称行排在密码行前 → merge 不补全
+4. **（2026-06-16 续）** `is_recall_question` 把含「告诉」的 **seed 陈述**（如「我告诉你…密码是111」）误判为 recall → 同一轮 merge 注入旧记忆 666
+5. **（2026-06-16 续）** 密码追问时 `pick_recall_memory` 无密码行仍 **fallback 最高分 unrelated 行**；无行或 `format_recall_answer` 失败时 merge **放行 LLM 编造**（如 123456）
+6. **（2026-06-16 续）** `_PASSWORD_ANS_RE` 中 `(?:是|为)?` 可选 → 「电脑密码**吗**？」被解析为 password=`吗`；embed 把 **recall 问句** 当高分记忆 → 口播 `电脑密码是 吗？。` + memoryQuote 引用问句本身
+7. **（2026-06-16 续）** 密码更新后 `pick_recall_memory` 仍按 **embed 最高分** 取第一条密码行（111/555 常高于 0101）；LLM 口播「111 和 555 不确定」因含 111 → `reply_covers_recall` 误判已覆盖，跳过 merge
+8. **（2026-06-16 续）** LLM 口播已含 canonical 密码（0101）但仍列旧值 → `reply_covers_recall` 仅查 `pwd in hay` → merge **append** `{draft} {fact}` → 「111、555…不确定。 电脑密码是 0101。」
+9. **（2026-06-16 续）** `_pick_password_memory` 未区分 **player seed** vs **npc 复述**（`npc: 你刚刚说…0101`）→ memoryQuote 引用 NPC 行而非玩家 seed
+
+**修复**
+
+- `recall_merge.py`：密码/昵称追问必须先验 extracted value 在 reply 中，再考虑 seed token
+- `memory/client.py`：`_MEMORY_CONTEXT_RECALL_TIMEOUT_S=18`、`_MEMORY_CONTEXT_RECALL_ATTEMPTS=2`
+- `npc_loop.py`：RECALL intent 用上述 timeout/attempts；embed 空时 `fetch_recent_memories` fallback
+- `recall_merge.pick_recall_memory`：按问题类型（密码/昵称）在 `retrieved` 中选匹配行；**无匹配行 return None**；LLM 口播缺真实密码/昵称时用 `format_recall_answer` **替换**（非 append）
+- `recall_merge.recall_no_memory_reply`：recall 问但无事实 → 诚实拒答（禁止编造数字密码）
+- `is_recall_question`：**披露/seed**（「我告诉你」「请记住」）不算 recall；弱 marker（告诉/说过/之前）须带问号或「多少/叫什么/是什么」
+- `_PASSWORD_ANS_RE`：**强制** `密码是|密码为`（禁止 optional 是/为）；`extract_password_answer` 对 recall 问句 early return None
+- **RECALL 密码追问**：`needs_recency_augment` → `fetch_recent_memories(20)` + `augment_retrieved_with_recent`；`_pick_password_memory` **player seed 池优先** + topic/recency/embed；`reply_covers_recall` 拒绝含糊多值；含糊或多数字时 merge **只返回 fact**（不 append draft）
+- `memory_quote.py` + `main.py`：recall 时 `pick_memory_quote` 传入 `player_message`
+- 测试：`test_merge_recall_password_prefers_password_row_over_higher_nickname` · `test_merge_recall_men_suo_password_question` · `test_merge_recall_no_memory_blocks_hallucinated_password` · `test_merge_recall_rejects_recall_question_as_password_memory` · `test_merge_recall_replaces_ambiguous_llm_even_when_canonical_in_reply` · `test_pick_recall_prefers_player_seed_over_npc_paraphrase` · `test_merge_recall_uses_latest_player_seed_999`
+
+**验证**
+
+- `cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_recall_merge.py tests/test_fetch_state_and_memory.py tests/test_memory_quote.py -q` → 27 passed
+- `pnpm agent:verify` → OK（worker 222 passed）
+- 手动 UAT Test 2（南宫婉 seed + reload + 密码召回）→ 用户确认 pass（2026-06-16）
+- `pnpm verify:phase20` → 待人工/UAT 确认（latency smoke 可能仍 >8s，与 recall 逻辑独立）
+
+**防复发**
+
+- Guardrail #62 更新
 
 ---
 
