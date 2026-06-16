@@ -6,13 +6,15 @@
  *   VITE_SPEAK_LATENCY_TRACE=1 pnpm dev:stack  (or ?speakLatencyTrace=1 on WEB_URL)
  *   node scripts/benchmark-speak-browser.mjs
  *
- * Env: BENCHMARK_ROUNDS (default 15), BENCHMARK_SKIP_WARMUP=1, WEB_URL, GAME_SERVER_URL
+ * Env: BENCHMARK_ROUNDS (default 15), BENCHMARK_SKIP_WARMUP=1, BENCHMARK_SKIP_B4=1,
+ *      BENCHMARK_B4_STRICT=1 (fail run on first B4 error), WEB_URL, GAME_SERVER_URL
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { assertE2eRealLlm, e2eSpeakTimeoutMs } from "./lib/e2e-policy.mjs";
+import { closeShellDrawer } from "./lib/e2e-memory-helpers.mjs";
 import { engageDialogue } from "./lib/dialogue-engage.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -36,6 +38,8 @@ const ROOM_ID = "default";
 const NPC_ID = "npc-1";
 const ROUNDS = Number(process.env.BENCHMARK_ROUNDS || 15);
 const SKIP_WARMUP = process.env.BENCHMARK_SKIP_WARMUP !== "0";
+const SKIP_B4 = process.env.BENCHMARK_SKIP_B4 === "1";
+const B4_STRICT = process.env.BENCHMARK_B4_STRICT === "1";
 const SPEAK_TIMEOUT_MS = e2eSpeakTimeoutMs();
 const SPRITE_ARRIVE_TIMEOUT_MS = Number(process.env.BENCHMARK_SPRITE_TIMEOUT_MS || 30_000);
 const OUT_DIR = path.join(ROOT, ".planning/benchmarks");
@@ -135,38 +139,71 @@ const THINKING_LOCATOR =
   '.dialogue-bar__summary-text--thinking, ' +
   '[data-testid="composer-speak-status"]';
 
+const OVERLAY_NPC_REPLY =
+  '[data-testid="dialogue-overlay"] .dialogue-overlay__last-line, ' +
+  '[data-testid="dialogue-overlay"] .dialogue-overlay__npc-text, ' +
+  '[data-testid="dialogue-overlay"] .dialogue-overlay__line--npc';
+
+/** Snapshot visible reply text before send — B4 consecutive turns need "new" reply detection. */
+async function captureReplyBaseline(page) {
+  return page.evaluate(() => {
+    const summary = document.querySelector(".dialogue-bar__summary-text");
+    const overlayNodes = document.querySelectorAll(
+      '[data-testid="dialogue-overlay"] .dialogue-overlay__last-line, ' +
+        '[data-testid="dialogue-overlay"] .dialogue-overlay__npc-text, ' +
+        '[data-testid="dialogue-overlay"] .dialogue-overlay__line--npc',
+    );
+    const overlay =
+      overlayNodes.length > 0
+        ? (overlayNodes[overlayNodes.length - 1].textContent ?? "").trim()
+        : "";
+    const marks = window.__speakLatencyMarks ?? [];
+    return {
+      summary: (summary?.textContent ?? "").trim(),
+      overlay,
+      partialCount: marks.filter((m) => m.event === "speak_partial").length,
+    };
+  });
+}
+
 /**
  * T_first fallback chain (user-perceived first NPC text):
- * 1) `.dialogue-bar__summary-text` not matching /^思考/
- * 2) last visible NPC line in dialogue-overlay
- * 3) `speak_partial` performance mark recorded
+ * 1) `.dialogue-bar__summary-text` not matching /^思考/ and changed vs baseline
+ * 2) last visible NPC line in dialogue-overlay changed vs baseline
+ * 3) new `speak_partial` performance mark after baseline.partialCount
  */
-async function waitForFirstNpcReply(page, timeoutMs) {
+async function waitForFirstNpcReply(page, timeoutMs, baseline) {
   const deadline = Date.now() + timeoutMs;
+  const baseSummary = baseline?.summary ?? "";
+  const baseOverlay = baseline?.overlay ?? "";
+  const basePartialCount = baseline?.partialCount ?? 0;
+
   while (Date.now() < deadline) {
     const summary = page.locator(".dialogue-bar__summary-text");
     if ((await summary.count()) > 0) {
       const text = (await summary.first().textContent().catch(() => "")) ?? "";
-      if (text.trim() && !/^思考/.test(text.trim())) {
+      const trimmed = text.trim();
+      if (trimmed && !/^思考/.test(trimmed) && trimmed !== baseSummary) {
         return Date.now();
       }
     }
 
-    const overlayNpc = page
-      .locator(
-        '[data-testid="dialogue-overlay"] .dialogue-overlay__npc-text, ' +
-          '[data-testid="dialogue-overlay"] .dialogue-overlay__line--npc',
-      )
-      .last();
+    const overlayNpc = page.locator(OVERLAY_NPC_REPLY).last();
     if (await overlayNpc.isVisible().catch(() => false)) {
       const text = (await overlayNpc.textContent().catch(() => "")) ?? "";
-      if (text.trim()) return Date.now();
+      const trimmed = text.trim();
+      if (trimmed && trimmed !== baseOverlay) {
+        return Date.now();
+      }
     }
 
-    const hasPartial = await page.evaluate(() =>
-      (window.__speakLatencyMarks ?? []).some((m) => m.event === "speak_partial"),
+    const hasNewPartial = await page.evaluate(
+      (count) =>
+        (window.__speakLatencyMarks ?? []).filter((m) => m.event === "speak_partial")
+          .length > count,
+      basePartialCount,
     );
-    if (hasPartial) return Date.now();
+    if (hasNewPartial) return Date.now();
 
     await new Promise((r) => setTimeout(r, 100));
   }
@@ -186,6 +223,7 @@ async function runSpeakRound(page, message, { expectMove }) {
   };
   page.on("response", onResponse);
 
+  await closeShellDrawer(page);
   await engageDialogue(page);
 
   await page.evaluate(() => {
@@ -200,8 +238,9 @@ async function runSpeakRound(page, message, { expectMove }) {
 
   await page.locator(THINKING_LOCATOR).first().waitFor({ state: "visible", timeout: 15_000 });
   const tThinkingVisible = Date.now();
+  const replyBaseline = await captureReplyBaseline(page);
 
-  const tNpcBubble = await waitForFirstNpcReply(page, SPEAK_TIMEOUT_MS);
+  const tNpcBubble = await waitForFirstNpcReply(page, SPEAK_TIMEOUT_MS, replyBaseline);
 
   await page.waitForFunction(
     () => {
@@ -270,9 +309,46 @@ async function runSpeakRound(page, message, { expectMove }) {
 
 async function runCaseB4(page) {
   const r1 = await runSpeakRound(page, CASES[0].message, { expectMove: false });
-  await new Promise((r) => setTimeout(r, 2000));
+  await page.waitForFunction(
+    () => {
+      const input = document.querySelector("textarea.composer__input");
+      return input && !input.disabled && input.getAttribute("aria-busy") !== "true";
+    },
+    { timeout: SPEAK_TIMEOUT_MS },
+  );
+  await closeShellDrawer(page);
+  await new Promise((r) => setTimeout(r, 3000));
+  await engageDialogue(page);
   const r2 = await runSpeakRound(page, CASES[2].message, { expectMove: true });
   return { id: "B4", label: "连续 B1→B3", rounds: [r1, r2] };
+}
+
+async function writeReport(report, { partial = false, error = null } = {}) {
+  report.completedAt = new Date().toISOString();
+  if (partial) {
+    report.partial = true;
+    if (error) {
+      report.error = error instanceof Error ? error.message : String(error);
+    }
+  }
+  await mkdir(OUT_DIR, { recursive: true });
+  const outFile = path.join(OUT_DIR, `speak-browser-${Date.now()}.json`);
+  await writeFile(outFile, JSON.stringify(report, null, 2));
+  const latestFile = path.join(OUT_DIR, "speak-browser-latest.json");
+  await writeFile(latestFile, JSON.stringify(report, null, 2));
+  console.log(`\nJSON${partial ? " (partial)" : ""}: ${path.relative(ROOT, outFile)}`);
+  console.log(`Latest: ${path.relative(ROOT, latestFile)}`);
+  return outFile;
+}
+
+function printSummary(report) {
+  console.log("\n=== Summary (p50 ms) ===");
+  for (const c of report.cases) {
+    if (!c.summary) continue;
+    console.log(
+      `${c.id}: total p50=${c.summary.total?.p50} p95=${c.summary.total?.p95} | ttft p50=${c.summary.ttft_partial?.p50 ?? "n/a"} | bubble p50=${c.summary.npc_bubble?.p50}`,
+    );
+  }
 }
 
 async function main() {
@@ -285,23 +361,28 @@ async function main() {
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const page = await context.newPage();
-  await page.goto(WEB_UI, { waitUntil: "networkidle", timeout: 60_000 });
-  await waitRoomReady(page);
-  await engageDialogue(page);
 
-  const playerId = await page.evaluate(() => localStorage.getItem("aetherlife:playerId"));
   const report = {
     startedAt: new Date().toISOString(),
     webUrl: WEB_UI,
     gameServer: GS,
     roundsConfigured: ROUNDS,
     skipWarmup: SKIP_WARMUP,
+    skipB4: SKIP_B4,
     llmEnv: {
       LLM_PROVIDER: process.env.LLM_PROVIDER,
       LLM_MODEL_NPC: process.env.LLM_MODEL_NPC,
     },
     cases: [],
   };
+
+  let runError = null;
+  let playerId = null;
+  try {
+  await page.goto(WEB_UI, { waitUntil: "networkidle", timeout: 60_000 });
+  await waitRoomReady(page);
+  playerId = await page.evaluate(() => localStorage.getItem("aetherlife:playerId"));
+  await engageDialogue(page);
 
   for (const caseDef of CASES) {
     const caseResults = [];
@@ -328,7 +409,7 @@ async function main() {
       });
       if (!SKIP_WARMUP || round > 1) caseResults.push(result);
       console.log(
-        `  total=${result.segmentsMs.total}ms ttft=${result.segmentsMs.ttft_partial ?? "n/a"}ms bubble=${result.segmentsMs.npc_bubble}ms intent=${result.speakIntent ?? "n/a"}`,
+        `  total=${result.segmentsMs.total}ms think=${result.segmentsMs.thinking_visible}ms ttft=${result.segmentsMs.ttft_partial ?? "n/a"}ms bubble=${result.segmentsMs.npc_bubble}ms intent=${result.speakIntent ?? "n/a"}`,
       );
     }
     const segments = {};
@@ -344,37 +425,47 @@ async function main() {
     });
   }
 
-  // B4 — single sequence (not repeated 15x in plan; one run + optional rounds)
-  const b4Rounds = Math.min(3, ROUNDS);
-  const b4Results = [];
-  for (let i = 0; i < b4Rounds; i++) {
-    await resetRoom(playerId);
-    await page.reload({ waitUntil: "networkidle", timeout: 60_000 });
-    await waitRoomReady(page);
-    await engageDialogue(page);
-    console.log(`[B4] sequence ${i + 1}/${b4Rounds}`);
-    b4Results.push(await runCaseB4(page));
+  if (!SKIP_B4) {
+    const b4Rounds = Math.min(3, ROUNDS);
+    const b4Results = [];
+    const b4Errors = [];
+    for (let i = 0; i < b4Rounds; i++) {
+      await resetRoom(playerId);
+      await page.reload({ waitUntil: "networkidle", timeout: 60_000 });
+      await waitRoomReady(page);
+      await engageDialogue(page);
+      console.log(`[B4] sequence ${i + 1}/${b4Rounds}`);
+      try {
+        b4Results.push(await runCaseB4(page));
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[B4] sequence ${i + 1} failed: ${msg}`);
+        b4Errors.push({ sequence: i + 1, error: msg });
+        if (B4_STRICT) throw err;
+      }
+    }
+    report.cases.push({
+      id: "B4",
+      label: "连续 B1→B3",
+      sequences: b4Results,
+      ...(b4Errors.length ? { errors: b4Errors } : {}),
+    });
+  } else {
+    console.log("[B4] skipped (BENCHMARK_SKIP_B4=1)");
   }
-  report.cases.push({ id: "B4", label: "连续 B1→B3", sequences: b4Results });
 
-  await context.close();
-  await browser.close();
-
-  await mkdir(OUT_DIR, { recursive: true });
-  const outFile = path.join(OUT_DIR, `speak-browser-${Date.now()}.json`);
-  await writeFile(outFile, JSON.stringify(report, null, 2));
-  const latestFile = path.join(OUT_DIR, "speak-browser-latest.json");
-  await writeFile(latestFile, JSON.stringify(report, null, 2));
-
-  console.log("\n=== Summary (p50 ms) ===");
-  for (const c of report.cases) {
-    if (!c.summary) continue;
-    console.log(
-      `${c.id}: total p50=${c.summary.total?.p50} p95=${c.summary.total?.p95} | ttft p50=${c.summary.ttft_partial?.p50 ?? "n/a"} | bubble p50=${c.summary.npc_bubble?.p50}`,
-    );
-  }
-  console.log(`\nJSON: ${path.relative(ROOT, outFile)}`);
+  printSummary(report);
   console.log("Run SDK对照: node scripts/benchmark-llm-e2e-latency.mjs");
+  } catch (err) {
+    runError = err;
+    throw err;
+  } finally {
+    await context.close().catch(() => {});
+    await browser.close().catch(() => {});
+    if (report.cases.length > 0) {
+      await writeReport(report, { partial: Boolean(runError), error: runError });
+    }
+  }
 }
 
 main().catch((err) => {

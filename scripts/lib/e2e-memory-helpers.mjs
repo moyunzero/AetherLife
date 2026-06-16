@@ -68,6 +68,36 @@ const THINKING_LOCATOR =
   '.dialogue-bar__summary-text--thinking, ' +
   '[data-testid="composer-speak-status"]';
 
+const OVERLAY_NPC_REPLY =
+  '[data-testid="dialogue-overlay"] .dialogue-overlay__last-line, ' +
+  '[data-testid="dialogue-overlay"] .dialogue-overlay__npc-text, ' +
+  '[data-testid="dialogue-overlay"] .dialogue-overlay__line--npc';
+
+/**
+ * Shell drawer hosts MessageList + npc-memory-callback; overlay speak keeps drawer closed by default.
+ * @param {import('playwright').Page} page
+ */
+export async function openShellDrawerHistory(page) {
+  const drawer = page.locator('[data-testid="shell-drawer"]');
+  if (await drawer.isVisible().catch(() => false)) {
+    return;
+  }
+  await page.locator('[aria-label="对话历史"]').click();
+  await drawer.waitFor({ state: "visible", timeout: 10_000 });
+}
+
+/**
+ * @param {import('playwright').Page} page
+ */
+export async function closeShellDrawer(page) {
+  const drawer = page.locator('[data-testid="shell-drawer"]');
+  if (!(await drawer.isVisible().catch(() => false))) {
+    return;
+  }
+  await page.locator('[aria-label="关闭抽屉"]').click();
+  await drawer.waitFor({ state: "hidden", timeout: 10_000 });
+}
+
 /**
  * @param {import('playwright').Page} page
  * @param {number} timeoutMs
@@ -83,12 +113,7 @@ async function waitForFirstNpcReply(page, timeoutMs) {
       }
     }
 
-    const overlayNpc = page
-      .locator(
-        '[data-testid="dialogue-overlay"] .dialogue-overlay__npc-text, ' +
-          '[data-testid="dialogue-overlay"] .dialogue-overlay__line--npc',
-      )
-      .last();
+    const overlayNpc = page.locator(OVERLAY_NPC_REPLY).last();
     if (await overlayNpc.isVisible().catch(() => false)) {
       const text = (await overlayNpc.textContent().catch(() => "")) ?? "";
       if (text.trim()) return Date.now();
@@ -111,12 +136,7 @@ async function extractNpcReplyText(page) {
     if (text.trim() && !/^思考/.test(text.trim())) return text.trim();
   }
 
-  const overlayNpc = page
-    .locator(
-      '[data-testid="dialogue-overlay"] .dialogue-overlay__npc-text, ' +
-        '[data-testid="dialogue-overlay"] .dialogue-overlay__line--npc',
-    )
-    .last();
+  const overlayNpc = page.locator(OVERLAY_NPC_REPLY).last();
   if (await overlayNpc.isVisible().catch(() => false)) {
     const text = (await overlayNpc.textContent().catch(() => "")) ?? "";
     if (text.trim()) return text.trim();

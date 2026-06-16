@@ -21,6 +21,8 @@ import {
 } from "./lib/e2e-policy.mjs";
 import { engageDialogue } from "./lib/dialogue-engage.mjs";
 import {
+  closeShellDrawer,
+  openShellDrawerHistory,
   replyRefusesRecall,
   sendSpeakOverlay,
   waitForMemoryContext,
@@ -44,7 +46,10 @@ const webBase = process.env.WEB_URL || "http://localhost:5173";
 const roomId = process.env.VERIFY_PHASE20_ROOM_ID || `verify-p20-${Date.now()}`;
 const webUrl = `${webBase}${webBase.includes("?") ? "&" : "?"}room=${encodeURIComponent(roomId)}`;
 const speakTimeoutMs = Math.max(90_000, e2eSpeakTimeoutMs());
-const memoryPollMs = Number.parseInt(process.env.VERIFY_MEMORY_POLL_MS || "90000", 10);
+const memoryPollMs = Number.parseInt(
+  process.env.VERIFY_MEMORY_POLL_MS || process.env.VERIFY_PHASE20_MEMORY_POLL_MS || "600000",
+  10,
+);
 
 const T_THINK_MS = Number.parseInt(process.env.PHASE20_T_THINK_MS || "800", 10);
 const T_FIRST_MS = Number.parseInt(process.env.PHASE20_T_FIRST_MS || "8000", 10);
@@ -168,6 +173,10 @@ async function runScenario() {
       state: "visible",
       timeout: 45_000,
     });
+    await page.locator('[data-testid="dialogue-overlay"]').waitFor({
+      state: "attached",
+      timeout: 30_000,
+    });
 
     const bootMs = Date.now() - bootStart;
     console.log(`verify:phase20: bootMs=${bootMs}`);
@@ -210,6 +219,10 @@ async function runScenario() {
     console.log(`verify:phase20: memory seeds persisted (${memorySeed}, ${nickSeed})`);
 
     await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 });
+    await page.locator('[data-testid="immersive-shell"]').waitFor({
+      state: "visible",
+      timeout: 45_000,
+    });
     await page.locator('[data-testid="phaser-stage-fill"] canvas').first().waitFor({
       state: "visible",
       timeout: 45_000,
@@ -221,6 +234,8 @@ async function runScenario() {
       `我之前说的 ${memorySeed} 门禁密码是多少？`,
       { speakTimeoutMs },
     );
+
+    await openShellDrawerHistory(page);
 
     await waitFor(
       async () => page.locator('[data-testid="npc-memory-callback"]').isVisible(),
@@ -238,6 +253,8 @@ async function runScenario() {
       throw new Error(`password recall refused despite memory callback: "${recallReply.slice(0, 120)}"`);
     }
     console.log("verify:phase20: password recall + memory callback OK");
+
+    await closeShellDrawer(page);
 
     const { reply: nickReply } = await sendSpeakOverlay(page, "我叫什么？", { speakTimeoutMs });
     if (!nickReply.includes(nickSeed)) {
