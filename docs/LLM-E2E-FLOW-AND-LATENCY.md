@@ -1,6 +1,6 @@
 # LLM 端到端流程与延迟报告
 
-> 生成时间：2026-06-09  
+> 生成时间：2026-06-09 · 最后更新：2026-06-15  
 > 方法：Codegraph 架构梳理 + 真实 LLM E2E（`pnpm dev:stack`，**无** `LLM_MOCK`）  
 > 相关：[LLM-ROUTING.md](./LLM-ROUTING.md) · [E2E-POLICY.md](./E2E-POLICY.md) · [LLM-MODEL-VERIFY.md](./LLM-MODEL-VERIFY.md)
 
@@ -67,7 +67,7 @@ sequenceDiagram
 | 角色 | Provider / 模型 | 触发时机 | 是否阻塞 `done` |
 |------|-----------------|----------|-----------------|
 | **NPC 主对话** (tool calling) | NVIDIA `openai/gpt-oss-120b`（OpenRouter fallback 见 ROUTING） | 每 speak 回合 | **是** |
-| **Social JSON** | NVIDIA `qwen/qwen3.5-397b-a17b` | 每 speak 回合（图内节点） | **是** |
+| **Social JSON** | NVIDIA `meta/llama-3.3-70b-instruct`（fallback Agnes） | 每 speak 回合（图内节点） | **是** |
 | **Memory importance** | NVIDIA nano | memory tail | 否（异步） |
 | **Reflect / Lore** | Agnes | tail / 踏入新 chunk | 否 / 异步 |
 | **Embed** | OpenRouter Nemotron | 记忆写入 | 否 |
@@ -109,7 +109,18 @@ E2E 策略：[E2E-POLICY.md](./E2E-POLICY.md) — **禁止** `LLM_MOCK=1`；默�
 
 ### 3.1 Provider 探针（`pnpm verify:llm-models`）
 
-Run 2026-06-09T04:58:46Z，完整表格见 [LLM-MODEL-VERIFY.md § Run history](./LLM-MODEL-VERIFY.md)。
+`pong` 探针 **不能**代表 social JSON 延迟；social 须用 `scripts/benchmark-social-providers.py`（生产 `SOCIAL_SYSTEM_PROMPT` + 叙事问句）。
+
+**Social JSON 实测（2026-06-15，`benchmark-social-providers.py`，25s timeout）：**
+
+| 模型 | 延迟 | JSON | 备注 |
+|------|------|------|------|
+| `meta/llama-3.3-70b-instruct` | **894 ms** | ✅ | **当前 `LLM_MODEL_SOCIAL` 默认** |
+| `mistralai/mistral-nemotron` | 1737 ms | ✅ | 备选 |
+| `agnes-2.0-flash` | 5772 ms | ✅ | `LLM_PROVIDER_SOCIAL_FALLBACK` |
+| `qwen/qwen3.5-397b-a17b` | 超时 | ❌ | 旧默认；`pong` ~2s 但 social JSON 不可靠 |
+
+Run 2026-06-09T04:58:46Z **`pong` 探针**（完整表格见 [LLM-MODEL-VERIFY.md § Run history](./LLM-MODEL-VERIFY.md)）：
 
 | 角色 | Provider / 模型 | 延迟 | 结果 |
 |------|-----------------|------|------|
@@ -118,7 +129,7 @@ Run 2026-06-09T04:58:46Z，完整表格见 [LLM-MODEL-VERIFY.md § Run history](
 | Lore T1 / T0 | agnes | 1062 / 621 ms | PASS |
 | Lore fallback | nvidia super-49b | 1807 ms | PASS |
 | Memory importance | nvidia nano-8b | 1143 ms | PASS |
-| **NPC social JSON** | nvidia `qwen/qwen3.5-397b-a17b` | **2461 ms** | PASS |
+| **NPC social JSON** | nvidia `qwen/qwen3.5-397b-a17b` | **2461 ms** (`pong`) | PASS — **已弃用**（social JSON 25s 超时，见上表） |
 | NVIDIA fast (catalog) | 同上 | 1887 ms | PASS |
 | OpenRouter NPC fallback | `openai/gpt-oss-120b:free` | 1621 ms | PASS |
 | Memory embed | OpenRouter Nemotron | 931 ms | PASS |
@@ -273,7 +284,7 @@ Worker 日志摘录（SiliconFlow 配置）：
 
 | 优先级 | 问题 | 建议 |
 |--------|------|------|
-| P0 | ~~SiliconFlow primary 90s 超时~~ | **已切 Config B**（NVIDIA gpt-oss-120b）；SiliconFlow 仅作备用/国内候选 |
+| P0 | ~~Social 397B 超时导致 ~80s + Agnes fallback~~ | **已切** `meta/llama-3.3-70b-instruct`；保留 Agnes 作 social fallback |
 | P1 | E2E 10–29s 仍高于 1–3s 目标 | 保持 thinking UI；考虑 social/main 并行；监控 NIM RPM |
 | P2 | `verify:phase5` 不 load `.env` | 与 phase6 对齐，脚本开头读 `.env` |
 | P2 | `llmCallSummary` 缺 main 角色 | worker `record_llm_call("main", …)` 纳入 done payload，便于监控 |
@@ -286,6 +297,7 @@ Worker 日志摘录（SiliconFlow 配置）：
 | 脚本 | 命令 |
 |------|------|
 | 浏览器全路径 | `pnpm benchmark:speak-browser` 或 `node scripts/benchmark-speak-browser.mjs` |
+| Social JSON 探针 | `cd workers/agent-worker && uv run python ../../scripts/benchmark-social-providers.py` |
 | SDK-only | `node scripts/benchmark-llm-e2e-latency.mjs` |
 
 ```bash

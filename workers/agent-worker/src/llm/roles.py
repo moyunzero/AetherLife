@@ -5,7 +5,7 @@ Platform-aware defaults (see docs/LLM-ROUTING.md §3.1):
 - OpenRouter gpt-oss-120b:free: NPC fallback
 - NVIDIA llama-3.3-70b: summarize + collective_refine
 - SiliconFlow Qwen3.5-4B: optional legacy primary / fallback
-- NVIDIA Qwen3.5-397B: social JSON primary (~2s)
+- NVIDIA llama-3.3-70b: social JSON primary (~0.9s social JSON bench)
 - NVIDIA nano: importance JSON
 - Agnes: reflect + lore primary + auxiliary fallback
 - OpenRouter: NPC fallback + embeddings + gateway
