@@ -36,3 +36,27 @@ def test_merge_recall_skips_when_reply_already_has_answer():
 
 def test_extract_password_answer():
     assert extract_password_answer("请记住 FACT 门禁密码是 7") == "7"
+
+
+def test_merge_recall_nickname_replaces_refusal_solo01():
+    """SOLO-01: nickname recall beyond password/FACT-token path."""
+    retrieved = [{"text": "player: 请记住我叫小明", "score": 0.9}]
+    out = merge_recall_into_reply(
+        "我叫什么？",
+        "请自重，我不会向不信任的人透露信息。",
+        retrieved,
+    )
+    assert "小明" in out
+    assert "你上次" not in out
+    assert reply_refuses_recall(out) is False
+
+
+def test_merge_recall_non_recall_question_unchanged():
+    retrieved = [{"text": "player: 请记住我叫小明", "score": 0.9}]
+    original = "好的，我这就移动到你的下方。"
+    out = merge_recall_into_reply(
+        "移动到我的下方",
+        original,
+        retrieved,
+    )
+    assert out == original
