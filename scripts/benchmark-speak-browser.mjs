@@ -13,6 +13,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { assertE2eRealLlm, e2eSpeakTimeoutMs } from "./lib/e2e-policy.mjs";
+import { engageDialogue } from "./lib/dialogue-engage.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const envPath = path.join(ROOT, ".env");
@@ -43,6 +44,13 @@ const CASES = [
   { id: "B1", label: "闲聊", message: "你好，用一句话简短回复", expectMove: false },
   { id: "B2", label: "物理慢/快", message: "请向右走一步", expectMove: true },
   { id: "B3", label: "物理快路径", message: "去费雪旁边", expectMove: true },
+  {
+    id: "B_recall",
+    label: "跨session回忆",
+    message: "我之前说的门禁密码是多少？",
+    expectMove: false,
+    optionalSeed: "记住：门禁密码是 8848",
+  },
 ];
 
 function percentile(sorted, p) {
@@ -121,6 +129,50 @@ async function waitRoomReady(page) {
   );
 }
 
+/** Phase 19 overlay-first T_think: NOT legacy drawer `.message--thinking`. */
+const THINKING_LOCATOR =
+  '[data-testid="dialogue-overlay"] .dialogue-overlay__thinking, ' +
+  '.dialogue-bar__summary-text--thinking, ' +
+  '[data-testid="composer-speak-status"]';
+
+/**
+ * T_first fallback chain (user-perceived first NPC text):
+ * 1) `.dialogue-bar__summary-text` not matching /^思考/
+ * 2) last visible NPC line in dialogue-overlay
+ * 3) `speak_partial` performance mark recorded
+ */
+async function waitForFirstNpcReply(page, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const summary = page.locator(".dialogue-bar__summary-text");
+    if ((await summary.count()) > 0) {
+      const text = (await summary.first().textContent().catch(() => "")) ?? "";
+      if (text.trim() && !/^思考/.test(text.trim())) {
+        return Date.now();
+      }
+    }
+
+    const overlayNpc = page
+      .locator(
+        '[data-testid="dialogue-overlay"] .dialogue-overlay__npc-text, ' +
+          '[data-testid="dialogue-overlay"] .dialogue-overlay__line--npc',
+      )
+      .last();
+    if (await overlayNpc.isVisible().catch(() => false)) {
+      const text = (await overlayNpc.textContent().catch(() => "")) ?? "";
+      if (text.trim()) return Date.now();
+    }
+
+    const hasPartial = await page.evaluate(() =>
+      (window.__speakLatencyMarks ?? []).some((m) => m.event === "speak_partial"),
+    );
+    if (hasPartial) return Date.now();
+
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error("T_first timeout: no overlay/dialogue-bar NPC reply visible");
+}
+
 async function runSpeakRound(page, message, { expectMove }) {
   const nlParseTimes = { start: null, end: null };
   const onResponse = (res) => {
@@ -134,6 +186,8 @@ async function runSpeakRound(page, message, { expectMove }) {
   };
   page.on("response", onResponse);
 
+  await engageDialogue(page);
+
   await page.evaluate(() => {
     window.__speakLatencyMarks = [];
     window.__speakLatencyT0 = undefined;
@@ -144,12 +198,10 @@ async function runSpeakRound(page, message, { expectMove }) {
   await composer.fill(message);
   await page.locator("button.composer__submit").click();
 
-  await page.locator(".message--thinking").waitFor({ state: "visible", timeout: 15_000 });
+  await page.locator(THINKING_LOCATOR).first().waitFor({ state: "visible", timeout: 15_000 });
   const tThinkingVisible = Date.now();
 
-  const npcReply = page.locator(".message--npc").last();
-  await npcReply.waitFor({ state: "visible", timeout: SPEAK_TIMEOUT_MS });
-  const tNpcBubble = Date.now();
+  const tNpcBubble = await waitForFirstNpcReply(page, SPEAK_TIMEOUT_MS);
 
   await page.waitForFunction(
     () => {
@@ -235,6 +287,7 @@ async function main() {
   const page = await context.newPage();
   await page.goto(WEB_UI, { waitUntil: "networkidle", timeout: 60_000 });
   await waitRoomReady(page);
+  await engageDialogue(page);
 
   const playerId = await page.evaluate(() => localStorage.getItem("aetherlife:playerId"));
   const report = {
@@ -259,6 +312,16 @@ async function main() {
       await resetRoom(playerId);
       await page.reload({ waitUntil: "networkidle", timeout: 60_000 });
       await waitRoomReady(page);
+      await engageDialogue(page);
+      if (caseDef.optionalSeed && round === 1 && !SKIP_WARMUP) {
+        console.log(`[${caseDef.id}] optional seed turn (not in stats)`);
+        await runSpeakRound(page, caseDef.optionalSeed, { expectMove: false });
+        await new Promise((r) => setTimeout(r, 2000));
+      } else if (caseDef.optionalSeed && round === 1 && SKIP_WARMUP) {
+        console.warn(
+          `[${caseDef.id}] WARN: recall seed skipped on warmup round — B_recall may lack prior context`,
+        );
+      }
       console.log(`[${caseDef.id}] round ${round}/${ROUNDS} …`);
       const result = await runSpeakRound(page, caseDef.message, {
         expectMove: caseDef.expectMove,
@@ -288,6 +351,7 @@ async function main() {
     await resetRoom(playerId);
     await page.reload({ waitUntil: "networkidle", timeout: 60_000 });
     await waitRoomReady(page);
+    await engageDialogue(page);
     console.log(`[B4] sequence ${i + 1}/${b4Rounds}`);
     b4Results.push(await runCaseB4(page));
   }
@@ -299,6 +363,8 @@ async function main() {
   await mkdir(OUT_DIR, { recursive: true });
   const outFile = path.join(OUT_DIR, `speak-browser-${Date.now()}.json`);
   await writeFile(outFile, JSON.stringify(report, null, 2));
+  const latestFile = path.join(OUT_DIR, "speak-browser-latest.json");
+  await writeFile(latestFile, JSON.stringify(report, null, 2));
 
   console.log("\n=== Summary (p50 ms) ===");
   for (const c of report.cases) {
