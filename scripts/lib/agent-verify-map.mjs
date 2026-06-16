@@ -149,6 +149,18 @@ export const GOLDEN_FLOWS = [
     ],
   },
   {
+    id: "GF-10",
+    name: "Phase 20 memory + speak trust",
+    verify: ["verify:phase20"],
+    requiresStack: true,
+    triggers: [
+      /scripts\/verify-phase20\.mjs$/,
+      /scripts\/lib\/e2e-memory-helpers\.mjs$/,
+      /scripts\/assert-refusal-markers-parity\.mjs$/,
+      /workers\/agent-worker\/src\/graph\/recall_merge\.py$/,
+    ],
+  },
+  {
     id: "GF-08",
     name: "Phaser reset snap",
     verify: ["uat:phase7:reset-snap"],
