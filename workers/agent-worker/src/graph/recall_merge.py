@@ -11,6 +11,7 @@ _RECALL_MARKERS = (
     "多少",
     "是什么",
     "是啥",
+    "叫什么",
     "之前",
     "上次",
     "刚才",
@@ -21,6 +22,10 @@ _RECALL_MARKERS = (
 _REFUSAL_MARKERS = ("自重", "不信任", "不便透露", "无可奉告", "不能告诉", "不会告诉")
 _ROLE_PREFIX = re.compile(r"^(?:player|npc)\s*:\s*", re.IGNORECASE)
 _PASSWORD_ANS_RE = re.compile(r"密码(?:是|为)?\s*([^\s。，,.!?；;]+)", re.IGNORECASE)
+_NICKNAME_MEM_RE = re.compile(
+    r"(?:请记住)?(?:我)?叫([^。，,.!?；;\s]+)|叫我([^。，,.!?；;\s]+)",
+    re.IGNORECASE,
+)
 _META_CALLBACK_RE = re.compile(r"你(?:上次|之前|刚才)(?:说|告诉|提过)")
 
 DEFAULT_RECALL_MIN_SCORE = 0.35
@@ -59,6 +64,18 @@ def extract_password_answer(memory_text: str) -> str | None:
     return answer or None
 
 
+def extract_nickname(memory_text: str) -> str | None:
+    match = _NICKNAME_MEM_RE.search(memory_text)
+    if not match:
+        return None
+    nickname = (match.group(1) or match.group(2) or "").strip().rstrip("。，,.!?；;")
+    return nickname or None
+
+
+def _is_nickname_recall_question(message: str) -> bool:
+    return "叫什么" in message or "名字" in message
+
+
 def _seed_tokens(message: str, memory_text: str) -> list[str]:
     tokens: list[str] = []
     for source in (message, memory_text):
@@ -81,6 +98,9 @@ def reply_covers_recall(
     pwd = extract_password_answer(memory_text)
     if pwd and "密码" in player_message and pwd in hay:
         return True
+    nickname = extract_nickname(memory_text)
+    if nickname and _is_nickname_recall_question(player_message) and nickname in hay:
+        return True
     for token in _seed_tokens(player_message, memory_text):
         if token in hay:
             return True
@@ -98,6 +118,9 @@ def format_recall_answer(player_message: str, memory_text: str) -> str | None:
     pwd = extract_password_answer(memory_text)
     if pwd and "密码" in player_message:
         return f"门禁密码是 {pwd}。"
+    nickname = extract_nickname(memory_text)
+    if nickname and _is_nickname_recall_question(player_message):
+        return f"你叫{nickname}。"
     if pwd:
         return f"{pwd}。"
     for token in _seed_tokens(player_message, memory_text):

@@ -305,7 +305,10 @@ def _build_social_messages(
     system_text = f"{SOCIAL_SYSTEM_PROMPT}\n{build_room_constraints(room)}\n\n{attitude}"
     memory = (state.get("memory_summary") or "").strip()
     if memory:
-        system_text = f"{system_text}\n\nMemory summary:\n{memory}"
+        system_text = (
+            f"{system_text}\n\nMemory summary:\n{memory}\n"
+            "若玩家追问 Memory summary 中已有的事实，reply 须直接给出答案，勿拒绝或说「不记得」。"
+        )
     append = (system_append or "").strip()
     if append:
         system_text = f"{system_text}\n\n{append}"
