@@ -173,6 +173,30 @@ describe("pickZoneTarget", () => {
     );
     expect(targetGx !== npc.x || targetGy !== npc.y).toBe(true);
   });
+
+  it("malformed zoneId falls back to npc position without throwing", () => {
+    const map = createDefaultRoom("zone-malformed");
+    const npc = map.npcs[0] as NpcState;
+    npc.x = 12;
+    npc.y = 8;
+    const segment: ScheduleSegment = {
+      fromMinute: 0,
+      toMinute: 1440,
+      activityKey: "patrol",
+      zoneId: "village-square@v1",
+      mobility: "wander",
+    };
+    const { targetGx, targetGy } = pickZoneTarget({
+      npc,
+      segment,
+      grid: openGrid(),
+      playerCells: [],
+      recentCells: [],
+      gameMinute: 0,
+    });
+    expect(targetGx).toBe(npc.x);
+    expect(targetGy).toBe(npc.y);
+  });
 });
 
 describe("shouldSampleZoneCell (T-16-02)", () => {
