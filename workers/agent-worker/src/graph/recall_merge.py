@@ -166,6 +166,9 @@ def extract_password_answer(memory_text: str) -> str | None:
 
 
 def extract_nickname(memory_text: str) -> str | None:
+    text = _strip_role_prefix(memory_text.strip())
+    if text and is_recall_question(text):
+        return None
     match = _NICKNAME_MEM_RE.search(memory_text)
     if not match:
         return None

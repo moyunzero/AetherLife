@@ -3,13 +3,12 @@
  */
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { gameServerHttpBase, loadRootEnv } from "./env.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 loadRootEnv(root);
 
-const require = createRequire(import.meta.url);
 const httpBase = gameServerHttpBase();
 
 export const webBase = process.env.WEB_URL || "http://localhost:5173";
@@ -18,16 +17,35 @@ export function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+/** @returns {Promise<import('playwright').BrowserType>} */
 export async function loadPlaywright() {
+  const pwEntry = resolve(root, "scripts", ".pw-deps", "node_modules", "playwright", "index.mjs");
   try {
-    return await import("@playwright/test");
+    const pw = await import(pathToFileURL(pwEntry).href);
+    const chromium = pw.chromium ?? pw.default?.chromium;
+    if (chromium) return chromium;
   } catch {
-    const webPkg = resolve(root, "apps/web/package.json");
-    const pkg = require(webPkg);
-    const ver = pkg.devDependencies?.["@playwright/test"] || "1.49.1";
-    const requireFromWeb = createRequire(webPkg);
-    return requireFromWeb(`@playwright/test@${ver}`);
+    // fall through
   }
+  try {
+    const mod = await import("@playwright/test");
+    const chromium = mod.chromium ?? mod.default?.chromium;
+    if (chromium) return chromium;
+  } catch {
+    // fall through
+  }
+  try {
+    const webPkg = resolve(root, "apps/web/package.json");
+    const requireFromWeb = createRequire(webPkg);
+    const pw = requireFromWeb("playwright");
+    const chromium = pw.chromium ?? pw.default?.chromium;
+    if (chromium) return chromium;
+  } catch {
+    // fall through
+  }
+  throw new Error(
+    "playwright not installed — run: cd scripts/.pw-deps && npm install",
+  );
 }
 
 export async function healthOk() {
@@ -42,11 +60,12 @@ export async function healthOk() {
   if (!webRes.ok) throw new Error(`web ${webBase} ${webRes.status}`);
 }
 
-export async function resetRoom(roomId) {
-  const res = await fetch(`${httpBase}/debug/reset-room`, {
+export async function resetRoom(roomId, playerId = null) {
+  const headers = { "Content-Type": "application/json" };
+  if (playerId) headers["X-Player-Id"] = playerId;
+  const res = await fetch(`${httpBase}/rooms/${encodeURIComponent(roomId)}/reset`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ roomId }),
+    headers,
     signal: AbortSignal.timeout(15000),
   });
   if (!res.ok) throw new Error(`reset-room ${res.status}`);

@@ -13,9 +13,6 @@ import { phaseNumberFromDir } from "./gsd-review-providers-config.mjs";
 export function mergeProviderReviews(reviewsPath, results) {
   const phaseSlug = basename(resolve(reviewsPath, ".."));
   const phaseNum = phaseNumberFromDir(phaseSlug);
-  const paddedPrefix = phaseNum.includes(".")
-    ? phaseNum.replace(".", "-")
-    : String(phaseNum).padStart(2, "0");
 
   let body = existsSync(reviewsPath)
     ? readFileSync(reviewsPath, "utf8")
@@ -51,7 +48,6 @@ note: "OpenAI provider reviews merged by scripts/gsd-review-providers.mjs"
  * @param {{ slug: string, label: string, model: string, ok: boolean, content?: string, error?: string, latencyMs?: number }} r
  */
 function upsertReviewSection(md, r) {
-  const heading = `## ${r.label} Review`;
   const block = formatSection(r);
 
   const sectionRe = new RegExp(
@@ -135,14 +131,10 @@ function updateFrontmatterReviewers(md, results) {
     const failLines = failed
       .map((f) => `  ${f.slug}: "OpenAI provider review failed — see section"`)
       .join("\n");
-    if (/^reviewers_failed:/m.test(fm)) {
-      // append-only under existing block is fragile; skip deep merge
-    } else {
-      fm = fm.replace(
-        /\n---$/,
-        `\nreviewers_failed:\n${failLines}\n---`,
-      );
-    }
+    fm = fm.replace(/^reviewers_failed:\n(?: {2}.+\n)*/m, "");
+    fm = fm.replace(/\n---$/, `\nreviewers_failed:\n${failLines}\n---`);
+  } else {
+    fm = fm.replace(/^reviewers_failed:\n(?: {2}.+\n)*/m, "");
   }
 
   fm = fm.replace(

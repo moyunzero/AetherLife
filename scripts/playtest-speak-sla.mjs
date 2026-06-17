@@ -44,12 +44,19 @@ const webBase = process.env.WEB_URL || "http://localhost:5173";
 const webUi = `${webBase}${webBase.includes("?") ? "&" : "?"}phaserFallback=1&speakLatencyTrace=1`;
 const roomId = "default";
 const speakTimeoutMs = Math.max(90_000, e2eSpeakTimeoutMs());
-const speakAttempts = Math.max(1, Number.parseInt(process.env.PLAYTEST_SPEAK_ATTEMPTS || "2", 10));
-const retryBackoffMs = Number.parseInt(process.env.PLAYTEST_RETRY_BACKOFF_MS || "60000", 10);
+
+/** @param {string | undefined} raw @param {number} fallback */
+function parseEnvInt(raw, fallback) {
+  const n = Number.parseInt(raw ?? "", 10);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+const speakAttempts = Math.max(1, parseEnvInt(process.env.PLAYTEST_SPEAK_ATTEMPTS, 2));
+const retryBackoffMs = parseEnvInt(process.env.PLAYTEST_RETRY_BACKOFF_MS, 60_000);
 const roomReadyTimeoutMs = Math.max(60_000, speakTimeoutMs / 3);
-const sessionCount = Math.max(1, Number.parseInt(process.env.PLAYTEST_SESSIONS || "3", 10));
-const turnGapMs = Number.parseInt(process.env.PLAYTEST_TURN_GAP_MS || "45000", 10);
-const minSessionMs = Number.parseInt(process.env.PLAYTEST_MIN_SESSION_MS || "900000", 10);
+const sessionCount = Math.max(1, parseEnvInt(process.env.PLAYTEST_SESSIONS, 3));
+const turnGapMs = parseEnvInt(process.env.PLAYTEST_TURN_GAP_MS, 45_000);
+const minSessionMs = parseEnvInt(process.env.PLAYTEST_MIN_SESSION_MS, 900_000);
 const withVerify = process.env.PLAYTEST_SKIP_VERIFY !== "1";
 const screenshotsEnabled = process.env.PLAYTEST_SCREENSHOTS !== "0";
 const updateFindings = process.env.PLAYTEST_UPDATE_FINDINGS !== "0";
@@ -83,7 +90,9 @@ async function loadPlaywright() {
   const pw = await import(pathToFileURL(pwEntry).href);
   const chromium = pw.chromium ?? pw.default?.chromium;
   if (!chromium) {
-    throw new Error("playwright not installed — cd scripts/.pw-deps && npm install");
+    throw new Error(
+      "playwright not installed — from repo root: pnpm install && (cd scripts/.pw-deps && pnpm install)",
+    );
   }
   return chromium;
 }

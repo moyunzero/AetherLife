@@ -38,8 +38,10 @@ class SocialPerception(BaseModel):
 
 
 class SocialTurnOut(BaseModel):
-    social: SocialPerception
+    """reply first — matches streaming prompt order (reply visible before social block)."""
+
     reply: str = Field(min_length=1)
+    social: SocialPerception
 
     @field_validator("reply")
     @classmethod

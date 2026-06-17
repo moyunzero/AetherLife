@@ -3,11 +3,27 @@
  */
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadRootEnv } from "./env.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+
+/** @param {unknown} value @param {number} fallback */
+function positiveInt(value, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+}
+
+/** @param {string} dir @param {string} rootDir */
+function assertUnderPhasesRoot(dir, rootDir) {
+  const resolved = resolve(dir);
+  const rootResolved = resolve(rootDir);
+  if (resolved !== rootResolved && !resolved.startsWith(rootResolved + sep)) {
+    throw new Error(`Phase path escapes .planning/phases: ${dir}`);
+  }
+  return resolved;
+}
 
 /** @typedef {object} ProviderSpec
  * @property {string} slug
@@ -79,11 +95,13 @@ export function loadOpenAiProviders() {
       modelDefault: String(
         override.model_default ?? override.modelDefault ?? defaults.modelDefault,
       ),
-      timeoutMs: Number(
-        override.timeout_ms ?? override.timeoutMs ?? defaults.timeoutMs,
+      timeoutMs: positiveInt(
+        override.timeout_ms ?? override.timeoutMs,
+        defaults.timeoutMs,
       ),
-      maxTokens: Number(
-        override.max_tokens ?? override.maxTokens ?? defaults.maxTokens,
+      maxTokens: positiveInt(
+        override.max_tokens ?? override.maxTokens,
+        defaults.maxTokens,
       ),
     };
   }
@@ -106,7 +124,7 @@ export function resolvePhaseDir(phaseArg) {
   }
   const normalized = String(phaseArg).trim();
   if (normalized.includes("-")) {
-    const dir = resolve(phasesRoot, normalized);
+    const dir = assertUnderPhasesRoot(resolve(phasesRoot, normalized), phasesRoot);
     if (existsSync(dir)) return dir;
   }
   const match = readdirSync(phasesRoot).find(
@@ -120,7 +138,7 @@ export function resolvePhaseDir(phaseArg) {
       `No phase directory for "${phaseArg}" under .planning/phases/`,
     );
   }
-  return resolve(phasesRoot, match);
+  return assertUnderPhasesRoot(resolve(phasesRoot, match), phasesRoot);
 }
 
 /** @param {string} phaseDir */

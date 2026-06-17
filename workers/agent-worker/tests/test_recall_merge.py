@@ -1,4 +1,5 @@
 from src.graph.recall_merge import (
+    extract_nickname,
     extract_password_answer,
     is_recall_question,
     merge_recall_into_reply,
@@ -64,6 +65,18 @@ def test_extract_password_answer():
     assert extract_password_answer("请记住我家电脑密码是 111") == "111"
     assert extract_password_answer("还记得我家电脑密码吗？") is None
     assert extract_password_answer("player: 还记得我家电脑密码吗？") is None
+
+
+def test_extract_nickname_rejects_recall_question_row():
+    assert extract_nickname("请记住我叫小明") == "小明"
+    assert extract_nickname("player: 请记住我叫小明") == "小明"
+    assert extract_nickname("我叫什么？") is None
+    assert extract_nickname("player: 我叫什么？") is None
+
+
+def test_pick_recall_nickname_rejects_question_row():
+    bad_row = [{"text": "player: 我叫什么？", "score": 0.95}]
+    assert pick_recall_memory("我叫什么？", bad_row) is None
 
 
 def test_merge_recall_rejects_recall_question_as_password_memory():

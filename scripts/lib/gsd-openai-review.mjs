@@ -88,7 +88,18 @@ export async function runOpenAiReview({
     };
   }
 
-  const body = await res.json();
+  let body;
+  try {
+    body = await res.json();
+  } catch {
+    return {
+      ok: false,
+      content: "",
+      latencyMs,
+      status: res.status,
+      error: "response body is not valid JSON",
+    };
+  }
   const content = String(body?.choices?.[0]?.message?.content ?? "").trim();
   if (!content) {
     return {

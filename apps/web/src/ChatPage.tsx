@@ -558,6 +558,7 @@ export function ChatPage() {
               activeNpcId={activeNpcId}
               activeNpcName={activeNpcName}
               messages={messages}
+              streamingReply={streamingReply}
               thinkingNpcId={thinkingNpcId}
               composerBusyForActiveNpc={composerBusyForActiveNpc}
               speakBusyNpcId={speakBusyNpcId}

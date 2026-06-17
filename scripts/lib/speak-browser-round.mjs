@@ -57,6 +57,9 @@ export async function runSpeakRound(page, { text, speakTimeoutMs, onScreenshot, 
   }
 
   const baseline = await captureReplyBaseline(page);
+  const partialBaseline = await page
+    .evaluate(() => performance.getEntriesByName("speak_partial").length)
+    .catch(() => 0);
   const t0 = Date.now();
   let tThink = null;
   let tFirst = null;
@@ -84,9 +87,10 @@ export async function runSpeakRound(page, { text, speakTimeoutMs, onScreenshot, 
     tFirst = Date.now() - t0;
     if (onScreenshot) await onScreenshot("first-reply").catch(() => {});
   } catch (err) {
-    const partial = await page
-      .evaluate(() => performance.getEntriesByName("speak_partial").length > 0)
-      .catch(() => false);
+    const partialCount = await page
+      .evaluate(() => performance.getEntriesByName("speak_partial").length)
+      .catch(() => 0);
+    const partial = partialCount > partialBaseline;
     if (partial) {
       hadPartial = true;
       tFirst = Date.now() - t0;

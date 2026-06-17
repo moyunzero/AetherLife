@@ -152,6 +152,8 @@
 72. **Phase 17 speak pre-LLM SLA**：interactive `fetch_state` 默认 `skipNearbyLore=1`；NARRATIVE+lore markers lazy lore；worker-state 超时须 stale fallback（禁止 hard-fail job）；`verify:phase12` speak 前 worker-state preflight <500ms×3；speak **error** 终端 job 不得 enqueue ambient `speak_end`；worker 仅 npc 队列空时 drain lore/ambient。回归：`pnpm --filter @aetherlife/game-server test` + `pytest test_fetch_state_and_memory.py` + `verify:phase12`.
 73. **internal memory 身份须解析 body.playerId**：`playerIdFromRequest(req, body)` 对 object body 须读 `body.playerId` 再 `resolvePlayerId`；**禁止**把整个 JSON body 当 string 传入（worker POST 无 `X-Player-Id` 时会全落 `__legacy__`，`verify:phase3` memoryCount=0）。worker `memory/client.py` 写路径应同时发 `X-Player-Id`；write 后 `invalidateMemoryContextForPlayer`。回归：`index.test.ts`「worker path body playerId」+ `pnpm verify:phase3` + `pnpm agent:verify --e2e --base`。
 74. **并行 speak 须 per-NPC job 路由**：服务端 `npcSpeakJobs` 按 NPC 互斥、不同 NPC 可并行（C-02）；客户端 `useNpcChat` **禁止** 单槽 `pendingJobIdRef` / 全局 `thinkingNpcId` 覆盖并行 job。`onSpeakAck` / `onDone` / `onError` / `speakPartial` 经 `NpcJobRegistry`（`byNpc` + `byJob`）按 `jobId → npcId` 入库，与 **active tab 无关**。`composerBusyForActiveNpc` 仅锁当前 Tab NPC（方案 A，Guardrail #54）。Phaser 铭牌/thinking 用 `thinkingNpcIds` 数组。回归：`useNpcChat.test.ts`（registry + `isNpcSpeakInFlight`）；人工：A 思考中切 B 对话 → 两边 `done` 均出现在各自 Tab 消息列表。
+75. **relay 移动意图须覆盖「去 X 那边 / 有事情找」**：`player_requests_move` 的 `MOVE_PATTERNS` 须含 `那边|那里|那儿` 与 `有事情找|事情找`；否则 `classify_speak_intent` → NARRATIVE → `llm_social_turn` 只口播、`tool_calls=[]`（ISSUE-051）。改 `action_intent.py` 须 `test_action_intent.py::test_relay_summon_phrases_from_uat` + 含目标 NPC 名的 inject 用例。
+76. **apply_tools 物理兜底 inject**：`social_edge_fast_lane` / 非 physical 分支若 `tool_calls=[]` 但 `player_requests_physical_action`，`apply_tools` 仍须 `inject_relative_move_tool`；`main.py` 在 physical 时禁止走 social fast lane。回归：`test_tool_gate.py::test_apply_tools_injects_move_when_physical_and_tool_calls_empty` + 费雪 relay 句 inject 用例（ISSUE-052）。
 
 ## 记录
 
@@ -1957,6 +1959,78 @@ Worker 主循环仅在 npc-turn 队列 **连续 5s 为空** 时才 `BLPOP` chunk
 **防复发**
 
 - Guardrail #62 更新
+
+---
+
+### ISSUE-051 — 「去南宫婉那边」口头答应但 NPC 不移动
+
+- **状态:** fixed
+- **发现:** 2026-06-16
+- **阶段/范围:** Phase 20 · `workers/agent-worker/src/graph/action_intent.py`
+- **严重性:** major
+
+**复现**
+
+1. `pnpm dev:stack` + 真实 LLM
+2. 对路昂说：「你可以去南宫婉那边吗？他有事情找你」
+3. **期望：** 路昂口播答应并 pathfind 至南宫婉格。**实际：** 仅口播「好，我会去南宫婉那里…」，地图上仍「在漫步」、坐标不变
+
+**根因**
+
+- `player_requests_move` 的 `MOVE_PATTERNS` 未含 `那边|那里|那儿` 与 `有事情找|事情找`
+- 用户句「你可以去南宫婉那边吗？他有事情找你」→ `player_requests_move=False` → `SpeakIntent.NARRATIVE`
+- `llm_social_turn` 非 physical 分支固定 `tool_calls=[]`，无 `inject_relative_move_tool`
+
+**修复**
+
+- `action_intent.py`：`MOVE_PATTERNS` 增补 `那边|那里|那儿` 与 `有事情找|事情找`
+- `test_action_intent.py`：UAT 句「你可以去南宫婉那边吗？他有事情找你」断言 PHYSICAL + inject 至 (15,8)
+
+**验证**
+
+- `cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_action_intent.py -q` → pass
+- `pnpm agent:verify` → OK（229 worker passed）
+
+**防复发**
+
+- Guardrail #75
+
+---
+
+### ISSUE-052 — 费雪 relay「去路昂那边」口播移动但 sprite 不动
+
+- **状态:** fixed
+- **发现:** 2026-06-16
+- **阶段/范围:** Phase 20 · `workers/agent-worker`（`npc_loop.apply_tools` · `main.py` fast lane）
+- **严重性:** major
+
+**复现**
+
+1. `pnpm dev:stack` + 真实 LLM；路昂 relay 至南宫婉已可移动（ISSUE-051 后）
+2. 对费雪说：「你可以去路昂那边吗？他好像有事情找你」
+3. **期望：** 费雪口播答应并移动至路昂格。**实际：** 口播「好的，我就去找路昂…」，地图上仍「在漫步」、坐标不变
+
+**根因**
+
+- 隔离测试下 intent/inject 对费雪 relay 句正常（PHYSICAL + move→路昂坐标）
+- 运行时若走 `social_edge_fast_lane` 或 `llm_social_turn` 非 physical 分支，固定 `tool_calls=[]` 且 **apply_tools 不再 inject**，导致只口播不 apply-actions
+- 终端可见 worker-state/memory-context fetch 但缺少完整 job 日志时，亦需排查 duplicate worker（旧代码进程）
+
+**修复**
+
+- `apply_tools`：在 filter 前对 `player_requests_physical_action` 调用 `inject_relative_move_tool`（兜底）
+- `main.py`：`player_requests_physical_action` 时跳过 social edge fast lane；`job received` 日志带 `npcId`
+- `packages/shared/src/speakIntent.ts`：MOVE_PATTERNS 与 Python 同步（`那边|有事情找`）
+- 测试：费雪 relay 句 inject + `test_apply_tools_injects_move_when_physical_and_tool_calls_empty`
+
+**验证**
+
+- `cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_action_intent.py tests/test_tool_gate.py -q`
+- `pnpm agent:verify`
+
+**防复发**
+
+- Guardrail #76
 
 ---
 

@@ -8,6 +8,10 @@
  *
  * Env: BENCHMARK_ROUNDS (default 15), BENCHMARK_SKIP_WARMUP=1, BENCHMARK_SKIP_B4=1,
  *      BENCHMARK_B4_STRICT=1 (fail run on first B4 error), WEB_URL, GAME_SERVER_URL
+ *      BENCHMARK_HEADED=1 (visible browser for player-experience UAT)
+ *      BENCHMARK_SLOW_MO=200 (ms per Playwright action when headed)
+ *      BENCHMARK_ROOM_ID / BENCHMARK_PLAYER_ID (isolated room; default speak-bench-{ts})
+ *      PROFILE_CASES=B1,B2 (subset by id or profileTag)
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
@@ -18,6 +22,10 @@ import { closeShellDrawer } from "./lib/e2e-memory-helpers.mjs";
 import { engageDialogue } from "./lib/dialogue-engage.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const RUN_ID = Date.now();
+const ROOM_ID = process.env.BENCHMARK_ROOM_ID || `speak-bench-${RUN_ID}`;
+const BENCH_PLAYER_ID =
+  process.env.BENCHMARK_PLAYER_ID || `bench${String(RUN_ID).slice(-12)}`;
 const envPath = path.join(ROOT, ".env");
 if (existsSync(envPath)) {
   for (const line of readFileSync(envPath, "utf8").split("\n")) {
@@ -31,31 +39,71 @@ if (existsSync(envPath)) {
 }
 
 const WEB_BASE = process.env.WEB_URL || "http://localhost:5173";
-const WEB_UI = `${WEB_BASE}${WEB_BASE.includes("?") ? "&" : "?"}phaserFallback=1&speakLatencyTrace=1`;
+const WEB_UI =
+  `${WEB_BASE}${WEB_BASE.includes("?") ? "&" : "?"}` +
+  `phaserFallback=1&speakLatencyTrace=1&room=${encodeURIComponent(ROOM_ID)}`;
 const GS = process.env.GAME_SERVER_URL || "http://127.0.0.1:2567";
 const GW = process.env.AI_GATEWAY_URL || "http://127.0.0.1:8000";
-const ROOM_ID = "default";
 const NPC_ID = "npc-1";
 const ROUNDS = Number(process.env.BENCHMARK_ROUNDS || 15);
 const SKIP_WARMUP = process.env.BENCHMARK_SKIP_WARMUP !== "0";
 const SKIP_B4 = process.env.BENCHMARK_SKIP_B4 === "1";
 const B4_STRICT = process.env.BENCHMARK_B4_STRICT === "1";
-const SPEAK_TIMEOUT_MS = e2eSpeakTimeoutMs();
+const HEADED = process.env.BENCHMARK_HEADED === "1";
+const SLOW_MO = Number(process.env.BENCHMARK_SLOW_MO || 0);
+// Formal benchmark: move/recall may exceed 6 min under LLM concurrency=1.
+const SPEAK_TIMEOUT_MS = Math.max(480_000, e2eSpeakTimeoutMs());
 const SPRITE_ARRIVE_TIMEOUT_MS = Number(process.env.BENCHMARK_SPRITE_TIMEOUT_MS || 30_000);
 const OUT_DIR = path.join(ROOT, ".planning/benchmarks");
 
 const CASES = [
-  { id: "B1", label: "闲聊", message: "你好，用一句话简短回复", expectMove: false },
-  { id: "B2", label: "物理慢/快", message: "请向右走一步", expectMove: true },
-  { id: "B3", label: "物理快路径", message: "去费雪旁边", expectMove: true },
+  {
+    id: "B1",
+    label: "闲聊",
+    message: "你好",
+    expectMove: false,
+    expectIntent: "casual",
+    profileTag: "casual",
+  },
+  {
+    id: "B2",
+    label: "物理慢/快",
+    message: "请向右走一步",
+    expectMove: true,
+    expectIntent: "physical",
+    profileTag: "move",
+  },
+  {
+    id: "B3",
+    label: "物理快路径",
+    message: "去费雪旁边",
+    expectMove: true,
+    expectIntent: "physical",
+    profileTag: "move",
+  },
   {
     id: "B_recall",
     label: "跨session回忆",
     message: "我之前说的门禁密码是多少？",
     expectMove: false,
+    expectIntent: "recall",
     optionalSeed: "记住：门禁密码是 8848",
+    profileTag: "recall",
   },
 ];
+
+const PROFILE_FILTER = process.env.PROFILE_CASES
+  ? new Set(
+      process.env.PROFILE_CASES.split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    )
+  : null;
+
+function casesToRun() {
+  if (!PROFILE_FILTER) return CASES;
+  return CASES.filter((c) => PROFILE_FILTER.has(c.id) || PROFILE_FILTER.has(c.profileTag));
+}
 
 function percentile(sorted, p) {
   if (!sorted.length) return null;
@@ -93,11 +141,17 @@ async function health(url, name) {
   if (body.status !== "ok") throw new Error(`${name} /health invalid`);
 }
 
-async function resetRoom(playerId) {
+async function resetRoom(playerId, { attempts = 3 } = {}) {
   const headers = { "Content-Type": "application/json" };
   if (playerId) headers["X-Player-Id"] = playerId;
-  const res = await fetch(`${GS}/rooms/${ROOM_ID}/reset`, { method: "POST", headers });
-  if (!res.ok) throw new Error(`reset → ${res.status}`);
+  let lastStatus = 0;
+  for (let i = 1; i <= attempts; i++) {
+    const res = await fetch(`${GS}/rooms/${ROOM_ID}/reset`, { method: "POST", headers });
+    lastStatus = res.status;
+    if (res.ok) return;
+    if (i < attempts) await new Promise((r) => setTimeout(r, 1000 * i));
+  }
+  throw new Error(`reset → ${lastStatus}`);
 }
 
 async function fetchNpcPos(playerId, npcId = NPC_ID) {
@@ -133,13 +187,51 @@ async function waitRoomReady(page) {
   );
 }
 
-/** Phase 19 overlay-first T_think: NOT legacy drawer `.message--thinking`. */
+/** Initial boot: corner-menu green dot = Colyseus joined (playtest-speak-sla keeps one session). */
+async function waitColyseusConnected(page, timeoutMs = 90_000) {
+  await page.locator('[data-testid="corner-menu"]').waitFor({ state: "visible", timeout: 30_000 });
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const status = await page.evaluate(() => {
+      const ok = Boolean(
+        document.querySelector('[data-testid="corner-menu"] .corner-menu__status-dot--ok'),
+      );
+      const err = document.querySelector(".corner-menu__meta-value--err");
+      const warn = document.querySelector(".corner-menu__meta-value--warn");
+      return {
+        ok,
+        label: (err ?? warn)?.textContent?.trim() ?? "",
+      };
+    });
+    if (status.ok) return;
+    if (status.label.includes("已满")) {
+      throw new Error(
+        `Colyseus room full (${ROOM_ID}): ${status.label} — use BENCHMARK_ROOM_ID or restart dev:stack`,
+      );
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  throw new Error("Colyseus connect timeout: status dot never turned ok");
+}
+
+/** HTTP reset only — do not reload; resetColyseusFromMap keeps the WS session alive. */
+async function prepareBenchmarkRound(playerId) {
+  await resetRoom(playerId);
+  await new Promise((r) => setTimeout(r, 400));
+}
+
+/** Phase 19 overlay-first T_think: NOT legacy drawer `.message--thinking`.
+ *  Canonical selectors for verify:phase20 live in scripts/lib/speak-browser-round.mjs
+ *  and scripts/lib/e2e-memory-helpers.mjs — keep benchmark locators aligned manually. */
 const THINKING_LOCATOR =
   '[data-testid="dialogue-overlay"] .dialogue-overlay__thinking, ' +
   '.dialogue-bar__summary-text--thinking, ' +
   '[data-testid="composer-speak-status"]';
 
+const OVERLAY_STREAMING = '[data-testid="dialogue-overlay-streaming"]';
+
 const OVERLAY_NPC_REPLY =
+  `${OVERLAY_STREAMING}, ` +
   '[data-testid="dialogue-overlay"] .dialogue-overlay__last-line, ' +
   '[data-testid="dialogue-overlay"] .dialogue-overlay__npc-text, ' +
   '[data-testid="dialogue-overlay"] .dialogue-overlay__line--npc';
@@ -179,6 +271,15 @@ async function waitForFirstNpcReply(page, timeoutMs, baseline) {
   const basePartialCount = baseline?.partialCount ?? 0;
 
   while (Date.now() < deadline) {
+    const streaming = page.locator(OVERLAY_STREAMING);
+    if (await streaming.isVisible().catch(() => false)) {
+      const text = (await streaming.textContent().catch(() => "")) ?? "";
+      const trimmed = text.trim();
+      if (trimmed && trimmed !== baseOverlay) {
+        return Date.now();
+      }
+    }
+
     const summary = page.locator(".dialogue-bar__summary-text");
     if ((await summary.count()) > 0) {
       const text = (await summary.first().textContent().catch(() => "")) ?? "";
@@ -231,14 +332,15 @@ async function runSpeakRound(page, message, { expectMove }) {
     window.__speakLatencyT0 = undefined;
   });
 
+  const replyBaseline = await captureReplyBaseline(page);
   const t0 = Date.now();
+  await closeShellDrawer(page);
   const composer = page.locator("textarea.composer__input");
   await composer.fill(message);
   await page.locator("button.composer__submit").click();
 
   await page.locator(THINKING_LOCATOR).first().waitFor({ state: "visible", timeout: 15_000 });
   const tThinkingVisible = Date.now();
-  const replyBaseline = await captureReplyBaseline(page);
 
   const tNpcBubble = await waitForFirstNpcReply(page, SPEAK_TIMEOUT_MS, replyBaseline);
 
@@ -353,22 +455,39 @@ function printSummary(report) {
 
 async function main() {
   assertE2eRealLlm("benchmark-speak-browser");
-  console.log(`Speak browser benchmark — WEB=${WEB_UI} GS=${GS} rounds=${ROUNDS}\n`);
+  console.log(
+    `Speak browser benchmark — room=${ROOM_ID} player=${BENCH_PLAYER_ID} WEB=${WEB_UI} GS=${GS} rounds=${ROUNDS}\n`,
+  );
   await health(GS, "game-server");
   await health(GW, "ai-gateway");
+  await resetRoom(BENCH_PLAYER_ID);
 
   const chromium = await loadPlaywright();
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({
+    headless: !HEADED,
+    slowMo: SLOW_MO > 0 ? SLOW_MO : undefined,
+  });
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  await context.addInitScript(
+    ({ key, id }) => {
+      localStorage.setItem(key, id);
+    },
+    { key: "aetherlife:playerId", id: BENCH_PLAYER_ID },
+  );
   const page = await context.newPage();
+  page.setDefaultTimeout(SPEAK_TIMEOUT_MS);
+  page.setDefaultNavigationTimeout(60_000);
 
   const report = {
     startedAt: new Date().toISOString(),
+    roomId: ROOM_ID,
+    playerId: BENCH_PLAYER_ID,
     webUrl: WEB_UI,
     gameServer: GS,
     roundsConfigured: ROUNDS,
     skipWarmup: SKIP_WARMUP,
     skipB4: SKIP_B4,
+    speakTimeoutMs: SPEAK_TIMEOUT_MS,
     llmEnv: {
       LLM_PROVIDER: process.env.LLM_PROVIDER,
       LLM_MODEL_NPC: process.env.LLM_MODEL_NPC,
@@ -377,22 +496,21 @@ async function main() {
   };
 
   let runError = null;
-  let playerId = null;
+  const playerId = BENCH_PLAYER_ID;
   try {
-  await page.goto(WEB_UI, { waitUntil: "networkidle", timeout: 60_000 });
-  await waitRoomReady(page);
-  playerId = await page.evaluate(() => localStorage.getItem("aetherlife:playerId"));
-  await engageDialogue(page);
+    await page.goto(WEB_UI, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await waitRoomReady(page);
+    await waitColyseusConnected(page);
+    await engageDialogue(page);
 
-  for (const caseDef of CASES) {
+  for (const caseDef of casesToRun()) {
     const caseResults = [];
     for (let round = 1; round <= ROUNDS; round++) {
       if (SKIP_WARMUP && round === 1) {
         console.log(`[${caseDef.id}] warmup (skipped in stats)`);
       }
-      await resetRoom(playerId);
-      await page.reload({ waitUntil: "networkidle", timeout: 60_000 });
-      await waitRoomReady(page);
+      await prepareBenchmarkRound(playerId);
+      await closeShellDrawer(page);
       await engageDialogue(page);
       if (caseDef.optionalSeed && round === 1 && !SKIP_WARMUP) {
         console.log(`[${caseDef.id}] optional seed turn (not in stats)`);
@@ -404,24 +522,46 @@ async function main() {
         );
       }
       console.log(`[${caseDef.id}] round ${round}/${ROUNDS} …`);
-      const result = await runSpeakRound(page, caseDef.message, {
-        expectMove: caseDef.expectMove,
-      });
+      let result;
+      try {
+        result = await runSpeakRound(page, caseDef.message, {
+          expectMove: caseDef.expectMove,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`  FAIL round ${round}: ${msg.slice(0, 160)}`);
+        if (!SKIP_WARMUP || round > 1) {
+          caseResults.push({ message: caseDef.message, error: msg, round });
+        }
+        continue;
+      }
       if (!SKIP_WARMUP || round > 1) caseResults.push(result);
+      if (
+        caseDef.expectIntent &&
+        result.speakIntent &&
+        result.speakIntent !== caseDef.expectIntent
+      ) {
+        console.warn(
+          `  WARN intent mismatch expect=${caseDef.expectIntent} got=${result.speakIntent}`,
+        );
+      }
       console.log(
         `  total=${result.segmentsMs.total}ms think=${result.segmentsMs.thinking_visible}ms ttft=${result.segmentsMs.ttft_partial ?? "n/a"}ms bubble=${result.segmentsMs.npc_bubble}ms intent=${result.speakIntent ?? "n/a"}`,
       );
     }
     const segments = {};
-    for (const key of Object.keys(caseResults[0]?.segmentsMs ?? {})) {
-      segments[key] = summarize(caseResults.map((r) => r.segmentsMs[key]));
+    const okResults = caseResults.filter((r) => r.segmentsMs);
+    for (const key of Object.keys(okResults[0]?.segmentsMs ?? {})) {
+      segments[key] = summarize(okResults.map((r) => r.segmentsMs[key]));
     }
+    const failed = caseResults.filter((r) => r.error);
     report.cases.push({
       id: caseDef.id,
       label: caseDef.label,
       message: caseDef.message,
       results: caseResults,
-      summary: segments,
+      summary: okResults.length ? segments : null,
+      ...(failed.length ? { failedRounds: failed.length } : {}),
     });
   }
 
@@ -430,9 +570,8 @@ async function main() {
     const b4Results = [];
     const b4Errors = [];
     for (let i = 0; i < b4Rounds; i++) {
-      await resetRoom(playerId);
-      await page.reload({ waitUntil: "networkidle", timeout: 60_000 });
-      await waitRoomReady(page);
+      await prepareBenchmarkRound(playerId);
+      await closeShellDrawer(page);
       await engageDialogue(page);
       console.log(`[B4] sequence ${i + 1}/${b4Rounds}`);
       try {
@@ -456,15 +595,25 @@ async function main() {
 
   printSummary(report);
   console.log("Run SDK对照: node scripts/benchmark-llm-e2e-latency.mjs");
+  const failedCount = report.cases.reduce(
+    (n, c) => n + (c.failedRounds ?? 0) + (c.errors?.length ?? 0),
+    0,
+  );
+  if (failedCount > 0) {
+    report.failedRoundCount = failedCount;
+    runError = runError ?? new Error(`${failedCount} benchmark round(s) failed`);
+  }
   } catch (err) {
     runError = err;
-    throw err;
   } finally {
     await context.close().catch(() => {});
     await browser.close().catch(() => {});
     if (report.cases.length > 0) {
       await writeReport(report, { partial: Boolean(runError), error: runError });
     }
+  }
+  if (runError) {
+    throw runError;
   }
 }
 

@@ -125,3 +125,9 @@ def test_reconcile_keeps_llm_ignore_on_neutral():
     perception = SocialPerception(kind="ignore", summary="", delta=0)
     reconciled = reconcile_social_perception("今天天气不错", perception)
     assert reconciled.kind == "ignore"
+
+
+def test_infer_help_not_triggered_by_hui_fu_substring():
+    assert infer_social_from_message("你好，用一句话简短回复") is None
+    assert infer_social_from_message("请帮帮我") is not None
+    assert infer_social_from_message("请帮帮我").kind == "help"

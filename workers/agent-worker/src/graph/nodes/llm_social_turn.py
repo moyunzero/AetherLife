@@ -45,11 +45,14 @@ from src.llm.roles import auxiliary_provider_attempts, social_provider_model
 SOCIAL_SYSTEM_PROMPT = """你是「以太人生」NPC 的社交感知模块。
 分析玩家最新一条消息的社会含义，并起草 NPC 的第一人称回复（尚未执行物理动作）。
 
-输出 JSON 字段：
+输出 **仅 JSON**，且 **必须先写 reply，再写 social**（便于流式展示）：
+{"reply":"NPC 第一人称回复","social":{"kind":"ignore","summary":"","delta":0}}
+
+字段说明：
+- reply: NPC 对玩家的自然语言回复（必填，JSON 第一个键）
 - social.kind: 社交类型（rude/polite/help/praise/apologize/gift/… 或 ignore 表示无社交事件）
 - social.summary: <=80 字中性摘要，禁止复读玩家原文
 - social.delta: -10..10 建议强度（引擎会按 kind 固定 delta × 人格系数执行，此字段仅供参考）
-- reply: NPC 对玩家的自然语言回复（必填）
 
 规则：
 - 侮辱、人身攻击、辱骂（嘲笑外貌、诅咒、挑衅）必须 social.kind=rude，禁止用 ignore
@@ -313,9 +316,14 @@ def _build_social_messages(
     if append:
         system_text = f"{system_text}\n\n{append}"
     player_message = state.get("player_message") or ""
+    human = (
+        f"Player message: {player_message}\n\n"
+        "Respond with JSON only. Put \"reply\" as the first key, then \"social\".\n"
+        'Example: {"reply":"…","social":{"kind":"ignore","summary":"","delta":0}}'
+    )
     return [
         SystemMessage(content=system_text),
-        HumanMessage(content=f"Player message: {player_message}"),
+        HumanMessage(content=human),
     ]
 
 
@@ -356,6 +364,7 @@ def run_social_turn_llm(
                 model=model,
                 api_key=or_key,
                 request_timeout=float(cfg.llm_social_request_timeout),
+                max_tokens=int(cfg.llm_social_max_tokens),
             )
             for attempt in range(SOCIAL_LLM_MAX_ATTEMPTS):
                 try:

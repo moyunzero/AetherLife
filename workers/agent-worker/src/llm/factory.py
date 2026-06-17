@@ -131,6 +131,7 @@ def create_chat_model(
     api_key: str | None = None,
     temperature: float | None = None,
     request_timeout: float | None = None,
+    max_tokens: int | None = None,
 ) -> ChatOpenAI:
     cfg = settings or get_settings()
     chosen_provider = (provider or cfg.llm_provider).lower()
@@ -174,6 +175,8 @@ def create_chat_model(
     if chosen_provider == "cerebras":
         max_out = int(os.getenv("CEREBRAS_MAX_COMPLETION_TOKENS", "4096"))
         kwargs["max_completion_tokens"] = max(256, min(max_out, 32_768))
+    elif max_tokens is not None and max_tokens > 0:
+        kwargs["max_tokens"] = max_tokens
 
     llm = ChatOpenAI(**kwargs)
     if chosen_provider == "cerebras":

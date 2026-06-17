@@ -17,8 +17,8 @@ function parsePythonRefusalMarkers(source) {
   }
   const inner = match[1];
   const markers = [];
-  for (const m of inner.matchAll(/"([^"]+)"/g)) {
-    markers.push(m[1]);
+  for (const m of inner.matchAll(/"([^"]+)"|'([^']+)'/g)) {
+    markers.push(m[1] ?? m[2]);
   }
   if (!markers.length) {
     throw new Error("_REFUSAL_MARKERS tuple empty or unparseable");

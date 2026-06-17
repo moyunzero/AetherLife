@@ -121,3 +121,40 @@ def test_apply_tools_hostile_gate_does_not_raise():
     assert out.get("gate_rejected") is True
     assert out.get("gate_kind") == "move"
     assert out.get("tool_calls") == []
+
+
+def test_apply_tools_injects_move_when_physical_and_tool_calls_empty():
+    from src.graph.npc_loop import apply_tools
+
+    settings = Settings(game_server_url="http://127.0.0.1:2567")
+    room = {
+        "width": 40,
+        "height": 40,
+        "player": {"x": 34, "y": 13},
+        "npcs": [
+            {"id": "npc-1", "name": "路昂", "x": 23, "y": 10},
+            {"id": "npc-2", "name": "费雪", "x": 9, "y": 21},
+        ],
+    }
+    state = {
+        "room_id": "default",
+        "npc_id": "npc-2",
+        "player_id": "p1",
+        "player_message": "你可以去路昂那边吗？他好像有事情找你",
+        "room_snapshot": room,
+        "tool_calls": [],
+        "allowed_tools": ["speak", "wait", "move", "interact"],
+    }
+    ok_response = MagicMock()
+    ok_response.status_code = 200
+    ok_response.json.return_value = {"state": room}
+
+    client = MagicMock()
+    client.post.return_value = ok_response
+
+    out = apply_tools(state, settings=settings, client=client)
+    posted = client.post.call_args
+    body = posted.kwargs.get("json") or posted[1].get("json")
+    assert body["actingNpcId"] == "npc-2"
+    assert any(a.get("type") == "move" for a in body.get("actions") or [])
+    assert out.get("tool_calls") and out["tool_calls"][0]["name"] == "move"

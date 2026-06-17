@@ -155,7 +155,11 @@ export const GOLDEN_FLOWS = [
     requiresStack: true,
     triggers: [
       /scripts\/verify-phase20\.mjs$/,
+      /scripts\/playtest-speak-sla\.mjs$/,
+      /scripts\/benchmark-speak-browser\.mjs$/,
       /scripts\/lib\/e2e-memory-helpers\.mjs$/,
+      /scripts\/lib\/dialogue-engage\.mjs$/,
+      /scripts\/lib\/speak-browser-/,
       /scripts\/assert-refusal-markers-parity\.mjs$/,
       /workers\/agent-worker\/src\/graph\/recall_merge\.py$/,
     ],

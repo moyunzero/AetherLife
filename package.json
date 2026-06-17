@@ -50,6 +50,7 @@
     "verify:phase13": "node scripts/verify-phase13.mjs",
     "verify:phase19": "node scripts/verify-phase19.mjs",
     "verify:phase20": "node scripts/verify-phase20.mjs",
+    "verify:overlay-streaming": "node scripts/verify-overlay-streaming.mjs",
     "playtest:speak-sla": "node scripts/playtest-speak-sla.mjs",
     "uat:phase20:playwright": "node scripts/playtest-speak-sla.mjs",
     "verify:phase14": "node scripts/verify-phase14.mjs",

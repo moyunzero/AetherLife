@@ -68,7 +68,10 @@ const THINKING_LOCATOR =
   '.dialogue-bar__summary-text--thinking, ' +
   '[data-testid="composer-speak-status"]';
 
+const OVERLAY_STREAMING = '[data-testid="dialogue-overlay-streaming"]';
+
 const OVERLAY_NPC_REPLY =
+  `${OVERLAY_STREAMING}, ` +
   '[data-testid="dialogue-overlay"] .dialogue-overlay__last-line, ' +
   '[data-testid="dialogue-overlay"] .dialogue-overlay__npc-text, ' +
   '[data-testid="dialogue-overlay"] .dialogue-overlay__line--npc';
@@ -90,36 +93,57 @@ export async function openShellDrawerHistory(page) {
  * @param {import('playwright').Page} page
  */
 export async function closeShellDrawer(page) {
-  const drawer = page.locator('[data-testid="shell-drawer"]');
-  if (!(await drawer.isVisible().catch(() => false))) {
-    return;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const backdrop = page.locator('[data-testid="shell-drawer-backdrop"]');
+    if (!(await backdrop.isVisible().catch(() => false))) {
+      return;
+    }
+    const closeBtn = page.locator('[aria-label="关闭抽屉"]');
+    if (await closeBtn.isVisible().catch(() => false)) {
+      await closeBtn.click();
+    } else {
+      await backdrop.click({ position: { x: 8, y: 8 } });
+    }
+    await backdrop.waitFor({ state: "hidden", timeout: 10_000 }).catch(() => {});
   }
-  await page.locator('[aria-label="关闭抽屉"]').click();
-  await drawer.waitFor({ state: "hidden", timeout: 10_000 });
 }
 
 /**
  * @param {import('playwright').Page} page
+ * @param {number} t0
  * @param {number} timeoutMs
+ * @returns {Promise<{ firstTextMs: number; overlayPartialMs: number | null }>}
  */
-async function waitForFirstNpcReply(page, timeoutMs) {
+async function waitSpeakFirstText(page, t0, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
+  let overlayPartialMs = null;
+
   while (Date.now() < deadline) {
+    if (overlayPartialMs === null) {
+      const streaming = page.locator(OVERLAY_STREAMING);
+      if (await streaming.isVisible().catch(() => false)) {
+        const st = ((await streaming.textContent().catch(() => "")) ?? "").trim();
+        if (st) overlayPartialMs = Date.now() - t0;
+      }
+    }
+
     const summary = page.locator(".dialogue-bar__summary-text");
     if ((await summary.count()) > 0) {
       const text = (await summary.first().textContent().catch(() => "")) ?? "";
       if (text.trim() && !/^思考/.test(text.trim())) {
-        return Date.now();
+        return { firstTextMs: Date.now() - t0, overlayPartialMs };
       }
     }
 
     const overlayNpc = page.locator(OVERLAY_NPC_REPLY).last();
     if (await overlayNpc.isVisible().catch(() => false)) {
       const text = (await overlayNpc.textContent().catch(() => "")) ?? "";
-      if (text.trim()) return Date.now();
+      if (text.trim()) {
+        return { firstTextMs: Date.now() - t0, overlayPartialMs };
+      }
     }
 
-    await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 50));
   }
   throw new Error("T_first timeout: no overlay/dialogue-bar NPC reply visible");
 }
@@ -156,7 +180,14 @@ async function extractNpcReplyText(page) {
  * @param {import('playwright').Page} page
  * @param {string} text
  * @param {{ speakTimeoutMs?: number }} [opts]
- * @returns {Promise<{ reply: string; speakMs: number; thinkingMs: number | null; firstTextMs: number | null }>}
+ * @returns {Promise<{
+ *   reply: string;
+ *   speakMs: number;
+ *   thinkingMs: number | null;
+ *   firstTextMs: number | null;
+ *   overlayPartialMs: number | null;
+ *   overlayStreamingBeforeDone: boolean;
+ * }>}
  */
 export async function sendSpeakOverlay(page, text, { speakTimeoutMs = 180_000 } = {}) {
   await engageDialogue(page);
@@ -174,8 +205,7 @@ export async function sendSpeakOverlay(page, text, { speakTimeoutMs = 180_000 } 
     // thinking may be too fast to observe
   }
 
-  const firstAt = await waitForFirstNpcReply(page, speakTimeoutMs);
-  const firstTextMs = firstAt - t0;
+  const { firstTextMs, overlayPartialMs } = await waitSpeakFirstText(page, t0, speakTimeoutMs);
 
   await page.waitForFunction(
     () => {
@@ -191,7 +221,14 @@ export async function sendSpeakOverlay(page, text, { speakTimeoutMs = 180_000 } 
     throw new Error(`empty NPC reply for "${text.slice(0, 40)}…"`);
   }
 
-  return { reply, speakMs, thinkingMs, firstTextMs };
+  return {
+    reply,
+    speakMs,
+    thinkingMs,
+    firstTextMs,
+    overlayPartialMs,
+    overlayStreamingBeforeDone: overlayPartialMs !== null && overlayPartialMs < speakMs,
+  };
 }
 
 /**

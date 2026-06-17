@@ -78,3 +78,30 @@ def test_run_casual_fast_lane_no_checkpointer():
                         settings=settings,
                     )
     get_cp.assert_not_called()
+
+
+def test_run_casual_fast_lane_short_circuits_zero_side_effect():
+    message = "你好，用一句话简短回复"
+    preview = _preview_for(message)
+    settings = Settings(game_server_url="http://127.0.0.1:2567")
+
+    with patch("src.graph.casual_fast_lane.fetch_state") as fetch_state:
+        fetch_state.return_value = {
+            "room_id": "default",
+            "room_snapshot": {"npcs": []},
+        }
+        with patch("src.graph.casual_fast_lane.apply_social_event") as apply_social:
+            with patch("src.graph.casual_fast_lane.apply_tools") as apply_tools:
+                with patch("src.graph.job_context.record_phase_ms"):
+                    out = run_casual_fast_lane(
+                        room_id="default",
+                        player_message=message,
+                        npc_id="npc-1",
+                        player_id="p1",
+                        recent_turns=[],
+                        preview=preview,
+                        settings=settings,
+                    )
+    apply_social.assert_not_called()
+    apply_tools.assert_not_called()
+    assert out["reply"] == preview.reply
