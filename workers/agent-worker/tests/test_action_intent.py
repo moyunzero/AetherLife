@@ -232,3 +232,10 @@ def test_relay_summon_phrases_from_uat():
     luang_calls = inject_relative_move_tool([], player_message=feixue_relay, room=room)
     assert luang_calls[0]["name"] == "move", feixue_relay
     assert luang_calls[0]["args"]["x"] == 23 and luang_calls[0]["args"]["y"] == 10, feixue_relay
+
+    feixue_uat_short = "路昂找你，麻烦您去一下"
+    assert player_requests_move(feixue_uat_short), feixue_uat_short
+    assert classify_speak_intent(feixue_uat_short) == SpeakIntent.PHYSICAL, feixue_uat_short
+    short_calls = inject_relative_move_tool([], player_message=feixue_uat_short, room=room)
+    assert short_calls[0]["name"] == "move", feixue_uat_short
+    assert short_calls[0]["args"]["x"] == 23 and short_calls[0]["args"]["y"] == 10, feixue_uat_short

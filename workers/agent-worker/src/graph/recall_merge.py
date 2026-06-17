@@ -39,10 +39,16 @@ _PASSWORD_ANS_RE = re.compile(
     re.IGNORECASE,
 )
 _INVALID_PASSWORD_ANSWERS = frozenset({"吗", "呢", "吧", "啊", "么"})
+_INVALID_FOOD_ANSWERS = frozenset({"什么", "啥", "吗", "呢", "吧", "啊", "么"})
 _NICKNAME_MEM_RE = re.compile(
     r"(?:请记住)?(?:我)?叫([^。，,.!?；;\s]+)|叫我([^。，,.!?；;\s]+)",
     re.IGNORECASE,
 )
+_FOOD_PREF_MEM_RE = re.compile(
+    r"(?:最喜欢|最爱|喜欢|爱)吃([^。，,.!?；;\s～~吗呢吧啊？?]+)",
+    re.IGNORECASE,
+)
+_FOOD_RECALL_RE = re.compile(r"喜欢吃什么|爱吃什么|最爱吃|口味|爱吃什么", re.IGNORECASE)
 _META_CALLBACK_RE = re.compile(r"你(?:上次|之前|刚才)(?:说|告诉|提过)")
 
 DEFAULT_RECALL_MIN_SCORE = 0.35
@@ -133,11 +139,13 @@ def pick_recall_memory(
 ) -> dict[str, Any] | None:
     """Pick the retrieved row that matches the recall question type, not only top score."""
     items = retrieved_memories or []
+    msg = player_message.strip()
+    if _is_food_recall_question(msg):
+        return _pick_food_memory(items, min_score=min_score)
     scored = [item for item in items if float(item.get("score") or 0) >= min_score]
     if not scored:
         return None
     ranked = sorted(scored, key=lambda item: float(item.get("score") or 0), reverse=True)
-    msg = player_message.strip()
     if "密码" in msg:
         return _pick_password_memory(msg, ranked)
     if _is_nickname_recall_question(msg):
@@ -180,12 +188,29 @@ def _is_nickname_recall_question(message: str) -> bool:
     return "叫什么" in message or "名字" in message
 
 
+def _is_food_recall_question(message: str) -> bool:
+    return bool(_FOOD_RECALL_RE.search(message.strip()))
+
+
+def extract_food_preference(memory_text: str) -> str | None:
+    text = _strip_role_prefix(memory_text.strip())
+    if text and is_recall_question(text):
+        return None
+    match = _FOOD_PREF_MEM_RE.search(text)
+    if not match:
+        return None
+    food = match.group(1).strip().rstrip("～~")
+    if not food or food in _INVALID_FOOD_ANSWERS:
+        return None
+    return food
+
+
 def needs_recency_augment(player_message: str) -> bool:
     """Password/nickname recall must prefer newest stored fact over embed rank."""
     msg = player_message.strip()
     if not is_recall_question(msg):
         return False
-    return "密码" in msg or _is_nickname_recall_question(msg)
+    return "密码" in msg or _is_nickname_recall_question(msg) or _is_food_recall_question(msg)
 
 
 def _password_topic_score(player_message: str, memory_text: str) -> int:
@@ -239,6 +264,87 @@ def augment_retrieved_with_recent(
         seen.add(text)
         merged.append({**item, "recencyRank": item.get("recencyRank", 999)})
     return merged
+
+
+def augment_retrieved_with_dialogue_turns(
+    retrieved: list[dict[str, Any]] | None,
+    recent_turns: list[dict[str, str]] | None,
+) -> list[dict[str, Any]]:
+    """Merge in-session player turns ahead of DB/embed rows (memory tail may lag)."""
+    if not recent_turns:
+        return list(retrieved or [])
+
+    seen: set[str] = set()
+    merged: list[dict[str, Any]] = []
+    player_texts: list[str] = []
+    for turn in reversed(recent_turns):
+        role = (turn.get("role") or "").lower()
+        if role != "player":
+            continue
+        raw = str(turn.get("text") or "").strip()
+        if not raw:
+            continue
+        text = raw if raw.lower().startswith("player:") else f"player: {raw}"
+        if text in seen:
+            continue
+        seen.add(text)
+        player_texts.append(text)
+
+    for idx, text in enumerate(player_texts):
+        merged.append(
+            {
+                "text": text,
+                "score": max(0.995 - idx * 0.01, 0.5),
+                "recencyRank": idx,
+                "dialogueSession": True,
+            }
+        )
+
+    for item in retrieved or []:
+        text = str(item.get("text") or item.get("content") or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        merged.append(
+            {**item, "recencyRank": item.get("recencyRank", len(merged) + 999)}
+        )
+    return merged
+
+
+def _is_player_food_seed(raw_text: str) -> bool:
+    if not _PLAYER_ROLE_PREFIX.match(raw_text.strip()):
+        return False
+    return extract_food_preference(_strip_role_prefix(raw_text)) is not None
+
+
+def _pick_food_memory(
+    items: list[dict[str, Any]],
+    *,
+    min_score: float = DEFAULT_RECALL_MIN_SCORE,
+) -> dict[str, Any] | None:
+    """Prefer player-seeded food facts; scan all rows (embed may rank recall questions higher)."""
+    candidates: list[dict[str, Any]] = []
+    for item in items:
+        if extract_food_preference(_memory_item_text(item)):
+            candidates.append(item)
+    if not candidates:
+        return None
+
+    def sort_key(item: dict[str, Any]) -> tuple[int, int, float]:
+        raw = _memory_raw_text(item)
+        seed = 1 if _is_player_food_seed(raw) else 0
+        recency = int(item.get("recencyRank", 999))
+        embed = float(item.get("score") or 0)
+        meets_min = 1 if embed >= min_score else 0
+        return (-seed, -meets_min, recency, -embed)
+
+    player_seeds = [
+        item
+        for item in candidates
+        if _is_player_food_seed(_memory_raw_text(item))
+    ]
+    pool = player_seeds if player_seeds else candidates
+    return min(pool, key=sort_key)
 
 
 def _pick_password_memory(
@@ -299,6 +405,9 @@ def reply_covers_recall(
     nickname = extract_nickname(memory_text)
     if nickname and _is_nickname_recall_question(player_message):
         return nickname in hay
+    food = extract_food_preference(memory_text)
+    if food and _is_food_recall_question(player_message):
+        return food in hay
     for token in _seed_tokens(player_message, memory_text):
         if token in hay:
             return True
@@ -320,6 +429,8 @@ def recall_no_memory_reply(player_message: str) -> str:
         return "你没告诉过我这道密码。"
     if _is_nickname_recall_question(msg):
         return "你没告诉过我你的名字。"
+    if _is_food_recall_question(msg):
+        return "你没告诉过我你喜欢吃什么。"
     return "这个你没跟我说过，我这边没有印象。"
 
 
@@ -333,6 +444,9 @@ def format_recall_answer(player_message: str, memory_text: str) -> str | None:
     nickname = extract_nickname(memory_text)
     if nickname and _is_nickname_recall_question(player_message):
         return f"你叫{nickname}。"
+    food = extract_food_preference(memory_text)
+    if food and _is_food_recall_question(player_message):
+        return f"你喜欢吃{food}。"
     if pwd:
         return f"{pwd}。"
     for token in _seed_tokens(player_message, memory_text):
@@ -376,5 +490,8 @@ def merge_recall_into_reply(
         return fact
     nickname = extract_nickname(memory_text)
     if nickname and _is_nickname_recall_question(player_message) and nickname not in draft:
+        return fact
+    food = extract_food_preference(memory_text)
+    if food and _is_food_recall_question(player_message) and food not in draft:
         return fact
     return f"{draft} {fact}".strip()

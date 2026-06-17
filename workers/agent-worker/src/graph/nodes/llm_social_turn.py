@@ -23,6 +23,7 @@ from src.graph.action_intent import (
     player_requests_physical_action,
 )
 from src.graph.job_context import get_partial_emit, record_phase_ms
+from src.graph.recall_merge import is_recall_question
 from src.graph.speak_intent import SpeakIntent, is_casual_greeting_only
 from src.graph.stable_string_hash import stable_string_hash
 from src.graph.prompt import build_room_constraints, format_attitude_context
@@ -339,6 +340,9 @@ def run_social_turn_llm(
 
     messages = _build_social_messages(state, system_append=system_append)
     partial_emit = get_partial_emit()
+    player_msg = (state.get("player_message") or "").strip()
+    # RECALL: merge_recall_into_reply runs in compose_reply — LLM stream would flash wrong text.
+    stream_partial = partial_emit is not None and not is_recall_question(player_msg)
     last_error: BaseException | None = None
     primary = social_provider_model(cfg)
     last_provider = primary[0]
@@ -368,7 +372,7 @@ def run_social_turn_llm(
             )
             for attempt in range(SOCIAL_LLM_MAX_ATTEMPTS):
                 try:
-                    if partial_emit is not None:
+                    if stream_partial:
                         buffer = ""
                         last_pushed = ""
                         try:
@@ -612,11 +616,12 @@ def llm_social_turn(state: GraphState, *, settings: Settings | None = None) -> G
         )
         turn = turn.model_copy(update={"social": reconciled})
 
+    out_tool_calls: list[dict[str, Any]] = []
     return {
         **state,
         "social_perception": turn.social.model_dump(),
         "reply_draft": turn.reply,
-        "tool_calls": [],
+        "tool_calls": out_tool_calls,
         "social_applied": False,
         "collective_updated": False,
     }

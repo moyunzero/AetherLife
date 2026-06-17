@@ -79,3 +79,49 @@ def test_run_social_turn_llm_emits_partial_on_reply_first_stream(monkeypatch):
     assert partials
     assert partials[0] == "你"
     assert partials[-1] == "你好呀"
+
+
+def test_run_social_turn_llm_skips_partial_stream_on_recall_question(monkeypatch):
+    monkeypatch.delenv("LLM_MOCK", raising=False)
+    partials: list[str] = []
+
+    class _Chunk:
+        def __init__(self, content: str):
+            self.content = content
+
+    class _LLM:
+        def stream(self, _messages):
+            raise AssertionError("recall should use invoke, not stream")
+
+        def invoke(self, _messages):
+            class _Resp:
+                content = (
+                    '{"reply":"电脑密码是 111。","social":{"kind":"ignore","summary":"","delta":0}}'
+                )
+
+            return _Resp()
+
+    monkeypatch.setattr(
+        "src.graph.nodes.llm_social_turn.create_chat_model",
+        lambda **_kwargs: _LLM(),
+    )
+    monkeypatch.setattr(
+        "src.graph.nodes.llm_social_turn.auxiliary_provider_attempts",
+        lambda _cfg, **_: [("nvidia", "meta/llama-3.3-70b-instruct")],
+    )
+
+    tokens = set_job_context(partial_emit=partials.append, phase_timing={})
+    try:
+        state: GraphState = {
+            "room_id": "default",
+            "player_message": "还记得我家电脑密码吗？",
+            "npc_id": "npc-3",
+            "player_id": "p1",
+            "room_snapshot": {"width": 8, "height": 8, "npcs": []},
+        }
+        turn = run_social_turn_llm(state, settings=Settings(llm_mock=False))
+    finally:
+        reset_job_context(tokens)
+
+    assert "111" in turn.reply
+    assert partials == []

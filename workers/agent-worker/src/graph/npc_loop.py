@@ -25,6 +25,7 @@ from src.graph.reflect import run_reflect_llm, should_reflect
 from src.graph.state import GraphState
 from src.graph.summarize import maybe_bulk_summarize
 from src.graph.recall_merge import (
+    augment_retrieved_with_dialogue_turns,
     augment_retrieved_with_recent,
     is_recall_question,
     merge_recall_into_reply,
@@ -53,7 +54,7 @@ from src.collective.social_turn import (
     refresh_collective_snapshot,
 )
 from src.graph.nodes.llm_social_turn import llm_social_turn
-from src.graph.job_context import record_phase_ms
+from src.graph.job_context import get_partial_emit, record_phase_ms
 from src.graph.speak_intent import (
     SpeakIntent,
     classify_speak_intent,
@@ -321,6 +322,10 @@ def load_memory_context(
             augmented = augment_retrieved_with_recent(
                 ctx.get("retrieved"),
                 recent,
+            )
+            augmented = augment_retrieved_with_dialogue_turns(
+                augmented,
+                state.get("recent_turns"),
             )
             if augmented:
                 ctx = {
@@ -617,7 +622,8 @@ def apply_tools(state: GraphState, *, settings: Settings, client: httpx.Client) 
     player_msg = state.get("player_message") or ""
     dialogue_ctx = build_dialogue_context(player_msg, state.get("recent_turns"))
     raw_calls = list(state.get("tool_calls") or [])
-    if player_requests_physical_action(player_msg):
+    physical = player_requests_physical_action(player_msg)
+    if physical:
         raw_calls = inject_relative_move_tool(
             raw_calls,
             player_message=player_msg,
@@ -760,10 +766,12 @@ def refresh_collective_in_state(state: GraphState) -> GraphState:
 def compose_reply(state: GraphState) -> GraphState:
     state = _finalize_hostile_gate(state)
     reply = (state.get("reply_draft") or state.get("reply") or "").strip()
+    player_message = state.get("player_message") or ""
+    retrieved = state.get("retrieved_memories")
     reply = merge_recall_into_reply(
-        state.get("player_message") or "",
+        player_message,
         reply,
-        state.get("retrieved_memories"),
+        retrieved,
     )
     tool_calls = state.get("tool_calls") or []
 
@@ -781,7 +789,13 @@ def compose_reply(state: GraphState) -> GraphState:
         if hint not in reply:
             reply = f"{reply}{hint}"
 
-    return {**state, "reply": sanitize_npc_reply(reply)}
+    reply = sanitize_npc_reply(reply)
+    player_message = state.get("player_message") or ""
+    if is_recall_question(player_message):
+        emit = get_partial_emit()
+        if emit is not None and reply:
+            emit(reply)
+    return {**state, "reply": reply}
 
 
 def persist_turn_memory(

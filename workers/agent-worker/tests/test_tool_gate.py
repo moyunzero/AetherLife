@@ -93,6 +93,25 @@ def test_compose_reply_recall_merges_fact_when_llm_refuses():
     assert "你上次说过" not in out["reply"]
 
 
+def test_compose_reply_recall_emits_merged_partial_for_overlay():
+    from src.graph.job_context import reset_job_context, set_job_context
+
+    partials: list[str] = []
+    tokens = set_job_context(partial_emit=partials.append, phase_timing={})
+    try:
+        state = {
+            "reply_draft": "电脑密码是123456",
+            "player_message": "还记得我家电脑密码吗？",
+            "retrieved_memories": [],
+            "tool_calls": [],
+        }
+        out = compose_reply(state)
+        assert out["reply"] == "你没告诉过我电脑密码。"
+        assert partials == ["你没告诉过我电脑密码。"]
+    finally:
+        reset_job_context(tokens)
+
+
 def test_apply_tools_hostile_gate_does_not_raise():
     from src.graph.npc_loop import apply_tools
 

@@ -154,6 +154,7 @@
 74. **并行 speak 须 per-NPC job 路由**：服务端 `npcSpeakJobs` 按 NPC 互斥、不同 NPC 可并行（C-02）；客户端 `useNpcChat` **禁止** 单槽 `pendingJobIdRef` / 全局 `thinkingNpcId` 覆盖并行 job。`onSpeakAck` / `onDone` / `onError` / `speakPartial` 经 `NpcJobRegistry`（`byNpc` + `byJob`）按 `jobId → npcId` 入库，与 **active tab 无关**。`composerBusyForActiveNpc` 仅锁当前 Tab NPC（方案 A，Guardrail #54）。Phaser 铭牌/thinking 用 `thinkingNpcIds` 数组。回归：`useNpcChat.test.ts`（registry + `isNpcSpeakInFlight`）；人工：A 思考中切 B 对话 → 两边 `done` 均出现在各自 Tab 消息列表。
 75. **relay 移动意图须覆盖「去 X 那边 / 有事情找」**：`player_requests_move` 的 `MOVE_PATTERNS` 须含 `那边|那里|那儿` 与 `有事情找|事情找`；否则 `classify_speak_intent` → NARRATIVE → `llm_social_turn` 只口播、`tool_calls=[]`（ISSUE-051）。改 `action_intent.py` 须 `test_action_intent.py::test_relay_summon_phrases_from_uat` + 含目标 NPC 名的 inject 用例。
 76. **apply_tools 物理兜底 inject**：`social_edge_fast_lane` / 非 physical 分支若 `tool_calls=[]` 但 `player_requests_physical_action`，`apply_tools` 仍须 `inject_relative_move_tool`；`main.py` 在 physical 时禁止走 social fast lane。回归：`test_tool_gate.py::test_apply_tools_injects_move_when_physical_and_tool_calls_empty` + 费雪 relay 句 inject 用例（ISSUE-052）。
+77. **RECALL speak 禁止 LLM 流式 partial 抢先显示**：`is_recall_question` 时 `run_social_turn_llm` 须走 `invoke`（不 `stream`/`speakPartial`）；`compose_reply` → `merge_recall_into_reply` 后再 `partial_emit` 一次**最终**口播，避免 overlay 先显示 LLM 草稿再被 `done` 替换成 `recall_no_memory_reply`（ISSUE-053）。回归：`test_social_stream_extract.py::test_run_social_turn_llm_skips_partial_stream_on_recall_question` · `test_tool_gate.py::test_compose_reply_recall_emits_merged_partial_for_overlay`。
 
 ## 记录
 
@@ -2031,6 +2032,41 @@ Worker 主循环仅在 npc-turn 队列 **连续 5s 为空** 时才 `BLPOP` chunk
 **防复发**
 
 - Guardrail #76
+
+---
+
+### ISSUE-053 — RECALL 问句 overlay 先显示 LLM 流式草稿再跳成 no-memory 兜底
+
+- **状态:** fixed
+- **发现:** 2026-06-16
+- **阶段/范围:** Phase 20 · `workers/agent-worker`（`llm_social_turn` · `npc_loop.compose_reply` · `speakPartial` / `DialogueOverlay`）
+- **严重性:** major
+
+**复现**
+
+1. `pnpm dev:stack` + 真实 LLM
+2. 问 NPC：「还记得我家电脑密码吗？」（有/无 seed 均可复现 flicker）
+3. **期望：** overlay 只显示 merge 后的最终口播。**实际：** 先流式出现 LLM JSON 片段（如「电脑密码是 吗?。」），`done` 后突然变成 no-memory 兜底；流式清空时偶见上一轮 nickname 的 `lastLine` 闪回
+
+**根因**
+
+- `run_social_turn_llm` 在 `compose_reply` 之前通过 `partial_emit` 推送 LLM `reply` 流
+- `merge_recall_into_reply` 仅在 `compose_reply` 运行，会整句替换为确定性 fact / `recall_no_memory_reply`
+- `DialogueOverlay`：`displayLine = streamingReply || lastLine`
+
+**修复**
+
+- RECALL 问句：`run_social_turn_llm` 禁用 LLM stream partial，改 `invoke`
+- `compose_reply`：merge 后对 RECALL 再 `partial_emit` 最终 merged reply 一次
+
+**验证**
+
+- `cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_social_stream_extract.py tests/test_tool_gate.py::test_compose_reply_recall_emits_merged_partial_for_overlay -q`
+- `pnpm agent:verify`
+
+**防复发**
+
+- Guardrail #77
 
 ---
 

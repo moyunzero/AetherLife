@@ -1,4 +1,6 @@
 from src.graph.recall_merge import (
+    augment_retrieved_with_dialogue_turns,
+    extract_food_preference,
     extract_nickname,
     extract_password_answer,
     is_recall_question,
@@ -100,6 +102,77 @@ def test_merge_recall_nickname_replaces_refusal_solo01():
     assert "小明" in out
     assert "你上次" not in out
     assert reply_refuses_recall(out) is False
+
+
+def test_extract_food_preference():
+    assert extract_food_preference("告诉你一个秘密，我喜欢吃芒果～") == "芒果"
+    assert extract_food_preference("player: 告诉你一个秘密，我喜欢吃芒果～") == "芒果"
+    assert extract_food_preference("player: 我喜欢吃西瓜，你喜欢吃什么？") == "西瓜"
+    assert extract_food_preference("player: 我喜欢吃芒果布丁，你喜欢吃什么？") == "芒果布丁"
+    assert extract_food_preference("你还记得我喜欢吃什么吗？") is None
+    assert extract_food_preference("npc: 你没告诉过我你喜欢吃什么。") is None
+
+
+def test_merge_recall_mango_over_watermelon_with_dialogue_turns():
+    """Mango disclosed in-session but not yet in DB — dialogue turns must win."""
+    db_augmented = [
+        {"text": "player: 你还记得我喜欢吃什么吗？", "score": 0.96, "recencyRank": 0},
+        {"text": "npc: 你没告诉过我你喜欢吃什么。", "score": 0.95, "recencyRank": 1},
+        {"text": "player: 我喜欢吃西瓜，你喜欢吃什么？", "score": 0.72, "recencyRank": 4},
+    ]
+    recent_turns = [
+        {"role": "player", "text": "我喜欢吃西瓜，你喜欢吃什么？"},
+        {"role": "npc", "text": "西瓜清甜多汁，确实是夏日佳品。"},
+        {"role": "player", "text": "我喜欢吃芒果布丁，你喜欢吃什么？"},
+        {"role": "npc", "text": "芒果布丁听起来很美味。"},
+    ]
+    retrieved = augment_retrieved_with_dialogue_turns(db_augmented, recent_turns)
+    out = merge_recall_into_reply(
+        "你还记得我喜欢吃什么吗？",
+        "你喜欢吃西瓜",
+        retrieved,
+    )
+    assert "芒果布丁" in out
+    assert "西瓜" not in out
+
+
+def test_merge_recall_watermelon_uat_realistic():
+    """Embed ranks prior recall rows above disclosure; pick must still find 西瓜."""
+    retrieved = [
+        {"text": "player: 你还记得我喜欢吃什么吗？", "score": 0.96, "recencyRank": 0},
+        {"text": "npc: 抱歉，我不记得你喜欢吃什么。", "score": 0.95, "recencyRank": 1},
+        {"text": "player: 我喜欢吃西瓜，你喜欢吃什么？", "score": 0.72, "recencyRank": 2},
+        {"text": "npc: 西瓜清甜多汁，确实是夏日佳品。", "score": 0.71, "recencyRank": 3},
+    ]
+    out = merge_recall_into_reply(
+        "你还记得我喜欢吃什么吗？",
+        "你没告诉过我你喜欢吃什么。",
+        retrieved,
+    )
+    assert "西瓜" in out
+    assert "没告诉" not in out
+
+
+def test_merge_recall_food_preference_uat():
+    """UAT: disclose mango then ask 喜欢吃什么 — must not fall back to 没有印象."""
+    retrieved = [{"text": "player: 告诉你一个秘密，我喜欢吃芒果～", "score": 0.88}]
+    out = merge_recall_into_reply(
+        "你还记得我喜欢吃什么吗？",
+        "你喜欢吃的东西我还记得，具体来说是……",
+        retrieved,
+    )
+    assert "芒果" in out
+    assert "没有印象" not in out
+
+
+def test_pick_recall_food_prefers_food_row():
+    retrieved = [
+        {"text": "player: 请记住我叫小明", "score": 0.95},
+        {"text": "player: 告诉你一个秘密，我喜欢吃芒果～", "score": 0.7},
+    ]
+    picked = pick_recall_memory("你还记得我喜欢吃什么吗？", retrieved)
+    assert picked is not None
+    assert "芒果" in str(picked.get("text"))
 
 
 def test_merge_recall_non_recall_question_unchanged():
