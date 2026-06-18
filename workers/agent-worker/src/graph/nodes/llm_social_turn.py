@@ -23,6 +23,7 @@ from src.graph.action_intent import (
     player_requests_physical_action,
 )
 from src.graph.job_context import get_partial_emit, record_phase_ms
+from src.graph.recall_merge import is_recall_question
 from src.graph.speak_intent import SpeakIntent, is_casual_greeting_only
 from src.graph.stable_string_hash import stable_string_hash
 from src.graph.prompt import build_room_constraints, format_attitude_context
@@ -45,11 +46,14 @@ from src.llm.roles import auxiliary_provider_attempts, social_provider_model
 SOCIAL_SYSTEM_PROMPT = """你是「以太人生」NPC 的社交感知模块。
 分析玩家最新一条消息的社会含义，并起草 NPC 的第一人称回复（尚未执行物理动作）。
 
-输出 JSON 字段：
+输出 **仅 JSON**，且 **必须先写 reply，再写 social**（便于流式展示）：
+{"reply":"NPC 第一人称回复","social":{"kind":"ignore","summary":"","delta":0}}
+
+字段说明：
+- reply: NPC 对玩家的自然语言回复（必填，JSON 第一个键）
 - social.kind: 社交类型（rude/polite/help/praise/apologize/gift/… 或 ignore 表示无社交事件）
 - social.summary: <=80 字中性摘要，禁止复读玩家原文
 - social.delta: -10..10 建议强度（引擎会按 kind 固定 delta × 人格系数执行，此字段仅供参考）
-- reply: NPC 对玩家的自然语言回复（必填）
 
 规则：
 - 侮辱、人身攻击、辱骂（嘲笑外貌、诅咒、挑衅）必须 social.kind=rude，禁止用 ignore
@@ -305,14 +309,22 @@ def _build_social_messages(
     system_text = f"{SOCIAL_SYSTEM_PROMPT}\n{build_room_constraints(room)}\n\n{attitude}"
     memory = (state.get("memory_summary") or "").strip()
     if memory:
-        system_text = f"{system_text}\n\nMemory summary:\n{memory}"
+        system_text = (
+            f"{system_text}\n\nMemory summary:\n{memory}\n"
+            "若玩家追问 Memory summary 中已有的事实，reply 须直接给出答案，勿拒绝或说「不记得」。"
+        )
     append = (system_append or "").strip()
     if append:
         system_text = f"{system_text}\n\n{append}"
     player_message = state.get("player_message") or ""
+    human = (
+        f"Player message: {player_message}\n\n"
+        "Respond with JSON only. Put \"reply\" as the first key, then \"social\".\n"
+        'Example: {"reply":"…","social":{"kind":"ignore","summary":"","delta":0}}'
+    )
     return [
         SystemMessage(content=system_text),
-        HumanMessage(content=f"Player message: {player_message}"),
+        HumanMessage(content=human),
     ]
 
 
@@ -328,6 +340,9 @@ def run_social_turn_llm(
 
     messages = _build_social_messages(state, system_append=system_append)
     partial_emit = get_partial_emit()
+    player_msg = (state.get("player_message") or "").strip()
+    # RECALL: merge_recall_into_reply runs in compose_reply — LLM stream would flash wrong text.
+    stream_partial = partial_emit is not None and not is_recall_question(player_msg)
     last_error: BaseException | None = None
     primary = social_provider_model(cfg)
     last_provider = primary[0]
@@ -353,10 +368,11 @@ def run_social_turn_llm(
                 model=model,
                 api_key=or_key,
                 request_timeout=float(cfg.llm_social_request_timeout),
+                max_tokens=int(cfg.llm_social_max_tokens),
             )
             for attempt in range(SOCIAL_LLM_MAX_ATTEMPTS):
                 try:
-                    if partial_emit is not None:
+                    if stream_partial:
                         buffer = ""
                         last_pushed = ""
                         try:
@@ -600,11 +616,12 @@ def llm_social_turn(state: GraphState, *, settings: Settings | None = None) -> G
         )
         turn = turn.model_copy(update={"social": reconciled})
 
+    out_tool_calls: list[dict[str, Any]] = []
     return {
         **state,
         "social_perception": turn.social.model_dump(),
         "reply_draft": turn.reply,
-        "tool_calls": [],
+        "tool_calls": out_tool_calls,
         "social_applied": False,
         "collective_updated": False,
     }

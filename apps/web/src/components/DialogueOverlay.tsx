@@ -1,3 +1,4 @@
+import { sanitizeNpcReplyText } from "@aetherlife/shared";
 import type { RefObject } from "react";
 import type { ChatMessage } from "../hooks/useNpcChat.js";
 import { DialogueBar, type DrawerTab } from "./DialogueBar.js";
@@ -10,6 +11,8 @@ type Props = {
   activeNpcId: string;
   activeNpcName: string;
   messages: ChatMessage[];
+  /** Incremental NPC reply (speakPartial) while job in-flight. */
+  streamingReply?: string | null;
   thinkingNpcId: string | null;
   composerBusyForActiveNpc: boolean;
   speakBusyNpcId: string | null;
@@ -44,12 +47,19 @@ export function DialogueOverlay({
   activeNpcId,
   activeNpcName,
   messages,
+  streamingReply = null,
   onEndDialogue,
   ...dialogueBarProps
 }: Props) {
   const lastLine = lastNpcLineFor(messages, activeNpcId);
+  const partialText = streamingReply?.trim()
+    ? sanitizeNpcReplyText(streamingReply)
+    : "";
+  const displayLine = partialText || lastLine;
+  const isStreaming =
+    Boolean(partialText) && dialogueBarProps.thinkingNpcId === activeNpcId;
   const showThinkingOnly =
-    dialogueBarProps.thinkingNpcId === activeNpcId && !lastLine;
+    dialogueBarProps.thinkingNpcId === activeNpcId && !displayLine;
 
   return (
     <div
@@ -78,8 +88,15 @@ export function DialogueOverlay({
                 </span>
               ) : null}
             </div>
-            {lastLine && !showThinkingOnly ? (
-              <p className="dialogue-overlay__last-line">{lastLine}</p>
+            {displayLine && !showThinkingOnly ? (
+              <p
+                className={`dialogue-overlay__last-line${isStreaming ? " dialogue-overlay__last-line--streaming" : ""}`}
+                data-testid={isStreaming ? "dialogue-overlay-streaming" : undefined}
+                role={isStreaming ? "status" : undefined}
+                aria-live={isStreaming ? "polite" : undefined}
+              >
+                {displayLine}
+              </p>
             ) : null}
             <DialogueBar
               activeNpcId={activeNpcId}

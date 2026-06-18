@@ -35,3 +35,15 @@ def test_truncates_wire_length():
     quote = pick_memory_quote([{"text": f"player: {long_text}", "score": 1.0}], 1)
     assert quote is not None
     assert len(quote) == 500
+
+
+def test_recall_picks_password_memory_for_quote():
+    quote = pick_memory_quote(
+        [
+            {"text": "player: 请记住我叫墨韵", "score": 0.95},
+            {"text": "player: 请记住 sunset42 门禁密码是 7", "score": 0.82},
+        ],
+        3,
+        player_message="我的门锁密码是多少来着？",
+    )
+    assert quote == "请记住 sunset42 门禁密码是 7"

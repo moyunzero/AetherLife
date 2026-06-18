@@ -9,6 +9,8 @@ from src.http_json import safe_response_json
 _RETRYABLE_HTTP = frozenset({502, 503, 504})
 _MEMORY_CONTEXT_TIMEOUT_S = 45.0
 _MEMORY_CONTEXT_INTERACTIVE_TIMEOUT_S = 8.0
+_MEMORY_CONTEXT_RECALL_TIMEOUT_S = 18.0
+_MEMORY_CONTEXT_RECALL_ATTEMPTS = 2
 
 
 def _game_headers(settings: Settings, *, player_id: str | None = None) -> dict[str, str]:

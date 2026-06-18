@@ -45,6 +45,16 @@ class CollectiveApplyResult:
     player_reputation: int | None = None
 
 
+def _message_implies_help_request(msg: str) -> bool:
+    if "帮" in msg:
+        return True
+    if "请" not in msg:
+        return False
+    # Avoid false positives: 回复/请假 contain 请 but are not help requests.
+    normalized = msg.replace("回复", "").replace("请假", "")
+    return "请" in normalized
+
+
 def infer_social_from_message(message: str) -> SocialPerception | None:
     """Heuristic perception when LLM marks ignore but message has clear social signal."""
     msg = message.strip()
@@ -52,7 +62,7 @@ def infer_social_from_message(message: str) -> SocialPerception | None:
         return None
     if any(marker in msg for marker in INSULT_MARKERS):
         return SocialPerception(kind="rude", summary="玩家言语不敬", delta=-8)
-    if "帮" in msg or "请" in msg:
+    if _message_implies_help_request(msg):
         return SocialPerception(kind="help", summary="玩家请求帮助", delta=6)
     return None
 

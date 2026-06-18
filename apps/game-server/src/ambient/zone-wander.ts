@@ -32,7 +32,13 @@ function chebyshev(ax: number, ay: number, bx: number, by: number): number {
 }
 
 function findZone(registry: WorldRegistry, zoneId: string): Zone | undefined {
-  const { regionId, localId } = parseZoneId(zoneId as ZoneId);
+  let regionId: string;
+  let localId: string;
+  try {
+    ({ regionId, localId } = parseZoneId(zoneId as ZoneId));
+  } catch {
+    return undefined;
+  }
   const zones = registry.zonesByRegion.get(regionId);
   return zones?.find((z) => z.localId === localId);
 }

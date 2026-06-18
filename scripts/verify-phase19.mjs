@@ -13,6 +13,7 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { assertE2eNoMock } from "./lib/e2e-policy.mjs";
+import { engageDialogue } from "./lib/dialogue-engage.mjs";
 import { gameServerHttpBase, loadRootEnv } from "./lib/env.mjs";
 
 const BOOT_WARN_MS = 5000;
@@ -64,33 +65,6 @@ async function readPanelFillRatioWarn(page) {
       `verify:phase19: WARN panelFillRatio=${result.panelFillRatio.toFixed(3)} < 0.85 (non-fatal)`,
     );
   }
-}
-
-async function engageDialogue(page) {
-  const dialogueBar = page.locator('[data-testid="dialogue-bar"]');
-  if (await dialogueBar.isVisible().catch(() => false)) {
-    return;
-  }
-
-  const cornerMenu = page.locator('[data-testid="corner-menu"]');
-  await cornerMenu.locator(".corner-menu__trigger").click();
-
-  const npcTab = page.locator('[data-testid="npc-avatar-strip"] [role="tab"]').first();
-  if ((await npcTab.count()) > 0) {
-    await npcTab.click();
-  } else {
-    await cornerMenu.locator(".corner-menu__trigger").click();
-    const canvas = page.locator('[data-testid="phaser-stage-fill"] canvas').first();
-    const box = await canvas.boundingBox();
-    if (!box) {
-      throw new Error("cannot engage dialogue: no nearby NPC chip and canvas missing");
-    }
-    await canvas.click({
-      position: { x: Math.round(box.width * 0.5), y: Math.round(box.height * 0.45) },
-    });
-  }
-
-  await dialogueBar.waitFor({ state: "visible", timeout: 20_000 });
 }
 
 async function main() {

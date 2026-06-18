@@ -50,6 +50,7 @@ describe("classifySpeakIntent", () => {
 
   it("narrative default", () => {
     expect(classifySpeakIntent("故宫在哪里，给我讲讲历史")).toBe(SpeakIntent.NARRATIVE);
+    expect(classifySpeakIntent("那里有什么历史？")).toBe(SpeakIntent.NARRATIVE);
     expect(classifySpeakIntent("这个世界是怎么形成的")).toBe(SpeakIntent.NARRATIVE);
     expect(classifySpeakIntent("")).toBe(SpeakIntent.NARRATIVE);
     expect(classifySpeakIntent("你在做什么呢？")).toBe(SpeakIntent.NARRATIVE);

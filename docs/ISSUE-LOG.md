@@ -136,7 +136,7 @@
 59. **已验收 UX/视觉代码 — 最小 diff**：ISSUE 标 `fixed` 且 UAT/verify 通过的 hook、铭牌、composer 状态机，后续 phase 不得 drive-by 重构；scope 外改动 `pnpm agent:verify:scope` 应 fail。
 60. **Decor 须低于同格实体 depth**：`DecorRenderer` 用 `entityDepth(gx, gy, 0)`；玩家/NPC 至少 layer 1。禁止 decor 与实体同 layer 1（同格时后 spawn 的 decor 会盖住角色，如 home 土路围栏）。回归：`entityLayout.test.ts`「同格 entity > decor」+ 实机站 pathRow=6。
 61. **被挡 WASD 须转向输入方向**：`clientCanStep` 失败时 `ClientMovementPredictor.notifyBlockedStep` 调用 `onBlockedFace` + `sendMove({ dx, dy })`（**无 clientSeq/pending**）；`LocalPlayerMotionBridge.faceInputDirection` → `playIdleAnim`；服务端 `applyPlayerMove` blocked 分支更新 `player.facing`。禁止仅 `onHint` 而不转向。回归：`clientMovementPredictor.test.ts` + `move-handler.test.ts`。
-62. **Interactive speak 记忆召回（PLAY-03）**：`llm_social_turn._build_social_messages` 须注入 `memory_summary`；口播用**当下口吻直接给事实**，禁止 meta 套话（「你上次说过/还记得吗」）；LLM 拒答时 `compose_reply` → `merge_recall_into_reply` 确定性补全（`recall_merge.py`）。Interactive 图 `fetch_state_and_memory` 并行 fetch+memory；**Phase 17** memory-context interactive **8s×1**（`skipEmbed=1` 用于 CASUAL/SOCIAL_EDGE/NARRATIVE；RECALL full embed）；game-server 5s memory cache。Social LLM 每 provider 仅 1 次 invoke，timeout 20s；fallback 优先 nvidia nano。回归：`test_recall_merge.py` · `test_llm_social_memory.py` · `test_llm_social_degrade.py` · `test_fetch_state_and_memory.py`.
+62. **Interactive speak 记忆召回（PLAY-03 / Phase 20）**：`llm_social_turn._build_social_messages` 须注入 `memory_summary`；口播用**当下口吻直接给事实**，禁止 meta 套话；LLM 拒答或 echo FACT token 时 `compose_reply` → `merge_recall_into_reply` 确定性补全（`recall_merge.py` — **密码/昵称追问须真实值在 reply 内且非含糊多值才可 skip merge**；**`pick_recall_memory` 按问题类型选行**，无匹配行时 **return None**；**密码 `_pick_password_memory` 优先 player seed 行**（`player: 请记住…`），**排除 npc 复述**（「你刚刚说…密码」）；**recency augment** topic/recency/embed）；**`_PASSWORD_ANS_RE` 须 `密码是|为`（非 optional）**；recall 问句行不得当 password fact；含糊 LLM（多数字 / 「不确定」）→ **整句替换为 fact**，禁止 append；**无匹配记忆时 `recall_no_memory_reply`**。**RECALL** intent memory-context **18s×2** + recency augment（ISSUE-050）；CASUAL/SOCIAL_EDGE/NARRATIVE 仍 **8s×1 skipEmbed**。回归：`test_recall_merge.py` · `test_memory_quote.py` · `pnpm verify:phase20`。
 
 ### Beginning Fields / Tiled home 地图（Fan-tasy）
 
@@ -152,6 +152,11 @@
 72. **Phase 17 speak pre-LLM SLA**：interactive `fetch_state` 默认 `skipNearbyLore=1`；NARRATIVE+lore markers lazy lore；worker-state 超时须 stale fallback（禁止 hard-fail job）；`verify:phase12` speak 前 worker-state preflight <500ms×3；speak **error** 终端 job 不得 enqueue ambient `speak_end`；worker 仅 npc 队列空时 drain lore/ambient。回归：`pnpm --filter @aetherlife/game-server test` + `pytest test_fetch_state_and_memory.py` + `verify:phase12`.
 73. **internal memory 身份须解析 body.playerId**：`playerIdFromRequest(req, body)` 对 object body 须读 `body.playerId` 再 `resolvePlayerId`；**禁止**把整个 JSON body 当 string 传入（worker POST 无 `X-Player-Id` 时会全落 `__legacy__`，`verify:phase3` memoryCount=0）。worker `memory/client.py` 写路径应同时发 `X-Player-Id`；write 后 `invalidateMemoryContextForPlayer`。回归：`index.test.ts`「worker path body playerId」+ `pnpm verify:phase3` + `pnpm agent:verify --e2e --base`。
 74. **并行 speak 须 per-NPC job 路由**：服务端 `npcSpeakJobs` 按 NPC 互斥、不同 NPC 可并行（C-02）；客户端 `useNpcChat` **禁止** 单槽 `pendingJobIdRef` / 全局 `thinkingNpcId` 覆盖并行 job。`onSpeakAck` / `onDone` / `onError` / `speakPartial` 经 `NpcJobRegistry`（`byNpc` + `byJob`）按 `jobId → npcId` 入库，与 **active tab 无关**。`composerBusyForActiveNpc` 仅锁当前 Tab NPC（方案 A，Guardrail #54）。Phaser 铭牌/thinking 用 `thinkingNpcIds` 数组。回归：`useNpcChat.test.ts`（registry + `isNpcSpeakInFlight`）；人工：A 思考中切 B 对话 → 两边 `done` 均出现在各自 Tab 消息列表。
+75. **relay 移动意图须覆盖「去 X 那边 / 有事情找」**：`player_requests_move` 的 `MOVE_PATTERNS` 须含 `那边|那里|那儿` 与 `有事情找|事情找`；否则 `classify_speak_intent` → NARRATIVE → `llm_social_turn` 只口播、`tool_calls=[]`（ISSUE-051）。改 `action_intent.py` 须 `test_action_intent.py::test_relay_summon_phrases_from_uat` + 含目标 NPC 名的 inject 用例。
+76. **apply_tools 物理兜底 inject**：`social_edge_fast_lane` / 非 physical 分支若 `tool_calls=[]` 但 `player_requests_physical_action`，`apply_tools` 仍须 `inject_relative_move_tool`；`main.py` 在 physical 时禁止走 social fast lane。回归：`test_tool_gate.py::test_apply_tools_injects_move_when_physical_and_tool_calls_empty` + 费雪 relay 句 inject 用例（ISSUE-052）。
+78. **apply-actions 后须刷新 worker hot snapshot**：`apply_tools` 成功路径在 `safe_response_json` 后须 `_remember_worker_snapshot(room_id, player_id, updated_snapshot)`；否则 3s 内 `fetch_state` 热缓存仍用 apply 前坐标（ISSUE-054）。回归：`test_fetch_state_and_memory.py::test_apply_tools_refreshes_hot_snapshot_cache`。
+79. **密码 recall topic 硬过滤**：问「电脑密码」时不得用「门锁/门禁密码」行格式化；`_password_topic` + `_password_topic_score` 对 mismatch 返回 `-1`，`_pick_password_memory` 在 computer/door topic 无匹配行时 return None（ISSUE-054）。回归：`test_recall_merge.py::test_pick_recall_computer_password_rejects_door_lock_only` · `pnpm verify:phase20`。
+80. **叙事问句勿误判 PHYSICAL**：standalone `那边|那里|那儿` 会误伤「那里有什么历史？」；`MOVE_PATTERNS` / `speakIntent.ts` 须用 contextual regex（去/到/往…那边、可以去…那边、那边…你去），relay UAT 句仍须 PHYSICAL。回归：`test_speak_intent.py` · `packages/shared/src/speakIntent.test.ts` · `test_action_intent.py::test_relay_summon_phrases_from_uat`。
 
 ## 记录
 
@@ -1905,6 +1910,200 @@ Worker 主循环仅在 npc-turn 队列 **连续 5s 为空** 时才 `BLPOP` chunk
 **关联**
 
 - TECH-DEBT-v3 WR-01
+
+---
+
+### ISSUE-050 — Phase 20 SOLO-01 跨 session 记忆召回失败（token echo + memory-context 超时）
+
+- **状态:** fixed
+- **发现:** 2026-06-16
+- **阶段/范围:** Phase 20 · `workers/agent-worker/src/graph/recall_merge.py` · `npc_loop.py` · `memory/client.py`
+- **严重性:** major
+
+**复现**
+
+1. `pnpm dev:stack` + 真实 LLM
+2. 种子密码/昵称 → reload → 追问「门禁密码是多少」「我叫什么」
+3. **期望：** 口播含正确密码/昵称；对话历史有 memoryQuote。**实际：** 拒答、echo FACT token（如 sunset42）、或「你的名字是…」截断；记忆 tab 有 6 条但 speak 路径无 memoryQuote
+4. `pnpm verify:phase20` → exit 1（memory wait 超时 / firstTextMs>8s）
+
+**根因**
+
+1. `reply_covers_recall` 在 LLM 回复含 FACT seed token 但无真实密码/昵称时仍返回 True → `merge_recall_into_reply` 跳过确定性补全
+2. RECALL speak 使用 interactive memory-context **8s×1**（相对 ISSUE-041 的 18s×2 回归）→ 慢 embed 时常 `retrieved=[]` → 无 `pick_memory_quote`、merge 无输入
+3. **（2026-06-16 续）** `merge_recall_into_reply` / `pick_memory_quote` 仅取 **最高分** 记忆行；密码追问时 embed 常把昵称行排在密码行前 → merge 不补全
+4. **（2026-06-16 续）** `is_recall_question` 把含「告诉」的 **seed 陈述**（如「我告诉你…密码是111」）误判为 recall → 同一轮 merge 注入旧记忆 666
+5. **（2026-06-16 续）** 密码追问时 `pick_recall_memory` 无密码行仍 **fallback 最高分 unrelated 行**；无行或 `format_recall_answer` 失败时 merge **放行 LLM 编造**（如 123456）
+6. **（2026-06-16 续）** `_PASSWORD_ANS_RE` 中 `(?:是|为)?` 可选 → 「电脑密码**吗**？」被解析为 password=`吗`；embed 把 **recall 问句** 当高分记忆 → 口播 `电脑密码是 吗？。` + memoryQuote 引用问句本身
+7. **（2026-06-16 续）** 密码更新后 `pick_recall_memory` 仍按 **embed 最高分** 取第一条密码行（111/555 常高于 0101）；LLM 口播「111 和 555 不确定」因含 111 → `reply_covers_recall` 误判已覆盖，跳过 merge
+8. **（2026-06-16 续）** LLM 口播已含 canonical 密码（0101）但仍列旧值 → `reply_covers_recall` 仅查 `pwd in hay` → merge **append** `{draft} {fact}` → 「111、555…不确定。 电脑密码是 0101。」
+9. **（2026-06-16 续）** `_pick_password_memory` 未区分 **player seed** vs **npc 复述**（`npc: 你刚刚说…0101`）→ memoryQuote 引用 NPC 行而非玩家 seed
+
+**修复**
+
+- `recall_merge.py`：密码/昵称追问必须先验 extracted value 在 reply 中，再考虑 seed token
+- `memory/client.py`：`_MEMORY_CONTEXT_RECALL_TIMEOUT_S=18`、`_MEMORY_CONTEXT_RECALL_ATTEMPTS=2`
+- `npc_loop.py`：RECALL intent 用上述 timeout/attempts；embed 空时 `fetch_recent_memories` fallback
+- `recall_merge.pick_recall_memory`：按问题类型（密码/昵称）在 `retrieved` 中选匹配行；**无匹配行 return None**；LLM 口播缺真实密码/昵称时用 `format_recall_answer` **替换**（非 append）
+- `recall_merge.recall_no_memory_reply`：recall 问但无事实 → 诚实拒答（禁止编造数字密码）
+- `is_recall_question`：**披露/seed**（「我告诉你」「请记住」）不算 recall；弱 marker（告诉/说过/之前）须带问号或「多少/叫什么/是什么」
+- `_PASSWORD_ANS_RE`：**强制** `密码是|密码为`（禁止 optional 是/为）；`extract_password_answer` 对 recall 问句 early return None
+- **RECALL 密码追问**：`needs_recency_augment` → `fetch_recent_memories(20)` + `augment_retrieved_with_recent`；`_pick_password_memory` **player seed 池优先** + topic/recency/embed；`reply_covers_recall` 拒绝含糊多值；含糊或多数字时 merge **只返回 fact**（不 append draft）
+- `memory_quote.py` + `main.py`：recall 时 `pick_memory_quote` 传入 `player_message`
+- 测试：`test_merge_recall_password_prefers_password_row_over_higher_nickname` · `test_merge_recall_men_suo_password_question` · `test_merge_recall_no_memory_blocks_hallucinated_password` · `test_merge_recall_rejects_recall_question_as_password_memory` · `test_merge_recall_replaces_ambiguous_llm_even_when_canonical_in_reply` · `test_pick_recall_prefers_player_seed_over_npc_paraphrase` · `test_merge_recall_uses_latest_player_seed_999`
+
+**验证**
+
+- `cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_recall_merge.py tests/test_fetch_state_and_memory.py tests/test_memory_quote.py -q` → 27 passed
+- `pnpm agent:verify` → OK（worker 222 passed）
+- 手动 UAT Test 2（南宫婉 seed + reload + 密码召回）→ 用户确认 pass（2026-06-16）
+- `pnpm verify:phase20` → 待人工/UAT 确认（latency smoke 可能仍 >8s，与 recall 逻辑独立）
+
+**防复发**
+
+- Guardrail #62 更新
+
+---
+
+### ISSUE-051 — 「去南宫婉那边」口头答应但 NPC 不移动
+
+- **状态:** fixed
+- **发现:** 2026-06-16
+- **阶段/范围:** Phase 20 · `workers/agent-worker/src/graph/action_intent.py`
+- **严重性:** major
+
+**复现**
+
+1. `pnpm dev:stack` + 真实 LLM
+2. 对路昂说：「你可以去南宫婉那边吗？他有事情找你」
+3. **期望：** 路昂口播答应并 pathfind 至南宫婉格。**实际：** 仅口播「好，我会去南宫婉那里…」，地图上仍「在漫步」、坐标不变
+
+**根因**
+
+- `player_requests_move` 的 `MOVE_PATTERNS` 未含 `那边|那里|那儿` 与 `有事情找|事情找`
+- 用户句「你可以去南宫婉那边吗？他有事情找你」→ `player_requests_move=False` → `SpeakIntent.NARRATIVE`
+- `llm_social_turn` 非 physical 分支固定 `tool_calls=[]`，无 `inject_relative_move_tool`
+
+**修复**
+
+- `action_intent.py`：`MOVE_PATTERNS` 增补 `那边|那里|那儿` 与 `有事情找|事情找`
+- `test_action_intent.py`：UAT 句「你可以去南宫婉那边吗？他有事情找你」断言 PHYSICAL + inject 至 (15,8)
+
+**验证**
+
+- `cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_action_intent.py -q` → pass
+- `pnpm agent:verify` → OK（229 worker passed）
+
+**防复发**
+
+- Guardrail #75
+
+---
+
+### ISSUE-052 — 费雪 relay「去路昂那边」口播移动但 sprite 不动
+
+- **状态:** fixed
+- **发现:** 2026-06-16
+- **阶段/范围:** Phase 20 · `workers/agent-worker`（`npc_loop.apply_tools` · `main.py` fast lane）
+- **严重性:** major
+
+**复现**
+
+1. `pnpm dev:stack` + 真实 LLM；路昂 relay 至南宫婉已可移动（ISSUE-051 后）
+2. 对费雪说：「你可以去路昂那边吗？他好像有事情找你」
+3. **期望：** 费雪口播答应并移动至路昂格。**实际：** 口播「好的，我就去找路昂…」，地图上仍「在漫步」、坐标不变
+
+**根因**
+
+- 隔离测试下 intent/inject 对费雪 relay 句正常（PHYSICAL + move→路昂坐标）
+- 运行时若走 `social_edge_fast_lane` 或 `llm_social_turn` 非 physical 分支，固定 `tool_calls=[]` 且 **apply_tools 不再 inject**，导致只口播不 apply-actions
+- 终端可见 worker-state/memory-context fetch 但缺少完整 job 日志时，亦需排查 duplicate worker（旧代码进程）
+
+**修复**
+
+- `apply_tools`：在 filter 前对 `player_requests_physical_action` 调用 `inject_relative_move_tool`（兜底）
+- `main.py`：`player_requests_physical_action` 时跳过 social edge fast lane；`job received` 日志带 `npcId`
+- `packages/shared/src/speakIntent.ts`：MOVE_PATTERNS 与 Python 同步（`那边|有事情找`）
+- 测试：费雪 relay 句 inject + `test_apply_tools_injects_move_when_physical_and_tool_calls_empty`
+
+**验证**
+
+- `cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_action_intent.py tests/test_tool_gate.py -q`
+- `pnpm agent:verify`
+
+**防复发**
+
+- Guardrail #76
+
+---
+
+### ISSUE-053 — RECALL 问句 overlay 先显示 LLM 流式草稿再跳成 no-memory 兜底
+
+- **状态:** fixed
+- **发现:** 2026-06-16
+- **阶段/范围:** Phase 20 · `workers/agent-worker`（`llm_social_turn` · `npc_loop.compose_reply` · `speakPartial` / `DialogueOverlay`）
+- **严重性:** major
+
+**复现**
+
+1. `pnpm dev:stack` + 真实 LLM
+2. 问 NPC：「还记得我家电脑密码吗？」（有/无 seed 均可复现 flicker）
+3. **期望：** overlay 只显示 merge 后的最终口播。**实际：** 先流式出现 LLM JSON 片段（如「电脑密码是 吗?。」），`done` 后突然变成 no-memory 兜底；流式清空时偶见上一轮 nickname 的 `lastLine` 闪回
+
+**根因**
+
+- `run_social_turn_llm` 在 `compose_reply` 之前通过 `partial_emit` 推送 LLM `reply` 流
+- `merge_recall_into_reply` 仅在 `compose_reply` 运行，会整句替换为确定性 fact / `recall_no_memory_reply`
+- `DialogueOverlay`：`displayLine = streamingReply || lastLine`
+
+**修复**
+
+- RECALL 问句：`run_social_turn_llm` 禁用 LLM stream partial，改 `invoke`
+- `compose_reply`：merge 后对 RECALL 再 `partial_emit` 最终 merged reply 一次
+
+**验证**
+
+- `cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_social_stream_extract.py tests/test_tool_gate.py::test_compose_reply_recall_emits_merged_partial_for_overlay -q`
+- `pnpm agent:verify`
+
+**防复发**
+
+- Guardrail #77
+
+---
+
+### ISSUE-054 — apply-actions 后 hot snapshot 未刷新 + 电脑密码误用门锁记忆
+
+- **状态:** fixed
+- **发现:** 2026-06-16（CodeRabbit PR #9）
+- **阶段/范围:** Phase 20 · `npc_loop.apply_tools` · `recall_merge._pick_password_memory` · `action_intent` / `speakIntent`
+- **严重性:** major
+
+**复现**
+
+1. 连续 speak 间隔 &lt;3s：`apply-actions` 移动 NPC 后，下一次 `fetch_state` 仍读热缓存旧坐标
+2. 问「还记得我家电脑密码吗？」仅 seed 过「门禁密码是 7」→ 口播可能被格式化为电脑密码
+
+**根因**
+
+- `apply_tools` 更新 `room_snapshot` 但未 `_remember_worker_snapshot`
+- `_password_topic_score` 对门锁行在电脑追问时返回 0，仍可作为唯一候选被 pick
+
+**修复**
+
+- `apply_tools` 成功路径 `_remember_worker_snapshot` 写入 apply 后 state
+- `_password_topic` + topic score `-1` mismatch；computer/door 无匹配行时 `_pick_password_memory` → None
+- contextual `那边|那里|那儿` regex（保留 relay summon 句）
+
+**验证**
+
+- `cd workers/agent-worker && LLM_MOCK=1 uv run pytest -q`（242 passed）
+- `pnpm agent:verify`
+- `pnpm verify:phase20` · `pnpm verify:overlay-streaming`（真实 LLM，`pnpm dev:stack`）
+
+**防复发**
+
+- Guardrails #78–#80
 
 ---
 

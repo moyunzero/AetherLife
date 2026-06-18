@@ -214,6 +214,10 @@ body {
   overflow: hidden;
 }
 
+.dialogue-overlay__last-line--streaming {
+  color: color-mix(in srgb, var(--shell-ink) 92%, var(--shell-accent));
+}
+
 .dialogue-overlay__end-btn {
   align-self: flex-end;
   margin-top: 2px;

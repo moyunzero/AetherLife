@@ -71,6 +71,8 @@ class Settings(BaseSettings):
     llm_request_timeout: float = 120.0
     # Social/auxiliary JSON turn — fail fast so fallback/degrade runs before UI feels hung
     llm_social_request_timeout: float = 20.0
+    # Cap social JSON length — reply is short; lower max speeds completion
+    llm_social_max_tokens: int = 384
 
     llm_mock: bool = False
     reflect_every_n: int = 5

@@ -218,3 +218,24 @@ def test_relay_summon_phrases_from_uat():
         room=room,
     )
     assert relay_only[0]["args"]["x"] == 9 and relay_only[0]["args"]["y"] == 21
+
+    uat_msg = "你可以去南宫婉那边吗？他有事情找你"
+    assert player_requests_move(uat_msg), uat_msg
+    assert classify_speak_intent(uat_msg) == SpeakIntent.PHYSICAL, uat_msg
+    nangong_calls = inject_relative_move_tool([], player_message=uat_msg, room=room)
+    assert nangong_calls[0]["name"] == "move", uat_msg
+    assert nangong_calls[0]["args"]["x"] == 15 and nangong_calls[0]["args"]["y"] == 8, uat_msg
+
+    feixue_relay = "你可以去路昂那边吗？他好像有事情找你"
+    assert player_requests_move(feixue_relay), feixue_relay
+    assert classify_speak_intent(feixue_relay) == SpeakIntent.PHYSICAL, feixue_relay
+    luang_calls = inject_relative_move_tool([], player_message=feixue_relay, room=room)
+    assert luang_calls[0]["name"] == "move", feixue_relay
+    assert luang_calls[0]["args"]["x"] == 23 and luang_calls[0]["args"]["y"] == 10, feixue_relay
+
+    feixue_uat_short = "路昂找你，麻烦您去一下"
+    assert player_requests_move(feixue_uat_short), feixue_uat_short
+    assert classify_speak_intent(feixue_uat_short) == SpeakIntent.PHYSICAL, feixue_uat_short
+    short_calls = inject_relative_move_tool([], player_message=feixue_uat_short, room=room)
+    assert short_calls[0]["name"] == "move", feixue_uat_short
+    assert short_calls[0]["args"]["x"] == 23 and short_calls[0]["args"]["y"] == 10, feixue_uat_short

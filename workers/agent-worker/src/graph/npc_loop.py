@@ -10,19 +10,27 @@ from langgraph.graph import END, StateGraph
 
 from src.config import Settings, get_settings
 from src.graph.action_intent import (
+    build_dialogue_context,
     build_tool_retry_message,
     has_state_changing_tool,
     inject_relative_move_tool,
     player_requests_interact,
     player_requests_move,
     player_requests_physical_action,
+    resolve_npc_snap_anchor_cell,
 )
 from src.graph.action_sanitize import tool_calls_to_actions
 from src.graph.prompt import build_turn_messages, format_memory_summary
 from src.graph.reflect import run_reflect_llm, should_reflect
 from src.graph.state import GraphState
 from src.graph.summarize import maybe_bulk_summarize
-from src.graph.recall_merge import merge_recall_into_reply
+from src.graph.recall_merge import (
+    augment_retrieved_with_dialogue_turns,
+    augment_retrieved_with_recent,
+    is_recall_question,
+    merge_recall_into_reply,
+    needs_recency_augment,
+)
 from src.graph.reply_sanitize import sanitize_npc_reply
 from src.graph.tools import load_tools_for_binding, parse_tool_calls, reply_from_turn
 from src.http_json import safe_response_json
@@ -46,7 +54,7 @@ from src.collective.social_turn import (
     refresh_collective_snapshot,
 )
 from src.graph.nodes.llm_social_turn import llm_social_turn
-from src.graph.job_context import record_phase_ms
+from src.graph.job_context import get_partial_emit, record_phase_ms
 from src.graph.speak_intent import (
     SpeakIntent,
     classify_speak_intent,
@@ -57,6 +65,8 @@ from src.graph.speak_intent import (
 from src.llm.call_budget import record_llm_call
 from src.memory.client import (
     _MEMORY_CONTEXT_INTERACTIVE_TIMEOUT_S,
+    _MEMORY_CONTEXT_RECALL_ATTEMPTS,
+    _MEMORY_CONTEXT_RECALL_TIMEOUT_S,
     append_npc_memory,
     append_player_memory,
     fetch_memory_context,
@@ -82,6 +92,7 @@ def _game_headers(settings: Settings) -> dict[str, str]:
 
 _FETCH_STATE_TIMEOUT_S = 6.0
 _FETCH_STATE_ATTEMPTS = 2
+_FETCH_STATE_HOT_CACHE_TTL_S = 3.0
 _STALE_SNAPSHOT_TTL_S = 300.0
 _stale_worker_snapshots: dict[str, tuple[dict[str, Any], float]] = {}
 
@@ -107,6 +118,19 @@ def _stale_worker_snapshot(room_id: str, player_id: str) -> dict[str, Any] | Non
         return None
     age_ms = int((time.time() - ts) * 1000)
     return {**snap, "_stale": True, "_stale_age_ms": age_ms}
+
+
+def _hot_worker_snapshot(room_id: str, player_id: str) -> dict[str, Any] | None:
+    """Fresh worker-state snapshot within hot TTL — skip HTTP on back-to-back speaks."""
+    entry = _stale_worker_snapshots.get(_worker_state_stale_key(room_id, player_id))
+    if not entry:
+        return None
+    snap, ts = entry
+    age_s = time.time() - ts
+    if age_s > _FETCH_STATE_HOT_CACHE_TTL_S:
+        return None
+    age_ms = int(age_s * 1000)
+    return {**snap, "_cache_hit": True, "_cache_age_ms": age_ms}
 
 
 def _neutral_memory_fields() -> dict[str, Any]:
@@ -178,6 +202,13 @@ def fetch_state(
     url = f"{settings.game_server_url}/internal/rooms/{room_id}/worker-state"
     if skip_nearby_lore:
         url = f"{url}?skipNearbyLore=1"
+    hot = _hot_worker_snapshot(room_id, player_id)
+    if hot is not None:
+        age_ms = int(hot.pop("_cache_age_ms", 0))
+        hot.pop("_cache_hit", None)
+        record_phase_ms("t_fetch_state_ms", 0)
+        record_phase_ms("t_fetch_state_cache_age_ms", age_ms)
+        return {**state, "room_snapshot": hot}
     last_exc: BaseException | None = None
     for attempt in range(_FETCH_STATE_ATTEMPTS):
         try:
@@ -277,6 +308,44 @@ def load_memory_context(
             file=sys.stderr,
         )
         ctx = {}
+    player_msg = (state.get("player_message") or "").strip()
+    if needs_recency_augment(player_msg) and not skip_embed:
+        try:
+            recent = fetch_recent_memories(
+                client,
+                settings,
+                state["room_id"],
+                limit=20,
+                npc_id=npc_id,
+                player_id=_player_id(state),
+            )
+            augmented = augment_retrieved_with_recent(
+                ctx.get("retrieved"),
+                recent,
+            )
+            augmented = augment_retrieved_with_dialogue_turns(
+                augmented,
+                state.get("recent_turns"),
+            )
+            if augmented:
+                ctx = {
+                    **ctx,
+                    "retrieved": augmented,
+                    "memoryCount": max(
+                        int(ctx.get("memoryCount") or 0),
+                        len(augmented),
+                    ),
+                }
+                print(
+                    f"memory-context recall recency-augment room={state['room_id']} "
+                    f"npc={npc_id} rows={len(augmented)}",
+                    file=sys.stderr,
+                )
+        except Exception as exc:
+            print(
+                f"memory-context recall recency-augment failed room={state['room_id']}: {exc}",
+                file=sys.stderr,
+            )
     summary = format_memory_summary(
         latest_bulk=ctx.get("latestBulkSummary"),
         latest_reflection=ctx.get("latestReflection"),
@@ -365,13 +434,18 @@ def fetch_state_and_memory(
 
     def _memory() -> GraphState:
         t0 = time.perf_counter()
+        recall = intent == SpeakIntent.RECALL
+        memory_timeout = (
+            _MEMORY_CONTEXT_RECALL_TIMEOUT_S if recall else _MEMORY_CONTEXT_INTERACTIVE_TIMEOUT_S
+        )
+        memory_attempts = _MEMORY_CONTEXT_RECALL_ATTEMPTS if recall else 1
         with httpx.Client() as thread_client:
             out = load_memory_context(
                 state,
                 settings=settings,
                 client=thread_client,
-                memory_timeout=_MEMORY_CONTEXT_INTERACTIVE_TIMEOUT_S,
-                memory_attempts=1,
+                memory_timeout=memory_timeout,
+                memory_attempts=memory_attempts,
                 skip_embed=skip_embed,
             )
         record_phase_ms("t_memory_ms", int((time.perf_counter() - t0) * 1000))
@@ -545,7 +619,17 @@ def apply_tools(state: GraphState, *, settings: Settings, client: httpx.Client) 
     t0 = time.perf_counter()
     room = state.get("room_snapshot") or {}
     allowed = _allowed_tool_names(state)
-    raw_calls = state.get("tool_calls") or []
+    player_msg = state.get("player_message") or ""
+    dialogue_ctx = build_dialogue_context(player_msg, state.get("recent_turns"))
+    raw_calls = list(state.get("tool_calls") or [])
+    physical = player_requests_physical_action(player_msg)
+    if physical:
+        raw_calls = inject_relative_move_tool(
+            raw_calls,
+            player_message=player_msg,
+            room=room,
+            dialogue_context=dialogue_ctx,
+        )
     tool_calls, stripped = _filter_tool_calls(raw_calls, allowed)
     gate_rejected = bool(state.get("gate_rejected")) or stripped
     state = {**state, "tool_calls": tool_calls, "gate_rejected": gate_rejected}
@@ -563,10 +647,6 @@ def apply_tools(state: GraphState, *, settings: Settings, client: httpx.Client) 
     if player_id and player_id != "__legacy__":
         headers["X-Player-Id"] = player_id
         body["initiatorPlayerId"] = player_id
-    from src.graph.action_intent import build_dialogue_context, resolve_npc_snap_anchor_cell
-
-    player_msg = state.get("player_message") or ""
-    dialogue_ctx = build_dialogue_context(player_msg, state.get("recent_turns"))
     snap_anchor = resolve_npc_snap_anchor_cell(player_msg, room, dialogue_ctx)
     if snap_anchor is not None:
         body["moveSnapAnchor"] = {"x": snap_anchor[0], "y": snap_anchor[1]}
@@ -595,10 +675,14 @@ def apply_tools(state: GraphState, *, settings: Settings, client: httpx.Client) 
             f"apply-actions failed ({res.status_code}): {detail[:500]}",
         )
     body = safe_response_json(res)
+    updated_snapshot = body.get("state")
+    if not isinstance(updated_snapshot, dict):
+        updated_snapshot = state.get("room_snapshot") or {}
+    _remember_worker_snapshot(room_id, player_id, updated_snapshot)
     record_phase_ms("t_apply_ms", int((time.perf_counter() - t0) * 1000))
     return {
         **state,
-        "room_snapshot": body.get("state", state.get("room_snapshot", {})),
+        "room_snapshot": updated_snapshot,
         "pending_actions": actions,
     }
 
@@ -686,10 +770,12 @@ def refresh_collective_in_state(state: GraphState) -> GraphState:
 def compose_reply(state: GraphState) -> GraphState:
     state = _finalize_hostile_gate(state)
     reply = (state.get("reply_draft") or state.get("reply") or "").strip()
+    player_message = state.get("player_message") or ""
+    retrieved = state.get("retrieved_memories")
     reply = merge_recall_into_reply(
-        state.get("player_message") or "",
+        player_message,
         reply,
-        state.get("retrieved_memories"),
+        retrieved,
     )
     tool_calls = state.get("tool_calls") or []
 
@@ -707,7 +793,13 @@ def compose_reply(state: GraphState) -> GraphState:
         if hint not in reply:
             reply = f"{reply}{hint}"
 
-    return {**state, "reply": sanitize_npc_reply(reply)}
+    reply = sanitize_npc_reply(reply)
+    player_message = state.get("player_message") or ""
+    if is_recall_question(player_message):
+        emit = get_partial_emit()
+        if emit is not None and reply:
+            emit(reply)
+    return {**state, "reply": reply}
 
 
 def persist_turn_memory(

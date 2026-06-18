@@ -6,8 +6,10 @@ import time
 
 import httpx
 
-from src.collective.schemas import SocialTurnOut
+from src.collective.schemas import SocialTurnOut, is_social_skip
+from src.collective.social_turn import reconcile_social_perception
 from src.config import Settings, get_settings
+from src.graph.action_intent import player_requests_physical_action
 from src.graph.job_context import record_phase_ms
 from src.graph.npc_loop import (
     _neutral_memory_fields,
@@ -18,8 +20,23 @@ from src.graph.npc_loop import (
     fetch_state,
     refresh_collective_in_state,
 )
+from src.graph.reply_sanitize import sanitize_npc_reply
 from src.graph.speak_intent import SpeakIntent
 from src.graph.state import GraphState
+
+
+def _can_short_circuit_casual_lane(
+    preview: SocialTurnOut,
+    player_message: str,
+) -> bool:
+    """Pure casual: no physical tools and no collective side effects after reconcile."""
+    if player_requests_physical_action(player_message):
+        return False
+    perception = reconcile_social_perception(
+        player_message.strip(),
+        preview.social,
+    )
+    return is_social_skip(perception)
 
 
 def run_casual_fast_lane(
@@ -47,34 +64,40 @@ def run_casual_fast_lane(
     record_phase_ms("t_memory_ms", 0)
     record_phase_ms("t_social_llm_ms", 0)
 
-    t_fetch = time.perf_counter()
     with httpx.Client() as client:
+        t_fetch = time.perf_counter()
         state = fetch_state(
             state,
             settings=cfg,
             client=client,
             skip_nearby_lore=True,
         )
-    record_phase_ms("t_fetch_state_ms", int((time.perf_counter() - t_fetch) * 1000))
-    state = {**state, **_neutral_memory_fields()}
+        record_phase_ms("t_fetch_state_ms", int((time.perf_counter() - t_fetch) * 1000))
+        state = {**state, **_neutral_memory_fields()}
 
-    state = {
-        **state,
-        "social_perception": preview.social.model_dump(),
-        "reply_draft": preview.reply,
-        "tool_calls": [],
-        "social_applied": False,
-        "collective_updated": False,
-    }
+        state = {
+            **state,
+            "social_perception": preview.social.model_dump(),
+            "reply_draft": preview.reply,
+            "tool_calls": [],
+            "social_applied": False,
+            "collective_updated": False,
+        }
 
-    state = apply_social_event(state)
-    state = refresh_collective_in_state(state)
+        if _can_short_circuit_casual_lane(preview, player_message):
+            record_phase_ms("t_compose_ms", 0)
+            record_phase_ms("t_apply_ms", 0)
+            reply = sanitize_npc_reply(preview.reply.strip())
+            record_phase_ms("t_fast_lane_ms", int((time.perf_counter() - t_total) * 1000))
+            return {**state, "reply": reply}
 
-    with httpx.Client() as client:
+        state = apply_social_event(state)
+        state = refresh_collective_in_state(state)
         state = apply_tools(state, settings=cfg, client=client)
 
-    t_compose = time.perf_counter()
-    state = compose_reply(state)
-    record_phase_ms("t_compose_ms", int((time.perf_counter() - t_compose) * 1000))
+        t_compose = time.perf_counter()
+        state = compose_reply(state)
+        record_phase_ms("t_compose_ms", int((time.perf_counter() - t_compose) * 1000))
+
     record_phase_ms("t_fast_lane_ms", int((time.perf_counter() - t_total) * 1000))
     return state

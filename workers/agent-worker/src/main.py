@@ -15,6 +15,7 @@ from src.graph.memory_quote import pick_memory_quote
 from src.graph.casual_fast_lane import run_casual_fast_lane
 from src.graph.npc_loop import run_npc_memory_tail, run_npc_turn_interactive
 from src.graph.nodes.llm_social_turn import preview_casual_stub
+from src.graph.action_intent import player_requests_physical_action
 from src.graph.speak_intent import can_use_casual_fast_lane, can_use_social_edge_fast_lane
 from src.graph.social_edge_fast_lane import run_social_edge_fast_lane
 from src.graph.job_context import reset_job_context, set_job_context
@@ -193,6 +194,7 @@ def process_job(client: httpx.Client, settings: Settings, payload: dict) -> None
 
     ctx_tokens = set_job_context(partial_emit=partial_emit, phase_timing=phase_timing)
     start_recorder()
+    t_job = time.perf_counter()
     _set_speak_in_progress(True)
     try:
         recent = recent_turns if isinstance(recent_turns, list) else []
@@ -219,7 +221,7 @@ def process_job(client: httpx.Client, settings: Settings, payload: dict) -> None
                 preview=fast_preview,
                 settings=settings,
             )
-        elif social_preview is not None:
+        elif social_preview is not None and not player_requests_physical_action(player_message):
             partial_emit(social_preview.reply)
             result = run_social_edge_fast_lane(
                 room_id=room_id,
@@ -274,6 +276,7 @@ def process_job(client: httpx.Client, settings: Settings, payload: dict) -> None
     speak_intent = result.get("speak_intent")
     if isinstance(speak_intent, str) and speak_intent.strip():
         done_payload["speakIntent"] = speak_intent.strip()
+    phase_timing["t_worker_total_ms"] = int((time.perf_counter() - t_job) * 1000)
     if phase_timing:
         done_payload["phaseTimingMs"] = phase_timing
     if result.get("gate_rejected"):
@@ -287,6 +290,7 @@ def process_job(client: httpx.Client, settings: Settings, payload: dict) -> None
     memory_quote = pick_memory_quote(
         result.get("retrieved_memories"),
         int(result.get("memory_count") or 0),
+        player_message=str(result.get("player_message") or player_message or ""),
     )
     if memory_quote:
         done_payload["memoryQuote"] = memory_quote
@@ -310,6 +314,7 @@ def process_job(client: httpx.Client, settings: Settings, payload: dict) -> None
 
     def _memory_tail_worker() -> None:
         tail_started = time.perf_counter()
+        start_recorder()
         try:
             run_npc_memory_tail(result, settings)
             elapsed_ms = int((time.perf_counter() - tail_started) * 1000)
@@ -407,7 +412,10 @@ def run_worker() -> None:
                 continue
             if queue == "npc":
                 job_id = _job_id_from_payload(payload)
-                print(f"job received jobId={job_id}", file=sys.stderr)
+                print(
+                    f"job received jobId={job_id} npc={payload.get('npcId')}",
+                    file=sys.stderr,
+                )
                 try:
                     process_job(client, settings, payload)
                 except Exception as exc:
