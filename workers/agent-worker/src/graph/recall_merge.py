@@ -213,14 +213,34 @@ def needs_recency_augment(player_message: str) -> bool:
     return "密码" in msg or _is_nickname_recall_question(msg) or _is_food_recall_question(msg)
 
 
+def _password_topic(player_message: str) -> str | None:
+    msg = player_message.strip()
+    if "电脑" in msg and "密码" in msg:
+        return "computer"
+    if "门禁" in msg or "门锁" in msg:
+        return "door"
+    if "密码" in msg:
+        return "generic"
+    return None
+
+
 def _password_topic_score(player_message: str, memory_text: str) -> int:
-    if "电脑" not in player_message:
-        return 0
-    if "电脑" in memory_text or "电脑密码" in memory_text:
-        return 2
-    if "门锁" in memory_text or "门禁" in memory_text:
-        return 0
-    return 1
+    topic = _password_topic(player_message)
+    if topic == "computer":
+        if "电脑" in memory_text or "电脑密码" in memory_text:
+            return 2
+        if "门锁" in memory_text or "门禁" in memory_text:
+            return -1
+        return 1
+    if topic == "door":
+        if "门锁" in memory_text or "门禁" in memory_text:
+            return 2
+        if "电脑" in memory_text or "电脑密码" in memory_text:
+            return -1
+        return 1
+    if topic == "generic":
+        return 1
+    return 0
 
 
 _AMBIGUOUS_RECALL_RE = re.compile(r"不确定|两个|都说过|或者|还是|记不清|哪个")
@@ -358,6 +378,17 @@ def _pick_password_memory(
             candidates.append(item)
     if not candidates:
         return None
+
+    topic = _password_topic(player_message)
+    topic_matches = [
+        item
+        for item in candidates
+        if _password_topic_score(player_message, _memory_item_text(item)) > 0
+    ]
+    if topic in ("computer", "door") and not topic_matches:
+        return None
+    if topic_matches:
+        candidates = topic_matches
 
     def sort_key(item: dict[str, Any]) -> tuple[int, int, int, float]:
         raw = _memory_raw_text(item)

@@ -675,10 +675,14 @@ def apply_tools(state: GraphState, *, settings: Settings, client: httpx.Client) 
             f"apply-actions failed ({res.status_code}): {detail[:500]}",
         )
     body = safe_response_json(res)
+    updated_snapshot = body.get("state")
+    if not isinstance(updated_snapshot, dict):
+        updated_snapshot = state.get("room_snapshot") or {}
+    _remember_worker_snapshot(room_id, player_id, updated_snapshot)
     record_phase_ms("t_apply_ms", int((time.perf_counter() - t0) * 1000))
     return {
         **state,
-        "room_snapshot": body.get("state", state.get("room_snapshot", {})),
+        "room_snapshot": updated_snapshot,
         "pending_actions": actions,
     }
 

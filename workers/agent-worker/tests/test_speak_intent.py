@@ -48,6 +48,7 @@ def test_casual_intent():
 
 def test_narrative_default():
     assert classify_speak_intent("故宫在哪里，给我讲讲历史") == SpeakIntent.NARRATIVE
+    assert classify_speak_intent("那里有什么历史？") == SpeakIntent.NARRATIVE
     assert classify_speak_intent("这个世界是怎么形成的") == SpeakIntent.NARRATIVE
     assert classify_speak_intent("") == SpeakIntent.NARRATIVE
     assert classify_speak_intent("你在做什么呢？") == SpeakIntent.NARRATIVE

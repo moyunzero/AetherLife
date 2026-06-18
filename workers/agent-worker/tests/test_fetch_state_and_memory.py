@@ -200,3 +200,46 @@ def test_fetch_state_hot_cache_skips_http():
     client.get.assert_not_called()
     assert out["room_snapshot"]["npcs"][0]["x"] == 1
     record_phase.assert_any_call("t_fetch_state_ms", 0)
+
+
+def test_apply_tools_refreshes_hot_snapshot_cache():
+    from src.graph import npc_loop
+    from src.graph.npc_loop import apply_tools
+
+    npc_loop._stale_worker_snapshots.clear()
+    settings = Settings(game_server_url="http://127.0.0.1:2567")
+    old_room = {
+        "width": 40,
+        "height": 40,
+        "player": {"x": 5, "y": 5},
+        "npcs": [{"id": "npc-1", "x": 1, "y": 2}],
+    }
+    new_room = {
+        "width": 40,
+        "height": 40,
+        "player": {"x": 5, "y": 5},
+        "npcs": [{"id": "npc-1", "x": 10, "y": 20}],
+    }
+    state = {
+        "room_id": "default",
+        "player_id": "p1",
+        "npc_id": "npc-1",
+        "player_message": "向右走一步",
+        "room_snapshot": old_room,
+        "tool_calls": [{"name": "move", "args": {"type": "move", "x": 10, "y": 20}}],
+        "allowed_tools": ["move", "speak", "wait"],
+    }
+    npc_loop._remember_worker_snapshot("default", "p1", old_room)
+
+    ok_response = MagicMock()
+    ok_response.status_code = 200
+    ok_response.json.return_value = {"state": new_room}
+    client = MagicMock()
+    client.post.return_value = ok_response
+
+    apply_tools(state, settings=settings, client=client)
+
+    hot = npc_loop._hot_worker_snapshot("default", "p1")
+    assert hot is not None
+    assert hot["npcs"][0]["x"] == 10
+    assert hot["npcs"][0]["y"] == 20

@@ -50,17 +50,18 @@ async function main() {
 
   const playerId = `overlay${String(runId).slice(-10)}`;
   const chromium = await loadPlaywright();
-  const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext();
-  await context.addInitScript(
-    ({ key, id }) => {
-      localStorage.setItem(key, id);
-    },
-    { key: "aetherlife:playerId", id: playerId },
-  );
-  const page = await context.newPage();
-
+  /** @type {import('playwright').Browser | undefined} */
+  let browser;
   try {
+    browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext();
+    await context.addInitScript(
+      ({ key, id }) => {
+        localStorage.setItem(key, id);
+      },
+      { key: "aetherlife:playerId", id: playerId },
+    );
+    const page = await context.newPage();
     await page.goto(webUrl, { waitUntil: "networkidle", timeout: 120_000 });
     await page.locator('[data-testid="phaser-stage-fill"] canvas').first().waitFor({
       state: "visible",
@@ -126,7 +127,7 @@ async function main() {
 
     console.log(`[${SCRIPT}] PASS`);
   } finally {
-    await browser.close();
+    if (browser) await browser.close();
   }
 }
 

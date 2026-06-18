@@ -213,6 +213,12 @@ def test_pick_recall_password_no_unrelated_fallback():
     assert pick_recall_memory("还记得我家电脑密码吗？", retrieved) is None
 
 
+def test_pick_recall_computer_password_rejects_door_lock_only():
+    """Computer password question must not pick door-lock memory."""
+    retrieved = [{"text": "player: 请记住 sunset42 门禁密码是 7", "score": 0.95}]
+    assert pick_recall_memory("还记得我家电脑密码吗？", retrieved) is None
+
+
 def test_merge_recall_no_memory_blocks_hallucinated_password():
     out = merge_recall_into_reply(
         "还记得我家电脑密码吗？",
