@@ -30,10 +30,11 @@ from src.graph.recall_merge import (
     is_recall_question,
     merge_recall_into_reply,
     needs_recency_augment,
+    pick_recall_memory,
 )
 from src.graph.reply_sanitize import sanitize_npc_reply
 from src.graph.tools import load_tools_for_binding, parse_tool_calls, reply_from_turn
-from src.http_json import safe_response_json
+from src.http_json import create_http_client, safe_response_json
 from src.llm.errors import (
     LlmCallError,
     is_auth_error,
@@ -74,7 +75,7 @@ from src.memory.client import (
     parse_collective_from_context,
     store_reflection,
 )
-from src.memory.importance import score_importance, score_turn_importance
+from src.memory.importance import DEFAULT_IMPORTANCE, score_importance, score_turn_importance
 from src.persistence.checkpointer import get_checkpointer
 
 
@@ -309,13 +310,14 @@ def load_memory_context(
         )
         ctx = {}
     player_msg = (state.get("player_message") or "").strip()
+    recall_recent_limit = 30 if ("密码" in player_msg and is_recall_question(player_msg)) else 20
     if needs_recency_augment(player_msg) and not skip_embed:
         try:
             recent = fetch_recent_memories(
                 client,
                 settings,
                 state["room_id"],
-                limit=20,
+                limit=recall_recent_limit,
                 npc_id=npc_id,
                 player_id=_player_id(state),
             )
@@ -338,12 +340,60 @@ def load_memory_context(
                 }
                 print(
                     f"memory-context recall recency-augment room={state['room_id']} "
-                    f"npc={npc_id} rows={len(augmented)}",
+                    f"npc={npc_id} rows={len(augmented)} recent={len(recent)}",
                     file=sys.stderr,
                 )
         except Exception as exc:
             print(
                 f"memory-context recall recency-augment failed room={state['room_id']}: {exc}",
+                file=sys.stderr,
+            )
+
+    if is_recall_question(player_msg) and not pick_recall_memory(
+        player_msg,
+        ctx.get("retrieved"),
+    ):
+        try:
+            recent = fetch_recent_memories(
+                client,
+                settings,
+                state["room_id"],
+                limit=recall_recent_limit,
+                npc_id=npc_id,
+                player_id=_player_id(state),
+            )
+            if recent:
+                fallback = augment_retrieved_with_recent([], recent)
+                fallback = augment_retrieved_with_dialogue_turns(
+                    fallback,
+                    state.get("recent_turns"),
+                )
+                if pick_recall_memory(player_msg, fallback):
+                    ctx = {
+                        **ctx,
+                        "retrieved": fallback,
+                        "memoryCount": max(
+                            int(ctx.get("memoryCount") or 0),
+                            len(fallback),
+                        ),
+                    }
+                    print(
+                        f"memory-context recall recent-only fallback room={state['room_id']} "
+                        f"npc={npc_id} player={_player_id(state)} rows={len(fallback)}",
+                        file=sys.stderr,
+                    )
+                else:
+                    preview = (recent[0].get("text") or "")[:80] if recent else ""
+                    print(
+                        f"memory-context recall recent-only miss room={state['room_id']} "
+                        f"npc={npc_id} player={_player_id(state)} recent={len(recent)} "
+                        f"preview={preview!r}",
+                        file=sys.stderr,
+                    )
+        except Exception as exc:
+            print(
+                f"memory-context recall recent-only fallback failed "
+                f"room={state['room_id']}: {exc}",
                 file=sys.stderr,
             )
     summary = format_memory_summary(
@@ -395,7 +445,7 @@ def fetch_state_and_memory(
 
     if skip_memory:
         t0 = time.perf_counter()
-        with httpx.Client() as thread_client:
+        with create_http_client() as thread_client:
             state_with_room = fetch_state(
                 state,
                 settings=settings,
@@ -406,7 +456,7 @@ def fetch_state_and_memory(
         merged = {**state_with_room, **_neutral_memory_fields()}
         if intent == SpeakIntent.PHYSICAL:
             t_mem = time.perf_counter()
-            with httpx.Client() as thread_client:
+            with create_http_client() as thread_client:
                 merged.update(
                     _load_collective_gate_fields(
                         merged,
@@ -422,7 +472,7 @@ def fetch_state_and_memory(
 
     def _fetch() -> GraphState:
         t0 = time.perf_counter()
-        with httpx.Client() as thread_client:
+        with create_http_client() as thread_client:
             out = fetch_state(
                 state,
                 settings=settings,
@@ -439,7 +489,7 @@ def fetch_state_and_memory(
             _MEMORY_CONTEXT_RECALL_TIMEOUT_S if recall else _MEMORY_CONTEXT_INTERACTIVE_TIMEOUT_S
         )
         memory_attempts = _MEMORY_CONTEXT_RECALL_ATTEMPTS if recall else 1
-        with httpx.Client() as thread_client:
+        with create_http_client() as thread_client:
             out = load_memory_context(
                 state,
                 settings=settings,
@@ -465,7 +515,7 @@ def fetch_state_and_memory(
 
     if intent == SpeakIntent.NARRATIVE and message_needs_nearby_lore(player_message):
         t0 = time.perf_counter()
-        with httpx.Client() as thread_client:
+        with create_http_client() as thread_client:
             merged = fetch_nearby_lore_into_snapshot(
                 merged,
                 settings=settings,
@@ -817,19 +867,25 @@ def persist_turn_memory(
 
     player_message = (state.get("player_message") or "").strip()
     if player_message:
+        npc_id = state.get("npc_id") or "npc-1"
+        pid = _player_id(state)
+        # Write player line before importance LLM — tail may wait minutes on glm-4.7-flash=1;
+        # E2E/recent-memories must not block on score_turn_importance (ISSUE-055).
+        # process_job may have already fast-appended the player line before emit done.
+        if not state.get("_player_line_persisted"):
+            append_player_memory(
+                client,
+                settings,
+                state["room_id"],
+                player_message,
+                importance=DEFAULT_IMPORTANCE,
+                npc_id=npc_id,
+                player_id=pid,
+            )
         player_importance, npc_importance = score_turn_importance(
             player_message,
             text,
             settings,
-        )
-        append_player_memory(
-            client,
-            settings,
-            state["room_id"],
-            player_message,
-            importance=player_importance,
-            npc_id=state.get("npc_id") or "npc-1",
-            player_id=_player_id(state),
         )
     else:
         player_importance = 0
@@ -936,7 +992,7 @@ def _npc_turn_initial(
 
 def _with_client_node(cfg: Settings, node_fn):
     def wrapped(state: GraphState) -> GraphState:
-        with httpx.Client() as client:
+        with create_http_client() as client:
             return node_fn(state, settings=cfg, client=client)
 
     return wrapped
@@ -1019,7 +1075,7 @@ def run_npc_turn_interactive(
 def run_npc_memory_tail(state: GraphState, settings: Settings | None = None) -> GraphState:
     """Post-reply memory: importance, reflect, summarize — must not block Colyseus done."""
     cfg = settings or get_settings()
-    with httpx.Client() as client:
+    with create_http_client() as client:
         state = persist_turn_memory(state, settings=cfg, client=client)
         state = maybe_collective_refine(state, settings=cfg)
         state = maybe_reflect_turn(state, settings=cfg, client=client)

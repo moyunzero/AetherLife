@@ -11,6 +11,7 @@ from typing import Any
 import httpx
 
 from src.config import Settings, get_settings
+from src.http_json import create_http_client
 from src.graph.lore_loop import _extract_json_object, _invoke_lore_llm, _lore_provider_attempts
 from src.llm.errors import is_rate_limit_error, is_retryable_llm_error, should_try_lore_provider_fallback
 
@@ -263,7 +264,7 @@ def run_ambient_intent_job(
 ) -> None:
     cfg = settings or get_settings()
     owns_client = client is None
-    http = client or httpx.Client()
+    http = client or create_http_client()
     try:
         intent = generate_ambient_intent(payload, cfg)
         post_ambient_intent(http, cfg, payload, intent)

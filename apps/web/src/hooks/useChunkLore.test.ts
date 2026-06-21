@@ -1,5 +1,42 @@
 import { describe, expect, it } from "vitest";
-import { loreDiscoverToastsFromSync } from "./useChunkLore.js";
+import { discoveredLoreRows, loreDiscoverToastsFromSync } from "./useChunkLore.js";
+import type { ChunkLoreEntry } from "./useChunkLore.js";
+
+describe("discoveredLoreRows", () => {
+  it("returns ready chunks sorted by nameZh without coordinates", () => {
+    const loreByChunk = new Map<string, ChunkLoreEntry>([
+      [
+        "1,0",
+        {
+          status: "ready",
+          lore: {
+            nameZh: "乙地",
+            flavorOneLine: "f",
+            storyHook: "hook b",
+            proceduralBiome: "meadow",
+          },
+        },
+      ],
+      [
+        "0,0",
+        {
+          status: "ready",
+          lore: {
+            nameZh: "甲地",
+            flavorOneLine: "f",
+            storyHook: "hook a",
+            proceduralBiome: "meadow",
+          },
+        },
+      ],
+      ["2,0", { status: "pending" }],
+    ]);
+    expect(discoveredLoreRows(loreByChunk)).toEqual([
+      { nameZh: "甲地", storyHook: "hook a" },
+      { nameZh: "乙地", storyHook: "hook b" },
+    ]);
+  });
+});
 
 describe("loreDiscoverToastsFromSync", () => {
   it("queues toast on ready after pending isFirstDiscover (split loreSync messages)", () => {

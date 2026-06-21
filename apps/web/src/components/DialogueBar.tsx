@@ -8,7 +8,7 @@ import {
 import type { ChatMessage } from "../hooks/useNpcChat.js";
 import { CollectiveFeedbackBanner } from "./CollectiveFeedbackBanner.js";
 
-export type DrawerTab = "history" | "collective" | "memory";
+export type DrawerTab = "history" | "collective" | "discoveries" | "memory";
 
 type Props = {
   draft: string;
@@ -148,6 +148,14 @@ export function DialogueBar({
             onClick={() => onOpenDrawer("collective")}
           >
             见闻
+          </button>
+          <button
+            type="button"
+            className="dialogue-bar__drawer-btn"
+            aria-label="已发现"
+            onClick={() => onOpenDrawer("discoveries")}
+          >
+            已发现
           </button>
         </div>
       </div>

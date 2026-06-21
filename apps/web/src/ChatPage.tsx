@@ -2,6 +2,7 @@ import { bandLabelZh, createDefaultRoom, isBackgroundNpc, type RoomState } from 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useColyseusRoom } from "./hooks/useColyseusRoom.js";
+import { discoveredLoreRows } from "./hooks/useChunkLore.js";
 import { useNpcChat } from "./hooks/useNpcChat.js";
 import { MovementPanel } from "./components/MovementPanel.js";
 import { PhaserGame, probePhaserBoot, readReducedMotion } from "./components/PhaserGame.js";
@@ -58,6 +59,7 @@ export function ChatPage() {
     syncMetrics,
     remoteInterpMs,
     loadedChunks,
+    loreByChunk,
     loreForChunk,
     consumeDiscoverToast,
     loreToastQueue,
@@ -70,6 +72,7 @@ export function ChatPage() {
     bgNpcGridById,
   } = useColyseusRoom(mapRoomId, moveMap);
   const discoverToast = loreToastQueue[0] ?? null;
+  const discoveredRows = useMemo(() => discoveredLoreRows(loreByChunk), [loreByChunk]);
   const dismissDiscoverToast = useCallback(() => {
     consumeDiscoverToast();
   }, [consumeDiscoverToast]);
@@ -400,6 +403,7 @@ export function ChatPage() {
             streamingReply={streamingReply}
             collectiveSnapshot={collectiveSnapshot}
             collectiveLoading={collectiveLoading}
+            discoveredLoreRows={discoveredRows}
             roomId={mapRoomId}
             roomConnected={connected}
             lastParsedIntent={lastParsedIntent}

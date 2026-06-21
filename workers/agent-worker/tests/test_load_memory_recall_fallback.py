@@ -1,0 +1,35 @@
+from unittest.mock import MagicMock, patch
+
+import httpx
+
+from src.config import Settings
+from src.graph.npc_loop import load_memory_context
+from src.graph.recall_merge import pick_recall_memory
+
+
+def test_load_memory_context_uses_recent_only_when_embed_misses_seed():
+    state = {
+        "room_id": "verify-p21-test",
+        "player_message": "我之前说的 FACT-P21-ABC 门禁密码是多少？",
+        "npc_id": "npc-1",
+        "player_id": "verifyp211234567890",
+        "recent_turns": [],
+    }
+    settings = Settings(game_server_url="http://127.0.0.1:2567")
+    seed_row = {"text": "player: 请记住 FACT-P21-ABC 门禁密码是 7"}
+
+    with patch(
+        "src.graph.npc_loop.fetch_memory_context",
+        return_value={"memoryCount": 0, "retrieved": []},
+    ):
+        with patch(
+            "src.graph.npc_loop.fetch_recent_memories",
+            return_value=[seed_row],
+        ) as fetch_recent:
+            client = MagicMock(spec=httpx.Client)
+            out = load_memory_context(state, settings=settings, client=client)
+
+    assert fetch_recent.call_count >= 1
+    picked = pick_recall_memory(state["player_message"], out["retrieved_memories"])
+    assert picked is not None
+    assert "FACT-P21-ABC" in (picked.get("text") or "")

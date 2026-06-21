@@ -2,9 +2,11 @@ import type { KeyboardEvent } from "react";
 import type { ChatMessage } from "../hooks/useNpcChat.js";
 import type { CollectiveAttitudeSnapshot } from "../hooks/useCollectiveAttitude.js";
 import { CollectiveBrowsePanel } from "./CollectiveBrowsePanel.js";
+import { DiscoveredLorePanel } from "./DiscoveredLorePanel.js";
 import { MessageList } from "./MessageList.js";
 import { NpcMemoryPanel } from "./NpcMemoryPanel.js";
 import type { DrawerTab } from "./DialogueBar.js";
+import type { DiscoveredLoreRow } from "../hooks/useChunkLore.js";
 
 type ParsedIntent = Record<string, unknown> | null;
 
@@ -20,6 +22,7 @@ type Props = {
   streamingReply?: string | null;
   collectiveSnapshot: CollectiveAttitudeSnapshot | null;
   collectiveLoading: boolean;
+  discoveredLoreRows: DiscoveredLoreRow[];
   roomId: string;
   roomConnected: boolean;
   lastParsedIntent?: ParsedIntent;
@@ -29,6 +32,7 @@ type Props = {
 const TABS: { id: DrawerTab; label: string }[] = [
   { id: "history", label: "对话历史" },
   { id: "collective", label: "集体见闻" },
+  { id: "discoveries", label: "已发现" },
   { id: "memory", label: "记忆" },
 ];
 
@@ -86,6 +90,7 @@ export function ShellDrawer({
   streamingReply = null,
   collectiveSnapshot,
   collectiveLoading,
+  discoveredLoreRows,
   roomId,
   roomConnected,
   lastParsedIntent = null,
@@ -160,6 +165,10 @@ export function ShellDrawer({
               loading={collectiveLoading}
               embedded
             />
+          ) : null}
+
+          {tab === "discoveries" ? (
+            <DiscoveredLorePanel rows={discoveredLoreRows} embedded />
           ) : null}
 
           {tab === "memory" ? (

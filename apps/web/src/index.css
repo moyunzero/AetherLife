@@ -827,15 +827,14 @@ body {
   box-shadow: none;
 }
 
-/* v2-A: coords / quest / titles stay in DOM (a11y + E2E) but not above the world */
+/* v2-A: coords / titles stay in DOM (a11y + E2E) but not above the world */
 .immersive-shell .room-scene-panel::before {
   display: none;
 }
 
 .immersive-shell .room-scene-panel__title,
 .immersive-shell .room-scene-panel__subtitle,
-.immersive-shell .explore-coords-strip,
-.immersive-shell .journal-quest-strip {
+.immersive-shell .explore-coords-strip {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -1706,32 +1705,46 @@ body {
   font-style: italic;
 }
 
-.journal-quest-strip {
-  margin: 0 0 6px;
-  padding: 6px 10px 6px 12px;
-  border-left: 3px solid var(--accent, #c4a574);
-  border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--accent, #c4a574) 8%, var(--bg-deep, #0f0e0c));
+.discovered-lore-panel__title {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, #e8e4dc);
 }
 
-.journal-quest-strip__label {
-  display: block;
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  color: var(--accent, #c4a574);
-  margin-bottom: 2px;
+.discovered-lore-panel__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-.journal-quest-strip__hook {
+.discovered-lore-panel__row {
+  padding: 8px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--text-muted, #9a958a) 20%, transparent);
+}
+
+.discovered-lore-panel__row:last-child {
+  border-bottom: none;
+}
+
+.discovered-lore-panel__name {
+  margin: 0 0 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary, #e8e4dc);
+}
+
+.discovered-lore-panel__hook {
   margin: 0;
   font-size: 12px;
   line-height: 1.35;
-  color: var(--text-muted);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  color: var(--text-muted, #9a958a);
+}
+
+.discovered-lore-panel__empty {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted, #9a958a);
 }
 
 .collective-browse-panel {
