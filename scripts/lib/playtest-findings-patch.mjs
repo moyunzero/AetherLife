@@ -43,11 +43,25 @@ ${rows}
 export async function patchPlaytestFindings(findingsPath, report) {
   let md = await readFile(findingsPath, "utf8");
   const date = new Date().toISOString().slice(0, 10);
+  const scorecardMarker = "## Playtest scorecard (≥3 solo sessions × 15 min)";
+  const benchmarkMarker = "## Benchmark p50/p95";
 
+  if (!md.includes(scorecardMarker) || !md.includes(benchmarkMarker)) {
+    throw new Error(
+      `playtest findings patch: missing markers in ${findingsPath} (need scorecard + benchmark sections)`,
+    );
+  }
+
+  const statusBefore = md;
   md = md.replace(
     /\*\*Status:\*\*[^\n]*/,
     `**Status:** Playtest scorecard **automated** (${report.sessions.length} sessions); D-12 human sign-off optional if bands acceptable`,
   );
+  if (md === statusBefore) {
+    throw new Error(`playtest findings patch: Status block not updated in ${findingsPath}`);
+  }
+
+  const scorecardBefore = md;
   md = md.replace(
     /## Playtest scorecard \(≥3 solo sessions × 15 min\)[\s\S]*?(?=## Benchmark p50\/p95)/,
     `## Playtest scorecard (≥3 solo sessions × 15 min)
@@ -66,6 +80,9 @@ Chrome 375×812: document if T_think delta >30% vs desktop (D-11). _Not run in t
 
 `,
   );
+  if (md === scorecardBefore) {
+    throw new Error(`playtest findings patch: scorecard section not updated in ${findingsPath}`);
+  }
 
   const allBands = report.sessions.flatMap((s) => s.turns.map((t) => t.subjective));
   const noAbandon = !allBands.includes("放弃");

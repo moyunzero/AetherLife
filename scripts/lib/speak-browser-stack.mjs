@@ -44,7 +44,7 @@ export async function loadPlaywright() {
     // fall through
   }
   throw new Error(
-    "playwright not installed — run: cd scripts/.pw-deps && npm install",
+    "playwright not installed — run: cd scripts/.pw-deps && pnpm install",
   );
 }
 

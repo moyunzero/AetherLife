@@ -5,7 +5,7 @@
  * Replaces Phase 15 journal-quest-strip gate with lore-discover-toast + drawer「已发现」.
  */
 import { dirname, resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import {
   assertE2eNoMock,
   assertE2eRealLlm,
@@ -27,10 +27,12 @@ import {
   waitForMemoryContext,
 } from "./lib/e2e-memory-helpers.mjs";
 import { gameServerHttpBase, loadRootEnv } from "./lib/env.mjs";
+import { loadPlaywright } from "./lib/speak-browser-stack.mjs";
 
 const BOOT_WARN_MS = 5000;
 const BOOT_FAIL_MS = 8000;
-const BANNER_WAIT_MS = 30_000;
+const BANNER_WAIT_MS = Number.parseInt(process.env.E2E_BANNER_WAIT_MS || "", 10) || 60_000;
+const POST_MOVE_QUIET_MS = Number.parseInt(process.env.VERIFY_POST_MOVE_QUIET_MS || "", 10) || 8_000;
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 loadRootEnv(root);
@@ -58,16 +60,6 @@ const POST_MEMORY_QUIET_MS = Number.parseInt(
   10,
 ) || 15_000;
 
-async function loadPlaywright() {
-  const pwEntry = resolve(root, "scripts", ".pw-deps", "node_modules", "playwright", "index.mjs");
-  const pw = await import(pathToFileURL(pwEntry).href);
-  const chromium = pw.chromium ?? pw.default?.chromium;
-  if (!chromium) {
-    throw new Error("playwright not installed — cd scripts/.pw-deps && npm install");
-  }
-  return chromium;
-}
-
 async function waitFor(fn, timeoutMs, label) {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
@@ -91,6 +83,28 @@ async function healthOk() {
   if (body.service !== "game-server" && body.status !== "ok" && body.ok !== true) {
     throw new Error("unexpected health body");
   }
+}
+
+async function fetchCollectiveState(playerId, npcId = "npc-1") {
+  const qs = new URLSearchParams({ npcId });
+  const res = await fetch(
+    `${httpBase}/rooms/${encodeURIComponent(roomId)}/collective-state?${qs}`,
+    { headers: { "X-Player-Id": playerId, "Cache-Control": "no-cache" } },
+  );
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(`collective-state → ${res.status}: ${JSON.stringify(body)}`);
+  }
+  return body;
+}
+
+function latestRudeForPlayer(events, playerId) {
+  return (events ?? []).find(
+    (e) =>
+      e?.kind === "rude" &&
+      Array.isArray(e.playerIds) &&
+      e.playerIds[0] === playerId,
+  );
 }
 
 async function main() {
@@ -177,14 +191,26 @@ async function main() {
     console.log(
       `verify:phase21: speakMs=${moveReply.speakMs} text="移动到我的下方" reply="${moveReply.reply.slice(0, 60)}"`,
     );
+    await waitForExploreReadyAfterSpeak(page, { quietMs: POST_MOVE_QUIET_MS });
+    console.log(`verify:phase21: post-move quietMs=${POST_MOVE_QUIET_MS}`);
 
     const rudeStart = Date.now();
-    await sendSpeakOverlay(page, "你真没礼貌，滚开", { speakTimeoutMs });
+    const rudeReply = await sendSpeakOverlay(page, "你真没礼貌，滚开", { speakTimeoutMs });
+    console.log(
+      `verify:phase21: rudeSpeakMs=${rudeReply.speakMs} reply="${rudeReply.reply.slice(0, 60)}"`,
+    );
+
+    await waitFor(
+      async () => latestRudeForPlayer((await fetchCollectiveState(playerId)).recentEvents, playerId),
+      BANNER_WAIT_MS,
+      "collective rude event in API",
+    );
+    console.log(`verify:phase21: rude→apiMs=${Date.now() - rudeStart}`);
 
     await waitFor(
       async () => page.locator('[data-testid="collective-feedback-banner"]').isVisible(),
-      BANNER_WAIT_MS,
-      "collective-feedback-banner within 30s",
+      30_000,
+      "collective-feedback-banner within 30s of event",
     );
     console.log(`verify:phase21: rude→bannerMs=${Date.now() - rudeStart}`);
 

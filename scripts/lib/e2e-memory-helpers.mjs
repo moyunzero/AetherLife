@@ -132,10 +132,7 @@ const THINKING_LOCATOR =
 const OVERLAY_STREAMING = '[data-testid="dialogue-overlay-streaming"]';
 
 const OVERLAY_NPC_REPLY =
-  `${OVERLAY_STREAMING}, ` +
-  '[data-testid="dialogue-overlay"] .dialogue-overlay__last-line, ' +
-  '[data-testid="dialogue-overlay"] .dialogue-overlay__npc-text, ' +
-  '[data-testid="dialogue-overlay"] .dialogue-overlay__line--npc';
+  `${OVERLAY_STREAMING}, ` + '[data-testid="dialogue-overlay"] .dialogue-overlay__last-line';
 
 /**
  * Shell drawer hosts MessageList + npc-memory-callback; overlay speak keeps drawer closed by default.

@@ -95,7 +95,10 @@ async function healthOk() {
     if (!res.ok) throw new Error(`${label} health ${res.status}`);
     const body = await res.json().catch(() => ({}));
     if (label === "game-server") {
-      if (body.service !== "game-server" && body.status !== "ok" && body.ok !== true) {
+      if (
+        body.service !== "game-server" ||
+        (body.status !== "ok" && body.ok !== true)
+      ) {
         throw new Error(`${label} unexpected health body`);
       }
     } else if (body.status !== "ok") {
@@ -109,7 +112,7 @@ async function loadPlaywright() {
   const pw = await import(pathToFileURL(pwEntry).href);
   const chromium = pw.chromium ?? pw.default?.chromium;
   if (!chromium) {
-    throw new Error("playwright not installed — cd scripts/.pw-deps && npm install");
+    throw new Error("playwright not installed — cd scripts/.pw-deps && pnpm install");
   }
   return chromium;
 }

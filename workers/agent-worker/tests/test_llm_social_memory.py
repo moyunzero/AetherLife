@@ -24,4 +24,4 @@ def test_build_social_messages_includes_memory_summary():
     assert "门禁密码是 7" in system
     assert "禁止 meta 套话" in system
     assert "必须先写 reply" in system or "reply" in system
-    assert "reply" in human and "first key" in human
+    assert "Put \"reply\" as the first key" in human

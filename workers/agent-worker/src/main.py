@@ -119,8 +119,6 @@ def emit_job_event(
                 raise
             last = exc
             time.sleep(1 + attempt)
-    if last is not None:
-        raise last
 
 
 def validate_llm_settings(settings: Settings) -> None:

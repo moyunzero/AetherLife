@@ -7,6 +7,7 @@ import { sleep } from "./speak-browser-stack.mjs";
 export const THINKING_LOCATOR =
   '[data-testid="dialogue-overlay"] .message--thinking, [data-testid="dialogue-bar"] .message--thinking, .dialogue-overlay .message--thinking';
 export const OVERLAY_NPC_REPLY =
+  '[data-testid="dialogue-overlay"] .dialogue-overlay__last-line, ' +
   '[data-testid="dialogue-overlay"] .message--npc, [data-testid="dialogue-bar"] .message--npc, .dialogue-overlay .message--npc';
 
 /**

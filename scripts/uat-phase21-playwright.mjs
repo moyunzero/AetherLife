@@ -8,13 +8,14 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import {
   assertE2eNoMock,
   assertE2eRealLlm,
   e2eSpeakTimeoutMs,
 } from "./lib/e2e-policy.mjs";
 import { gameServerHttpBase, loadRootEnv } from "./lib/env.mjs";
+import { loadPlaywright } from "./lib/speak-browser-stack.mjs";
 import {
   assertJournalQuestStripAbsent,
   blurComposerForMovement,
@@ -31,7 +32,9 @@ import {
   pressMoveKey,
   readDiscoveredRows,
   readLoreToastBody,
+  readNpcSpriteGrids,
   readPlayerGrid,
+  npcGridMoved,
   scanForbiddenUiTerms,
   sendSpeakOverlay,
   waitFor,
@@ -100,14 +103,6 @@ async function shot(page, filename) {
   const file = resolve(OUT_DIR, filename);
   await page.screenshot({ path: file, fullPage: true });
   console.log(`  📸 ${file.replace(`${root}/`, "")}`);
-}
-
-async function loadPlaywright() {
-  const pwEntry = resolve(root, "scripts", ".pw-deps", "node_modules", "playwright", "index.mjs");
-  const pw = await import(pathToFileURL(pwEntry).href);
-  const chromium = pw.chromium ?? pw.default?.chromium;
-  if (!chromium) throw new Error("playwright not installed — cd scripts/.pw-deps && npm install");
-  return chromium;
 }
 
 async function healthOk() {
@@ -282,6 +277,7 @@ async function runP21_06(page) {
   await focusExploreForKeyboard(page);
 
   const gridBefore = await readPlayerGrid(page);
+  const npcBefore = await readNpcSpriteGrids(page);
   record("P21-06-01", "Capture gridBefore", Boolean(gridBefore), JSON.stringify(gridBefore));
 
   const { reply, speakMs } = await sendSpeakOverlay(page, "移动到我的下方", { speakTimeoutMs });
@@ -290,13 +286,9 @@ async function runP21_06(page) {
 
   await waitLocomotionIdle(page, 45_000);
   const gridAfter = await readPlayerGrid(page);
+  const npcAfter = await readNpcSpriteGrids(page);
 
-  const npcMoved = await page.evaluate(({ bx, by }) => {
-    const dbg = window.__aetherlife_npcDebug?.();
-    if (!dbg?.sprites?.length) return false;
-    return dbg.sprites.some((s) => Math.abs(s.gridX - bx) + Math.abs(s.gridY - by) >= 1);
-  }, { bx: gridBefore?.x ?? 0, by: gridBefore?.y ?? 0 });
-
+  const npcMoved = npcGridMoved(npcBefore, npcAfter);
   const playerMoved = gridDist(gridBefore, gridAfter) >= 1;
   record(
     "P21-06-04",

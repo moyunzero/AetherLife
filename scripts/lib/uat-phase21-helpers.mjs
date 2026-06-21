@@ -72,6 +72,33 @@ export async function readPlayerGrid(page) {
   });
 }
 
+/**
+ * @param {import('playwright').Page} page
+ * @returns {Promise<Array<{ id: string; x: number; y: number }>>}
+ */
+export async function readNpcSpriteGrids(page) {
+  return page.evaluate(() => {
+    const dbg = window.__aetherlife_npcDebug?.();
+    if (!dbg?.sprites?.length) return [];
+    return dbg.sprites.map((s) => ({ id: s.id, x: s.gridX, y: s.gridY }));
+  });
+}
+
+/**
+ * @param {Array<{ id: string; x: number; y: number }>} before
+ * @param {Array<{ id: string; x: number; y: number }>} after
+ * @param {number} [minDist=1]
+ */
+export function npcGridMoved(before, after, minDist = 1) {
+  if (!before?.length || !after?.length) return false;
+  for (const b of before) {
+    const a = after.find((n) => n.id === b.id);
+    if (!a) continue;
+    if (Math.abs(a.x - b.x) + Math.abs(a.y - b.y) >= minDist) return true;
+  }
+  return false;
+}
+
 export async function blurComposerForMovement(page) {
   await page.evaluate(() => {
     document.querySelector("textarea.composer__input")?.blur();
