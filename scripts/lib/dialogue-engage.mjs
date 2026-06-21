@@ -30,18 +30,23 @@ export async function engageDialogue(page, { timeoutMs = 45_000 } = {}) {
 
     await cornerMenu.locator(".corner-menu__trigger").click();
 
-    const npcTab = page.locator('[data-testid="corner-menu-nearby"] [role="tab"]').first();
-    if ((await npcTab.count()) > 0) {
-      await npcTab.click();
+    const npcChip = page.locator("#npc-avatar-npc-1");
+    if (await npcChip.isVisible().catch(() => false)) {
+      await npcChip.click();
     } else {
-      await cornerMenu.locator(".corner-menu__trigger").click();
-      const box = await canvas.boundingBox();
-      if (!box) {
-        throw new Error("cannot engage dialogue: no nearby NPC chip and canvas missing");
+      const npcTab = page.locator('[data-testid="corner-menu-nearby"] [role="tab"]').first();
+      if ((await npcTab.count()) > 0) {
+        await npcTab.click();
+      } else {
+        await cornerMenu.locator(".corner-menu__trigger").click();
+        const box = await canvas.boundingBox();
+        if (!box) {
+          throw new Error("cannot engage dialogue: no nearby NPC chip and canvas missing");
+        }
+        await canvas.click({
+          position: { x: Math.round(box.width * 0.5), y: Math.round(box.height * 0.45) },
+        });
       }
-      await canvas.click({
-        position: { x: Math.round(box.width * 0.5), y: Math.round(box.height * 0.45) },
-      });
     }
 
     try {

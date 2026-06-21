@@ -6,6 +6,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { assertE2eNoMock } from "./lib/e2e-policy.mjs";
 import { gameServerHttpBase, loadRootEnv } from "./lib/env.mjs";
+import { focusExploreForKeyboard } from "./lib/uat-phase21-helpers.mjs";
 
 const BOOT_WARN_MS = 5000;
 const BOOT_FAIL_MS = 8000;
@@ -124,7 +125,7 @@ async function main() {
       `verify:phase13: aesthetic OK fill=${aesthetic.panelFillRatio?.toFixed(3)} spriteH=${aesthetic.playerDisplayHeightPx?.toFixed(1)}px`,
     );
 
-    await page.locator('[data-testid="explore-coords-strip"]').click();
+    await focusExploreForKeyboard(page);
     await page.waitForTimeout(200);
     const startChunk = (await readExploreChunk(page)) ?? { cx: 0, cy: 0 };
 

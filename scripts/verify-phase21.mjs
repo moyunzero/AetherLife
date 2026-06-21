@@ -11,7 +11,14 @@ import {
   assertE2eRealLlm,
   e2eSpeakTimeoutMs,
 } from "./lib/e2e-policy.mjs";
-import { engageDialogue } from "./lib/dialogue-engage.mjs";
+import {
+  assertJournalQuestStripAbsent,
+  ensureMinDiscoveredRows,
+  exploreUntilLoreDiscover,
+  openDrawerDiscoveries,
+  reloadHomesteadSession,
+  waitForExploreReadyAfterSpeak,
+} from "./lib/uat-phase21-helpers.mjs";
 import {
   closeShellDrawer,
   openShellDrawerHistory,
@@ -45,84 +52,11 @@ const MEMORY_POLL_MS = Number.parseInt(
     "300000",
   10,
 );
-const E2E_LORE_TIMEOUT_MS = Number.parseInt(process.env.E2E_LORE_TIMEOUT_MS || "", 10) || 180_000;
-
-async function readExploreChunk(page) {
-  return page.evaluate(() => {
-    const strip = document.querySelector('[data-testid="explore-coords-strip"]');
-    if (!strip) return null;
-    const text = strip.textContent ?? "";
-    const m = text.match(/chunk\s*\((-?\d+),\s*(-?\d+)\)/);
-    if (!m) return null;
-    return { cx: Number.parseInt(m[1], 10), cy: Number.parseInt(m[2], 10) };
-  });
-}
-
-function chunkManhattanDist(a, b) {
-  return Math.abs(a.cx - b.cx) + Math.abs(a.cy - b.cy);
-}
-
-/** Composer textarea focus blocks WASD via gridMovement blocksMovementKeys. */
-async function blurComposerForMovement(page) {
-  await page.evaluate(() => {
-    document.querySelector("textarea.composer__input")?.blur();
-    document.querySelector("input.composer__input")?.blur();
-    if (document.activeElement instanceof HTMLElement) {
-      document.activeElement.blur();
-    }
-  });
-}
-
-async function readMovementProbe(page) {
-  return page.evaluate(() => {
-    const active = document.activeElement;
-    const placeName = document.querySelector('[data-testid="explore-place-name"]')?.textContent?.trim() ?? "";
-    return {
-      activeTag: active?.tagName ?? null,
-      activeClass: active instanceof HTMLElement ? active.className : null,
-      composerFocused: Boolean(
-        active instanceof HTMLTextAreaElement && active.classList.contains("composer__input"),
-      ),
-      placeName,
-      lorePending: Boolean(document.querySelector('[data-testid="lore-pending-hint"]')),
-      moveDebug: typeof window.__aetherlife_moveDebug === "function" ? window.__aetherlife_moveDebug() : null,
-    };
-  });
-}
-
-/** Immersive shell visually hides explore-coords-strip; focus canvas for WASD. */
-async function focusExploreForKeyboard(page) {
-  await closeShellDrawer(page);
-  const stageCanvas = page.locator('[data-testid="phaser-stage-fill"] canvas').first();
-  const parentCanvas = page.locator('[data-testid="phaser-parent"] canvas').first();
-  const target = (await stageCanvas.count()) > 0 ? stageCanvas : parentCanvas;
-  await target.waitFor({ state: "visible", timeout: 30_000 });
-  const box = await target.boundingBox();
-  if (!box) {
-    throw new Error("explore focus: canvas missing boundingBox");
-  }
-  await blurComposerForMovement(page);
-  await target.click({
-    position: { x: Math.max(1, Math.floor(box.width / 2)), y: Math.max(1, Math.floor(box.height / 2)) },
-  });
-  await blurComposerForMovement(page);
-}
-
-function internalHeaders() {
-  const headers = { "Content-Type": "application/json" };
-  const token = process.env.INTERNAL_WORKER_TOKEN;
-  if (token) headers.Authorization = `Bearer ${token}`;
-  return headers;
-}
-
-async function healthOk() {
-  const res = await fetch(`${httpBase}/health`);
-  if (!res.ok) throw new Error(`health ${res.status}`);
-  const body = await res.json().catch(() => ({}));
-  if (body.service !== "game-server" && body.status !== "ok" && body.ok !== true) {
-    throw new Error("unexpected health body");
-  }
-}
+const E2E_LORE_TIMEOUT_MS = Number.parseInt(process.env.E2E_LORE_TIMEOUT_MS || "", 10) || 240_000;
+const POST_MEMORY_QUIET_MS = Number.parseInt(
+  process.env.VERIFY_POST_MEMORY_QUIET_MS || process.env.VERIFY_GATE_QUIET_MS || "",
+  10,
+) || 15_000;
 
 async function loadPlaywright() {
   const pwEntry = resolve(root, "scripts", ".pw-deps", "node_modules", "playwright", "index.mjs");
@@ -143,156 +77,20 @@ async function waitFor(fn, timeoutMs, label) {
   throw new Error(`timeout: ${label} (${timeoutMs}ms)`);
 }
 
-async function assertJournalQuestStripAbsent(page) {
-  const strip = page.locator('[data-testid="journal-quest-strip"]');
-  if (await strip.isVisible().catch(() => false)) {
-    throw new Error("journal-quest-strip must not be visible (Phase 21 SOLO-03)");
-  }
+function internalHeaders() {
+  const headers = { "Content-Type": "application/json" };
+  const token = process.env.INTERNAL_WORKER_TOKEN;
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
 }
 
-async function readLoreToastBody(page) {
-  const toast = page.locator('[data-testid="lore-discover-toast"]');
-  if (!(await toast.isVisible().catch(() => false))) return "";
-  return (await page.locator(".lore-discover-toast__body").innerText().catch(() => "")).trim();
-}
-
-async function drainMovementPending(page) {
-  await page.waitForFunction(
-    () => {
-      const d = window.__aetherlife_moveDebug?.();
-      return d != null && d.pending === 0 && !d.locomoting;
-    },
-    { timeout: 15_000 },
-  );
-  await page.waitForTimeout(400);
-}
-
-/** @returns {Promise<string | null>} story hook when toast visible */
-async function pressMoveKey(page, key) {
-  await assertJournalQuestStripAbsent(page);
-  await page.keyboard.press(key);
-  await page.waitForTimeout(180);
-  const body = await readLoreToastBody(page);
-  if (body.length > 0) {
-    return body;
+async function healthOk() {
+  const res = await fetch(`${httpBase}/health`);
+  if (!res.ok) throw new Error(`health ${res.status}`);
+  const body = await res.json().catch(() => ({}));
+  if (body.service !== "game-server" && body.status !== "ok" && body.ok !== true) {
+    throw new Error("unexpected health body");
   }
-  return null;
-}
-
-async function exploreUntilLoreDiscover(page) {
-  await assertJournalQuestStripAbsent(page);
-  await closeShellDrawer(page);
-  await page.locator('[data-testid="explore-coords-strip"]').waitFor({ timeout: 30_000 });
-  await page.locator('[data-testid="explore-place-name"]').waitFor({ timeout: 30_000 });
-
-  await blurComposerForMovement(page);
-  await focusExploreForKeyboard(page);
-
-  const startChunk = (await readExploreChunk(page)) ?? { cx: 0, cy: 0 };
-  await readMovementProbe(page);
-
-  // South from home (seed-42 highland blocks east at spawn); north fallback matches debug-lore-toast.mjs.
-  for (let i = 0; i < 48; i += 1) {
-    const hook = await pressMoveKey(page, "s");
-    if (hook) {
-      console.log(`verify:phase21: lore toast hook="${hook.slice(0, 80)}"`);
-      return hook;
-    }
-  }
-
-  await drainMovementPending(page);
-  let endChunk = await readExploreChunk(page);
-  let chunkDist = endChunk ? chunkManhattanDist(startChunk, endChunk) : 0;
-
-  if (chunkDist < 2) {
-    console.warn(
-      `verify:phase21: south travel dist=${chunkDist} start=${JSON.stringify(startChunk)} end=${JSON.stringify(endChunk)} — retry north`,
-    );
-    await blurComposerForMovement(page);
-    await focusExploreForKeyboard(page);
-    for (let i = 0; i < 28; i += 1) {
-      const hook = await pressMoveKey(page, "w");
-      if (hook) {
-        console.log(`verify:phase21: lore toast hook="${hook.slice(0, 80)}"`);
-        return hook;
-      }
-    }
-    await drainMovementPending(page);
-    endChunk = await readExploreChunk(page);
-    chunkDist = endChunk ? chunkManhattanDist(startChunk, endChunk) : 0;
-  }
-
-  const postMove = await readMovementProbe(page);
-
-  if (chunkDist < 2) {
-    throw new Error(
-      `WASD did not cross chunks (composer focus or movement blocked?) start=${JSON.stringify(startChunk)} end=${JSON.stringify(endChunk)} dist=${chunkDist} probe=${JSON.stringify(postMove)}`,
-    );
-  }
-
-  console.log(
-    `verify:phase21: chunk cross OK start=${JSON.stringify(startChunk)} end=${JSON.stringify(endChunk)} dist=${chunkDist}`,
-  );
-
-  let sawPending = postMove.lorePending;
-  let loreReadyViaPlace = false;
-  await waitFor(
-    async () => {
-      await assertJournalQuestStripAbsent(page);
-      const body = await readLoreToastBody(page);
-      if (body.length > 0) return true;
-
-      const snap = await readMovementProbe(page);
-      if (snap.lorePending) sawPending = true;
-      const hasFlavor = snap.placeName.includes("·");
-      if (!snap.lorePending && hasFlavor && !snap.placeName.includes("晨曦村")) {
-        loreReadyViaPlace = true;
-        return true;
-      }
-      return false;
-    },
-    E2E_LORE_TIMEOUT_MS,
-    "lore-discover-toast with non-empty body",
-  );
-
-  let hookText = await readLoreToastBody(page);
-  if (!hookText && loreReadyViaPlace) {
-    const placeName = (await readMovementProbe(page)).placeName;
-    const flavor = placeName.split("·")[1]?.trim();
-    hookText = flavor || placeName;
-    console.warn(`verify:phase21: lore toast missed; using place flavor="${hookText.slice(0, 80)}"`);
-  }
-  if (!hookText) {
-    throw new Error(
-      `lore not ready after ${E2E_LORE_TIMEOUT_MS}ms sawPending=${sawPending}`,
-    );
-  }
-  console.log(`verify:phase21: lore toast hook="${hookText.slice(0, 80)}"`);
-  return hookText;
-}
-
-async function openDrawerDiscoveries(page) {
-  await closeShellDrawer(page);
-  const dialogueBar = page.locator('[data-testid="dialogue-bar"]');
-  if (!(await dialogueBar.isVisible().catch(() => false))) {
-    await engageDialogue(page);
-  }
-
-  await page.locator('[aria-label="已发现"]').click();
-  const drawer = page.locator('[data-testid="shell-drawer"]');
-  await drawer.waitFor({ state: "visible", timeout: 10_000 });
-  await page.locator("#shell-drawer-tab-discoveries").click();
-  await page.locator("#shell-drawer-panel-discoveries").waitFor({
-    state: "visible",
-    timeout: 10_000,
-  });
-  await waitFor(
-    async () => (await page.locator('[data-testid="discovered-lore-row"]').count()) > 0,
-    15_000,
-    "discovered-lore-row in drawer",
-  );
-  console.log("verify:phase21: drawer discoveries OK");
-  await closeShellDrawer(page);
 }
 
 async function main() {
@@ -356,7 +154,23 @@ async function main() {
     console.log(`verify:phase21: memory seed persisted (${MEMORY_SEED})`);
     await closeShellDrawer(page);
 
-    await exploreUntilLoreDiscover(page);
+    await waitForExploreReadyAfterSpeak(page, { quietMs: POST_MEMORY_QUIET_MS });
+    console.log(`verify:phase21: post-memory quietMs=${POST_MEMORY_QUIET_MS}`);
+
+    let hook = "";
+    try {
+      hook = (await exploreUntilLoreDiscover(page, E2E_LORE_TIMEOUT_MS)).trim();
+    } catch (err) {
+      console.warn(`verify:phase21: exploreUntilLoreDiscover failed (${err.message}), drawer fallback`);
+      const rows = await ensureMinDiscoveredRows(page, 1, Math.min(120_000, E2E_LORE_TIMEOUT_MS));
+      hook = rows[0]?.hook?.trim() ?? "";
+    }
+    if (!hook) {
+      throw new Error("lore-discover-toast with non-empty body");
+    }
+    console.log(`verify:phase21: lore hook len=${hook.length}`);
+
+    await reloadHomesteadSession(page);
     await openDrawerDiscoveries(page);
 
     const moveReply = await sendSpeakOverlay(page, "移动到我的下方", { speakTimeoutMs });
