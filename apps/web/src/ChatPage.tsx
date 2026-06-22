@@ -144,16 +144,31 @@ export function ChatPage() {
       ? latestCollectiveEvent.kind
       : null;
 
+  const pendingCollectiveAutoOpenRef = useRef(false);
+
   useEffect(() => {
     const event = collectiveSnapshot?.recentEvents[0];
     if (!event || (event.kind !== "rude" && event.kind !== "help")) return;
     if (resolveCollectiveInitiatorPlayerId(event) !== playerId) return;
     const key = `collective-auto-open:${mapRoomId}:${activeNpcId}`;
     if (sessionStorage.getItem(key)) return;
-    sessionStorage.setItem(key, "1");
+    pendingCollectiveAutoOpenRef.current = true;
     setDrawerTab("collective");
     setDrawerOpen(true);
   }, [collectiveSnapshot?.recentEvents, mapRoomId, activeNpcId, playerId]);
+
+  // Defer sessionStorage until drawer stays open — Strict Mode remount clears the timer
+  // before storage is set, so the second mount can still auto-open (dev + Playwright UAT).
+  useEffect(() => {
+    if (!pendingCollectiveAutoOpenRef.current) return;
+    if (!drawerOpen || drawerTab !== "collective") return;
+    const key = `collective-auto-open:${mapRoomId}:${activeNpcId}`;
+    const t = window.setTimeout(() => {
+      sessionStorage.setItem(key, "1");
+      pendingCollectiveAutoOpenRef.current = false;
+    }, 100);
+    return () => window.clearTimeout(t);
+  }, [drawerOpen, drawerTab, mapRoomId, activeNpcId]);
 
   const openDrawer = useCallback((tab: DrawerTab) => {
     setDrawerTab(tab);

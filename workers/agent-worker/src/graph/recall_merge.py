@@ -35,7 +35,7 @@ _ROLE_PREFIX = re.compile(r"^(?:player|npc)\s*:\s*", re.IGNORECASE)
 _PLAYER_ROLE_PREFIX = re.compile(r"^player\s*:\s*", re.IGNORECASE)
 _NPC_PARAPHRASE_MARKERS = ("你刚刚说", "你之前说", "你之前提到", "提到过", "都说过")
 _PASSWORD_ANS_RE = re.compile(
-    r"密码(?:是|为)\s*([^\s。，,.!?；;～~吗呢吧啊？?]+)",
+    r"密码(?:是|为|[:：])\s*([^\s。，,.!?；;～~吗呢吧啊？?]+)",
     re.IGNORECASE,
 )
 _INVALID_PASSWORD_ANSWERS = frozenset({"吗", "呢", "吧", "啊", "么"})

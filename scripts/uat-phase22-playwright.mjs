@@ -239,7 +239,7 @@ async function runP22_01(page, { memorySeed, nickSeed }) {
   recordWarn(
     "P22-01-02",
     "C1 unprompted recall in casual chat (human sign-off)",
-    "Sign 22-UAT.md — NPC 在闲聊中自然提起先前内容",
+    "Sign 22-UAT-MATRIX.md — NPC 在闲聊中自然提起先前内容",
   );
 }
 
@@ -405,7 +405,7 @@ async function runP22_05(page) {
   recordWarn(
     "P22-05-02",
     "C5 charter band felt fast enough (human sign-off)",
-    "Sign 22-UAT.md — subjective SLA per SPEAK-SLA-UX",
+    "Sign 22-UAT-MATRIX.md — subjective SLA per SPEAK-SLA-UX",
   );
 }
 
@@ -482,7 +482,7 @@ async function writeReportMd() {
     "",
     "- P22-01-02: C1 unprompted recall in casual chat",
     "- P22-05-02: C5 charter band felt fast enough",
-    "- Natural stop ≥15min (D-14) — see 22-UAT.md",
+    "- Natural stop ≥15min (D-14) — see 22-UAT-MATRIX.md",
     "",
     "## Sign-off",
     "",

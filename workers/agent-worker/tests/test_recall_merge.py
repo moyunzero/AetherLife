@@ -65,8 +65,17 @@ def test_merge_recall_fixes_fact_token_echo_without_password():
 def test_extract_password_answer():
     assert extract_password_answer("请记住 FACT 门禁密码是 7") == "7"
     assert extract_password_answer("请记住我家电脑密码是 111") == "111"
+    assert extract_password_answer("我告诉你我家门禁密码：08080") == "08080"
+    assert extract_password_answer("player: 我告诉你我家门禁密码：08080") == "08080"
     assert extract_password_answer("还记得我家电脑密码吗？") is None
     assert extract_password_answer("player: 还记得我家电脑密码吗？") is None
+
+
+def test_pick_recall_password_colon_disclosure_seed():
+    seed = {"text": "player: 我告诉你我家门禁密码：08080", "score": 0.96}
+    picked = pick_recall_memory("我家门禁密码是多少？", [seed])
+    assert picked is not None
+    assert extract_password_answer(picked["text"]) == "08080"
 
 
 def test_extract_nickname_rejects_recall_question_row():
