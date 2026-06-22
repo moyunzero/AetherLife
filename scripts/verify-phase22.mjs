@@ -267,6 +267,22 @@ async function runInlineDelta() {
     console.log("verify:phase22: help path — no second auto-open OK");
 
     await openShellDrawerCollective(page);
+    await waitFor(
+      async () => {
+        const st = await fetchCollectiveState(roomId, playerId);
+        const events = st.recentEvents ?? [];
+        if (
+          !latestEventOfKind(events, playerId, "rude") ||
+          !latestEventOfKind(events, playerId, "help")
+        ) {
+          return false;
+        }
+        const count = await page.locator('[data-testid="collective-recent-events"] li').count();
+        return count >= 2;
+      },
+      BANNER_WAIT_MS,
+      "collective-recent-events ≥2 rows after help",
+    );
     await assertCollectiveEventsWithSummaries(page, 2);
     console.log("verify:phase22: collective browse ≥2 events with summaries OK");
     await closeShellDrawer(page);

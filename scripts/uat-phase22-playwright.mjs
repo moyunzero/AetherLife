@@ -381,6 +381,11 @@ async function runP22_04(page, playerId) {
   record("P22-04-03", "C4 attitude-band-chip visible", bandVisible);
 
   const events = page.locator('[data-testid="collective-recent-events"] li');
+  await waitFor(
+    async () => (await events.count()) >= 2,
+    BANNER_WAIT_MS,
+    "collective-recent-events ≥2 rows after help",
+  );
   const eventCount = await events.count();
   record("P22-04-04", "C4 collective-recent-events ≥2 rows", eventCount >= 2, `count=${eventCount}`);
   await shot(page, "p22-04-collective.png");
