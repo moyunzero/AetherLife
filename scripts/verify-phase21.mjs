@@ -209,8 +209,8 @@ async function main() {
 
     await waitFor(
       async () => page.locator('[data-testid="collective-feedback-banner"]').isVisible(),
-      30_000,
-      "collective-feedback-banner within 30s of event",
+      BANNER_WAIT_MS,
+      "collective-feedback-banner within banner wait of event",
     );
     console.log(`verify:phase21: rude→bannerMs=${Date.now() - rudeStart}`);
 
