@@ -550,8 +550,22 @@ async function main() {
         "NL npc-2 player B",
         speakTimeoutMs,
       );
-      await waitForNpcAdjacent(roomA, roomA.sessionId, playerAId, "npc-1", "player A → npc-1");
-      await waitForNpcAdjacent(roomB, roomB.sessionId, playerBId, "npc-2", "player B → npc-2");
+      await waitForNpcAdjacent(
+        roomA,
+        roomA.sessionId,
+        playerAId,
+        "npc-1",
+        "player A → npc-1",
+        speakTimeoutMs,
+      );
+      await waitForNpcAdjacent(
+        roomB,
+        roomB.sessionId,
+        playerBId,
+        "npc-2",
+        "player B → npc-2",
+        speakTimeoutMs,
+      );
       console.log("verify:phase8: dual NL relative move (adjacent) OK");
     }
 

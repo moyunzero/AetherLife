@@ -190,9 +190,12 @@ async function runScenario() {
       throw new Error(`bootMs=${bootMs} exceeds fail threshold ${BOOT_FAIL_MS}ms`);
     }
 
-    await engageDialogue(page);
+    await engageDialogue(page, { timeoutMs: 90_000 });
 
-    const casual = await sendSpeakOverlay(page, "你好，用一句话简短回复", { speakTimeoutMs });
+    const casual = await sendSpeakOverlay(page, "你好，用一句话简短回复", {
+      speakTimeoutMs,
+      engageTimeoutMs: 90_000,
+    });
     console.log(
       `verify:phase20: latency smoke speakMs=${casual.speakMs} thinkingMs=${casual.thinkingMs} firstTextMs=${casual.firstTextMs}`,
     );
@@ -230,12 +233,19 @@ async function runScenario() {
       state: "visible",
       timeout: 45_000,
     });
-    await engageDialogue(page);
+    await page.waitForFunction(
+      () =>
+        Boolean(
+          document.querySelector('[data-testid="corner-menu"] .corner-menu__status-dot--ok'),
+        ),
+      { timeout: 60_000 },
+    );
+    await engageDialogue(page, { timeoutMs: 90_000 });
 
     const { reply: recallReply } = await sendSpeakOverlay(
       page,
       `我之前说的 ${memorySeed} 门禁密码是多少？`,
-      { speakTimeoutMs },
+      { speakTimeoutMs, engageTimeoutMs: 90_000 },
     );
 
     await openShellDrawerHistory(page);

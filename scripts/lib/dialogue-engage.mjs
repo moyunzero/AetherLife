@@ -31,13 +31,15 @@ export async function engageDialogue(page, { timeoutMs = 45_000 } = {}) {
     await cornerMenu.locator(".corner-menu__trigger").click();
 
     const npcChip = page.locator("#npc-avatar-npc-1");
-    if (await npcChip.isVisible().catch(() => false)) {
+    try {
+      await npcChip.waitFor({ state: "visible", timeout: 12_000 });
       await npcChip.click();
-    } else {
+    } catch {
       const npcTab = page.locator('[data-testid="corner-menu-nearby"] [role="tab"]').first();
-      if ((await npcTab.count()) > 0) {
+      try {
+        await npcTab.waitFor({ state: "visible", timeout: 12_000 });
         await npcTab.click();
-      } else {
+      } catch {
         await cornerMenu.locator(".corner-menu__trigger").click();
         const box = await canvas.boundingBox();
         if (!box) {
