@@ -231,11 +231,18 @@ async function main() {
       state: "visible",
       timeout: 45_000,
     });
+    await page.waitForFunction(
+      () =>
+        Boolean(
+          document.querySelector('[data-testid="corner-menu"] .corner-menu__status-dot--ok'),
+        ),
+      { timeout: 60_000 },
+    );
 
     const { reply: recallReply } = await sendSpeakOverlay(
       page,
       `我之前说的 ${MEMORY_SEED} 门禁密码是多少？`,
-      { speakTimeoutMs },
+      { speakTimeoutMs, engageTimeoutMs: 90_000 },
     );
     console.log(`verify:phase21: recallMs reply="${recallReply.slice(0, 80)}"`);
 
