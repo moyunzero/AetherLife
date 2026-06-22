@@ -3,6 +3,7 @@ from src.graph.recall_merge import (
     extract_food_preference,
     extract_nickname,
     extract_password_answer,
+    extract_read_preference,
     is_recall_question,
     merge_recall_into_reply,
     pick_recall_memory,
@@ -76,6 +77,23 @@ def test_pick_recall_password_colon_disclosure_seed():
     picked = pick_recall_memory("我家门禁密码是多少？", [seed])
     assert picked is not None
     assert extract_password_answer(picked["text"]) == "08080"
+
+
+def test_pick_recall_drink_and_read_preferences():
+    tea = {"text": "player: 请记住我喜欢喝茶验ABC茶", "score": 0.9}
+    book = {"text": "player: 请记住我喜欢看书验XYZ书", "score": 0.88}
+    picked_tea = pick_recall_memory("我喜欢喝什么茶？", [tea])
+    assert picked_tea is not None
+    assert "茶验ABC" in extract_food_preference(picked_tea["text"])
+    picked_book = pick_recall_memory("我喜欢看什么书？", [book])
+    assert picked_book is not None
+    assert "书验XYZ" in extract_read_preference(picked_book["text"])
+    out_tea = merge_recall_into_reply(
+        "我喜欢喝什么茶？",
+        "我不清楚。",
+        [tea],
+    )
+    assert "茶验ABC" in out_tea
 
 
 def test_extract_nickname_rejects_recall_question_row():

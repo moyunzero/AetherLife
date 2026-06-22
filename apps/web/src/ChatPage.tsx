@@ -148,7 +148,7 @@ export function ChatPage() {
 
   useEffect(() => {
     const event = collectiveSnapshot?.recentEvents[0];
-    if (!event || (event.kind !== "rude" && event.kind !== "help")) return;
+    if (!event || event.kind !== "rude") return;
     if (resolveCollectiveInitiatorPlayerId(event) !== playerId) return;
     const key = `collective-auto-open:${mapRoomId}:${activeNpcId}`;
     if (sessionStorage.getItem(key)) return;

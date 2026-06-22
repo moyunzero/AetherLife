@@ -419,6 +419,17 @@ async function main() {
   await healthOk();
   console.log("verify:phase22: stack health OK");
 
+  const only = process.env.VERIFY_PHASE22_ONLY?.trim();
+  if (only) {
+    const step = STEPS.find((s) => s.id === only);
+    if (!step) {
+      console.error(`verify:phase22: unknown VERIFY_PHASE22_ONLY=${only}`);
+      process.exit(1);
+    }
+    const r = await runStep(step);
+    process.exit(r.ok ? 0 : 1);
+  }
+
   const steps =
     process.env.VERIFY_PHASE22_SKIP_GOLDEN === "1"
       ? STEPS.filter((s) => s.script !== "__golden__")
