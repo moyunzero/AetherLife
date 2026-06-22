@@ -220,7 +220,7 @@ async function main() {
         const events = page.locator('[data-testid="collective-recent-events"] li');
         return (await events.count()) > 0;
       },
-      30_000,
+      BANNER_WAIT_MS,
       "collective-recent-events after rude speak",
     );
     await closeShellDrawer(page);
