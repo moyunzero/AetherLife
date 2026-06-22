@@ -321,6 +321,45 @@ export async function sendSpeakOverlay(page, text, { speakTimeoutMs = 180_000 } 
 }
 
 /**
+ * Seed 2+ preference memories via speak + memory-context poll (Phase 22 C1 extension).
+ *
+ * @param {import('playwright').Page} page
+ * @param {object} opts
+ * @param {string} opts.httpBase
+ * @param {string} opts.roomId
+ * @param {string} opts.playerId
+ * @param {Array<{ token: string; seedMessage: string; pollMessage: string }>} opts.preferences
+ * @param {number} [opts.speakTimeoutMs]
+ * @param {() => Record<string, string>} opts.internalHeaders
+ * @param {number} [opts.memoryPollMs]
+ */
+export async function seedPreferenceMemories(
+  page,
+  {
+    httpBase,
+    roomId,
+    playerId,
+    preferences,
+    speakTimeoutMs = 180_000,
+    internalHeaders,
+    memoryPollMs = 300_000,
+  },
+) {
+  for (const pref of preferences) {
+    await sendSpeakOverlay(page, pref.seedMessage, { speakTimeoutMs });
+    await waitForMemoryContext({
+      httpBase,
+      roomId,
+      playerId,
+      playerMessage: pref.pollMessage,
+      needle: pref.token,
+      pollMs: memoryPollMs,
+      internalHeaders,
+    });
+  }
+}
+
+/**
  * @param {() => Promise<boolean>} fn
  * @param {number} timeoutMs
  * @param {string} label
