@@ -14,7 +14,6 @@ import type { NpcAmbientSnapshot, PlayerSnapshot } from "../hooks/useColyseusRoo
 import type { LocalPlayerMotionBridge } from "../game/localPlayerMotion.js";
 import type { MovementSyncController } from "../game/MovementSyncController.js";
 import { ExploreCoordsStrip } from "./ExploreCoordsStrip.js";
-import { JournalQuestStrip } from "./JournalQuestStrip.js";
 import { LoreDiscoverToast } from "./LoreDiscoverToast.js";
 import { biomeAt } from "../lib/chunkWalkability.js";
 import type { ChunkLoreEntry, LoreDiscoverToast as LoreDiscoverToastPayload } from "../hooks/useChunkLore.js";
@@ -283,15 +282,6 @@ export function PhaserGame({
       ...labels,
     };
   }, [exploreGrid, loadedChunks, loreForChunk]);
-
-  const journalStoryHook = useMemo(() => {
-    if (!exploreGrid || !loreForChunk) return undefined;
-    const { cx, cy } = chunkOf(exploreGrid.gx, exploreGrid.gy);
-    const entry = loreForChunk(cx, cy);
-    if (!entry?.lore?.storyHook?.trim()) return undefined;
-    if (entry.status !== "ready" && entry.status !== "home") return undefined;
-    return entry.lore.storyHook.trim();
-  }, [exploreGrid, loreForChunk]);
 
   const registryRef = useRef({
     width,
@@ -580,9 +570,6 @@ export function PhaserGame({
           gameClockLabel={gameClock?.label}
           regionLabelZh={exploreCoords.regionLabelZh}
         />
-      ) : null}
-      {connected && exploreCoords && journalStoryHook ? (
-        <JournalQuestStrip storyHook={journalStoryHook} />
       ) : null}
       <div className="room-scene-panel__viewport phaser-stage-fill">
         <div

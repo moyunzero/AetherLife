@@ -9,6 +9,7 @@ import httpx
 from src.collective.schemas import SocialTurnOut
 from src.collective.social_turn import reconcile_social_perception
 from src.config import Settings, get_settings
+from src.http_json import create_http_client
 from src.graph.job_context import record_phase_ms
 from src.graph.npc_loop import (
     _npc_turn_initial,
@@ -46,7 +47,7 @@ def run_social_edge_fast_lane(
     state["speak_intent"] = SpeakIntent.SOCIAL_EDGE.value
     record_phase_ms("t_social_llm_ms", 0)
 
-    with httpx.Client() as client:
+    with create_http_client() as client:
         state = fetch_state_and_memory(state, settings=cfg, client=client)
 
         player_msg = player_message.strip()

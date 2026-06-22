@@ -154,9 +154,12 @@
 74. **并行 speak 须 per-NPC job 路由**：服务端 `npcSpeakJobs` 按 NPC 互斥、不同 NPC 可并行（C-02）；客户端 `useNpcChat` **禁止** 单槽 `pendingJobIdRef` / 全局 `thinkingNpcId` 覆盖并行 job。`onSpeakAck` / `onDone` / `onError` / `speakPartial` 经 `NpcJobRegistry`（`byNpc` + `byJob`）按 `jobId → npcId` 入库，与 **active tab 无关**。`composerBusyForActiveNpc` 仅锁当前 Tab NPC（方案 A，Guardrail #54）。Phaser 铭牌/thinking 用 `thinkingNpcIds` 数组。回归：`useNpcChat.test.ts`（registry + `isNpcSpeakInFlight`）；人工：A 思考中切 B 对话 → 两边 `done` 均出现在各自 Tab 消息列表。
 75. **relay 移动意图须覆盖「去 X 那边 / 有事情找」**：`player_requests_move` 的 `MOVE_PATTERNS` 须含 `那边|那里|那儿` 与 `有事情找|事情找`；否则 `classify_speak_intent` → NARRATIVE → `llm_social_turn` 只口播、`tool_calls=[]`（ISSUE-051）。改 `action_intent.py` 须 `test_action_intent.py::test_relay_summon_phrases_from_uat` + 含目标 NPC 名的 inject 用例。
 76. **apply_tools 物理兜底 inject**：`social_edge_fast_lane` / 非 physical 分支若 `tool_calls=[]` 但 `player_requests_physical_action`，`apply_tools` 仍须 `inject_relative_move_tool`；`main.py` 在 physical 时禁止走 social fast lane。回归：`test_tool_gate.py::test_apply_tools_injects_move_when_physical_and_tool_calls_empty` + 费雪 relay 句 inject 用例（ISSUE-052）。
+77. **RECALL overlay 禁止 LLM 流式草稿抢先**：RECALL 问句 `run_social_turn_llm` 禁用 stream partial；`compose_reply` merge 后仅 `partial_emit` 最终 merged reply 一次（ISSUE-053）。回归：`test_social_stream_extract.py` · `test_tool_gate.py::test_compose_reply_recall_emits_merged_partial_for_overlay`。
 78. **apply-actions 后须刷新 worker hot snapshot**：`apply_tools` 成功路径在 `safe_response_json` 后须 `_remember_worker_snapshot(room_id, player_id, updated_snapshot)`；否则 3s 内 `fetch_state` 热缓存仍用 apply 前坐标（ISSUE-054）。回归：`test_fetch_state_and_memory.py::test_apply_tools_refreshes_hot_snapshot_cache`。
 79. **密码 recall topic 硬过滤**：问「电脑密码」时不得用「门锁/门禁密码」行格式化；`_password_topic` + `_password_topic_score` 对 mismatch 返回 `-1`，`_pick_password_memory` 在 computer/door topic 无匹配行时 return None（ISSUE-054）。回归：`test_recall_merge.py::test_pick_recall_computer_password_rejects_door_lock_only` · `pnpm verify:phase20`。
 80. **叙事问句勿误判 PHYSICAL**：standalone `那边|那里|那儿` 会误伤「那里有什么历史？」；`MOVE_PATTERNS` / `speakIntent.ts` 须用 contextual regex（去/到/往…那边、可以去…那边、那边…你去），relay UAT 句仍须 PHYSICAL。回归：`test_speak_intent.py` · `packages/shared/src/speakIntent.test.ts` · `test_action_intent.py::test_relay_summon_phrases_from_uat`。
+81. **worker httpx 须 `trust_env=False`**：访问 `127.0.0.1:2567` 一律 `create_http_client()`；macOS 系统 HTTP 代理会导致 emit/append **502**（ISSUE-055）。回归：`tests/test_http_json.py::test_create_http_client_disables_trust_env`。
+82. **player 记忆须在 emit `done` 前落库**：`process_job` 在 `done` 前 sync `append_player_memory`（`DEFAULT_IMPORTANCE`）；`persist_turn_memory` 见 `_player_line_persisted` 跳过重复写；tail 仍跑 importance/NPC 行（ISSUE-055）。回归：`pnpm verify:phase21` · `pnpm verify:phase20`。
 
 ## 记录
 
@@ -2104,6 +2107,45 @@ Worker 主循环仅在 npc-turn 队列 **连续 5s 为空** 时才 `BLPOP` chunk
 **防复发**
 
 - Guardrails #78–#80
+
+---
+
+### ISSUE-055 — verify:phase21 memory-context 超时（httpx 502 + tail 竞态）
+
+- **状态:** fixed
+- **发现:** 2026-06-16（Phase 21 E2E）
+- **阶段/范围:** worker `http_json` · `main.process_job` · `persist_turn_memory` · `scripts/verify-phase21.mjs` · `e2e-memory-helpers.mjs`
+- **严重性:** major（`pnpm verify:phase21` / `verify:phase20` memory poll 600s 超时）
+
+**复现**
+
+1. `pnpm dev:stack`（真实 LLM，macOS 常开系统 HTTP 代理）
+2. `pnpm verify:phase21` → memory seed speak 完成，`waitForMemoryContext` 600s 超时；或 reload 后 `npc-memory-callback` 180s 超时
+3. worker stderr：`502 Bad Gateway` on `/internal/rooms/.../memories` 或 `/internal/jobs/.../emit`
+
+**根因**
+
+1. **httpx 走系统代理**：默认 `trust_env=True`，`127.0.0.1:2567` 经代理 → 502；`curl` 同 URL 200
+2. **memory tail 竞态**：`emit done` 后 daemon thread 才 `append_player_memory`；E2E 立即 poll `memory-context` / `recent-memories`，tail 若排队或 502 则 needle 永不出现
+3. **E2E drawer**：`openShellDrawerHistory` 在 drawer 已开（collective tab）时 early return，MessageList / `npc-memory-callback` 不可见
+
+**修复**
+
+- `workers/agent-worker/src/http_json.py`：`create_http_client(trust_env=False)`；全 worker 写路径统一
+- `main.process_job`：`emit done` **前** sync `append_player_memory` + `_player_line_persisted`；tail 跳过重复 player 行
+- `persist_turn_memory`：`append_player_memory` 先于 `score_turn_importance`（tail 内不阻塞落库）
+- E2E：`openShellDrawerHistory` / discoveries 强制切 tab；reload 后等 canvas；`verify:phase21` memory seed 在 explore 前
+
+**验证**
+
+- `cd workers/agent-worker && LLM_MOCK=1 uv run pytest -q` → **243 passed**（2026-06-18；`FakeClient.__init__(*args, **kwargs)` 适配 `create_http_client(trust_env=False)`）
+- `pnpm verify:phase21`（`pnpm dev:stack`，无 `LLM_MOCK`）→ **exit 0**（2026-06-18，~103s）：
+  - `memorySpeakMs=14089` → `memory seed persisted (FACT-P21-…)`
+  - `recallMs reply="门禁密码是 7"` · `memory citation + recall OK` · `verify:phase21 OK`
+
+**防复发**
+
+- Guardrails #81–#82
 
 ---
 

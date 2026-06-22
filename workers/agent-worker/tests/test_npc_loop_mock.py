@@ -38,6 +38,9 @@ def test_mock_turn_returns_move_tool_call(monkeypatch):
             }
 
     class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
         def __enter__(self):
             return self
 

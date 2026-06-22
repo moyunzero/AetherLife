@@ -1,6 +1,6 @@
 import httpx
 
-from src.http_json import safe_response_json
+from src.http_json import create_http_client, safe_response_json
 
 
 def test_safe_response_json_empty_body() -> None:
@@ -31,3 +31,8 @@ def test_safe_response_json_non_object_returns_default() -> None:
 def test_safe_response_json_custom_default() -> None:
     res = httpx.Response(200, text="")
     assert safe_response_json(res, default={"ok": False}) == {"ok": False}
+
+
+def test_create_http_client_disables_trust_env() -> None:
+    with create_http_client() as client:
+        assert client._trust_env is False

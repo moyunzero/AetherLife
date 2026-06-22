@@ -28,6 +28,9 @@ from src.llm.call_budget import (
 from src.persistence.checkpointer import setup_checkpointer
 from src.guard.reply_audit import audit_reply
 from src.llm.errors import format_llm_error
+from src.http_json import create_http_client
+from src.memory.client import append_player_memory
+from src.memory.importance import DEFAULT_IMPORTANCE
 
 BRIDGE_LIST_KEY = "aetherlife:npc-turn:jobs"
 LORE_BRIDGE_LIST_KEY = "aetherlife:chunk-lore:jobs"
@@ -102,13 +105,20 @@ def emit_job_event(
     headers = {}
     if settings.internal_worker_token:
         headers["Authorization"] = f"Bearer {settings.internal_worker_token}"
-    res = client.post(
-        f"{settings.game_server_url}/internal/jobs/{job_id}/emit",
-        json={"type": event_type, "data": data},
-        headers=headers,
-        timeout=10.0,
-    )
-    res.raise_for_status()
+    url = f"{settings.game_server_url}/internal/jobs/{job_id}/emit"
+    payload = {"type": event_type, "data": data}
+    retryable = frozenset({502, 503, 504})
+    last: httpx.HTTPStatusError | None = None
+    for attempt in range(3):
+        res = client.post(url, json=payload, headers=headers, timeout=10.0)
+        try:
+            res.raise_for_status()
+            return
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code not in retryable or attempt >= 2:
+                raise
+            last = exc
+            time.sleep(1 + attempt)
 
 
 def validate_llm_settings(settings: Settings) -> None:
@@ -287,6 +297,25 @@ def process_job(client: httpx.Client, settings: Settings, payload: dict) -> None
     if result.get("collective_updated"):
         done_payload["collectiveUpdated"] = True
 
+    player_msg = str(player_message or "").strip()
+    if player_msg:
+        try:
+            append_player_memory(
+                client,
+                settings,
+                room_id,
+                player_msg,
+                importance=DEFAULT_IMPORTANCE,
+                npc_id=npc_id,
+                player_id=player_id,
+            )
+            result = {**result, "_player_line_persisted": True}
+        except Exception as exc:
+            print(
+                f"fast player append failed jobId={job_id}: {exc}",
+                file=sys.stderr,
+            )
+
     memory_quote = pick_memory_quote(
         result.get("retrieved_memories"),
         int(result.get("memory_count") or 0),
@@ -384,7 +413,7 @@ def run_worker() -> None:
         )
     print("connected to Redis; waiting for npc-turn + chunk-lore + ambient-intent jobs", file=sys.stderr)
 
-    with httpx.Client() as client:
+    with create_http_client() as client:
         while True:
             try:
                 # npc-turn first — lore flood must not starve speak jobs.
@@ -422,13 +451,19 @@ def run_worker() -> None:
                     print(f"job failed jobId={job_id}: {exc}", file=sys.stderr)
                     if job_id != "unknown":
                         err_msg = format_llm_error(exc, provider=settings.llm_provider)
-                        emit_job_event(
-                            client,
-                            settings,
-                            job_id,
-                            "error",
-                            {"message": err_msg},
-                        )
+                        try:
+                            emit_job_event(
+                                client,
+                                settings,
+                                job_id,
+                                "error",
+                                {"message": err_msg},
+                            )
+                        except Exception as emit_exc:
+                            print(
+                                f"failed to emit error for jobId={job_id}: {emit_exc}",
+                                file=sys.stderr,
+                            )
                 # Fairness: one lore job per speak job when lore backlog exists (ISSUE-030)
                 drain_one_lore_job(r, client, settings)
                 drain_one_ambient_intent_job(r, client, settings)

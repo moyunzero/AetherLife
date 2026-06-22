@@ -129,7 +129,7 @@ async function loadPlaywright() {
   const pw = await import(pathToFileURL(pwEntry).href);
   const chromium = pw.chromium ?? pw.default?.chromium;
   if (!chromium) {
-    throw new Error("playwright 未安装：cd scripts/.pw-deps && npm install");
+    throw new Error("playwright 未安装：cd scripts/.pw-deps && pnpm install");
   }
   return chromium;
 }
@@ -231,19 +231,14 @@ const THINKING_LOCATOR =
 const OVERLAY_STREAMING = '[data-testid="dialogue-overlay-streaming"]';
 
 const OVERLAY_NPC_REPLY =
-  `${OVERLAY_STREAMING}, ` +
-  '[data-testid="dialogue-overlay"] .dialogue-overlay__last-line, ' +
-  '[data-testid="dialogue-overlay"] .dialogue-overlay__npc-text, ' +
-  '[data-testid="dialogue-overlay"] .dialogue-overlay__line--npc';
+  `${OVERLAY_STREAMING}, ` + '[data-testid="dialogue-overlay"] .dialogue-overlay__last-line';
 
 /** Snapshot visible reply text before send — B4 consecutive turns need "new" reply detection. */
 async function captureReplyBaseline(page) {
   return page.evaluate(() => {
     const summary = document.querySelector(".dialogue-bar__summary-text");
     const overlayNodes = document.querySelectorAll(
-      '[data-testid="dialogue-overlay"] .dialogue-overlay__last-line, ' +
-        '[data-testid="dialogue-overlay"] .dialogue-overlay__npc-text, ' +
-        '[data-testid="dialogue-overlay"] .dialogue-overlay__line--npc',
+      '[data-testid="dialogue-overlay"] .dialogue-overlay__last-line',
     );
     const overlay =
       overlayNodes.length > 0

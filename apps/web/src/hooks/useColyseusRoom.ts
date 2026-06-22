@@ -159,6 +159,7 @@ export function useColyseusRoom(roomId = "default", map: RoomState | null = null
     {},
   );
   const {
+    loreByChunk,
     mergeLoreSync,
     loreForChunk,
     consumeDiscoverToast,
@@ -426,6 +427,7 @@ export function useColyseusRoom(roomId = "default", map: RoomState | null = null
     syncMetrics,
     remoteInterpMs,
     loadedChunks,
+    loreByChunk,
     loreForChunk,
     consumeDiscoverToast,
     loreToastQueue: toastQueue,

@@ -36,6 +36,7 @@ describe("ShellDrawer a11y", () => {
         activeNpcName: "阿明",
         collectiveSnapshot: null,
         collectiveLoading: false,
+        discoveredLoreRows: [],
         roomId: "room-1",
         roomConnected: true,
       }),

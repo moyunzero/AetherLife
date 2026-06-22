@@ -11,6 +11,8 @@ export default [
       "scripts/assert-refusal-markers-parity.mjs",
       "scripts/playtest-speak-sla.mjs",
       "scripts/benchmark-speak-browser.mjs",
+      "scripts/verify-phase21.mjs",
+      "scripts/uat-phase21-playwright.mjs",
     ],
     languageOptions: {
       ecmaVersion: 2022,

@@ -34,7 +34,28 @@ export function replyRefusesRecall(text) {
  * @param {string} opts.needle
  * @param {number} [opts.pollMs]
  * @param {() => Record<string, string>} opts.internalHeaders
+ * @param {(snapshot: {
+ *   elapsedMs: number;
+ *   ok: boolean;
+ *   needleFound: boolean;
+ *   memoryCount: number | null;
+ *   retrievedCount: number;
+ *   recentHasNeedle: boolean | null;
+ * }) => void | Promise<void>} [opts.onPoll]
  */
+function pollHeaders(internalHeaders) {
+  return {
+    ...internalHeaders(),
+    "Cache-Control": "no-cache",
+    Pragma: "no-cache",
+  };
+}
+
+function bodyContainsNeedle(body, needle) {
+  const hay = JSON.stringify(body ?? {}).toLowerCase();
+  return hay.includes(String(needle).toLowerCase());
+}
+
 export async function waitForMemoryContext({
   httpBase,
   roomId,
@@ -43,23 +64,63 @@ export async function waitForMemoryContext({
   needle,
   pollMs = 90_000,
   internalHeaders,
+  onPoll,
 }) {
-  const memUrl =
+  const memUrlBase =
     `${httpBase}/internal/rooms/${encodeURIComponent(roomId)}/memory-context` +
     `?playerMessage=${encodeURIComponent(playerMessage)}` +
     `&npcId=npc-1` +
     `&playerId=${encodeURIComponent(playerId)}`;
+  const recentUrlBase =
+    `${httpBase}/internal/rooms/${encodeURIComponent(roomId)}/recent-memories` +
+    `?npcId=npc-1&playerId=${encodeURIComponent(playerId)}&limit=10`;
+  const started = Date.now();
+  let lastOnPollMs = 0;
 
   await waitFor(
     async () => {
-      const memRes = await fetch(memUrl, { headers: internalHeaders() });
+      const bust = `_=${Date.now()}`;
+      const headers = pollHeaders(internalHeaders);
+
+      let recentHasNeedle = false;
+      let recentMemoryCount = null;
+      try {
+        const recentRes = await fetch(`${recentUrlBase}&${bust}`, { headers });
+        const recentBody = (await recentRes.json().catch(() => ({}))) ?? {};
+        recentHasNeedle = recentRes.ok && bodyContainsNeedle(recentBody, needle);
+        if (Array.isArray(recentBody.memories)) {
+          recentMemoryCount = recentBody.memories.length;
+        } else if (typeof recentBody.count === "number") {
+          recentMemoryCount = recentBody.count;
+        }
+      } catch {
+        recentHasNeedle = false;
+      }
+
+      const memRes = await fetch(`${memUrlBase}&${bust}`, { headers });
       const memCtx = (await memRes.json().catch(() => ({}))) ?? {};
-      if (!memRes.ok) return false;
-      const hay = JSON.stringify(memCtx).toLowerCase();
-      return hay.includes(String(needle).toLowerCase());
+      const needleInContext = memRes.ok && bodyContainsNeedle(memCtx, needle);
+      const needleFound = recentHasNeedle || needleInContext;
+      const elapsedMs = Date.now() - started;
+
+      if (onPoll && elapsedMs - lastOnPollMs >= 15_000) {
+        lastOnPollMs = elapsedMs;
+        await onPoll({
+          elapsedMs,
+          ok: memRes.ok,
+          needleFound,
+          memoryCount:
+            typeof memCtx.memoryCount === "number" ? memCtx.memoryCount : null,
+          retrievedCount: Array.isArray(memCtx.retrieved) ? memCtx.retrieved.length : 0,
+          recentHasNeedle,
+          recentMemoryCount,
+        });
+      }
+
+      return needleFound;
     },
     pollMs,
-    `memory-context containing ${needle}`,
+    `memory persisted containing ${needle}`,
   );
 }
 
@@ -71,10 +132,7 @@ const THINKING_LOCATOR =
 const OVERLAY_STREAMING = '[data-testid="dialogue-overlay-streaming"]';
 
 const OVERLAY_NPC_REPLY =
-  `${OVERLAY_STREAMING}, ` +
-  '[data-testid="dialogue-overlay"] .dialogue-overlay__last-line, ' +
-  '[data-testid="dialogue-overlay"] .dialogue-overlay__npc-text, ' +
-  '[data-testid="dialogue-overlay"] .dialogue-overlay__line--npc';
+  `${OVERLAY_STREAMING}, ` + '[data-testid="dialogue-overlay"] .dialogue-overlay__last-line';
 
 /**
  * Shell drawer hosts MessageList + npc-memory-callback; overlay speak keeps drawer closed by default.
@@ -82,11 +140,31 @@ const OVERLAY_NPC_REPLY =
  */
 export async function openShellDrawerHistory(page) {
   const drawer = page.locator('[data-testid="shell-drawer"]');
-  if (await drawer.isVisible().catch(() => false)) {
-    return;
+  if (!(await drawer.isVisible().catch(() => false))) {
+    await page.locator('[aria-label="对话历史"]').click();
+  } else {
+    await page.locator("#shell-drawer-tab-history").click();
   }
-  await page.locator('[aria-label="对话历史"]').click();
   await drawer.waitFor({ state: "visible", timeout: 10_000 });
+  await page.locator("#shell-drawer-panel-history").waitFor({
+    state: "visible",
+    timeout: 10_000,
+  });
+}
+
+/** Shell drawer「集体见闻」tab — recentEvents live here (not in closed DOM). */
+export async function openShellDrawerCollective(page) {
+  const drawer = page.locator('[data-testid="shell-drawer"]');
+  if (!(await drawer.isVisible().catch(() => false))) {
+    await page.locator('[aria-label="集体见闻"]').click();
+  } else {
+    await page.locator("#shell-drawer-tab-collective").click();
+  }
+  await drawer.waitFor({ state: "visible", timeout: 10_000 });
+  await page.locator("#shell-drawer-panel-collective").waitFor({
+    state: "visible",
+    timeout: 10_000,
+  });
 }
 
 /**
@@ -94,17 +172,18 @@ export async function openShellDrawerHistory(page) {
  */
 export async function closeShellDrawer(page) {
   for (let attempt = 0; attempt < 3; attempt++) {
-    const backdrop = page.locator('[data-testid="shell-drawer-backdrop"]');
-    if (!(await backdrop.isVisible().catch(() => false))) {
+    const drawer = page.locator('[data-testid="shell-drawer"]');
+    if (!(await drawer.isVisible().catch(() => false))) {
       return;
     }
     const closeBtn = page.locator('[aria-label="关闭抽屉"]');
     if (await closeBtn.isVisible().catch(() => false)) {
       await closeBtn.click();
     } else {
+      const backdrop = page.locator('[data-testid="shell-drawer-backdrop"]');
       await backdrop.click({ position: { x: 8, y: 8 } });
     }
-    await backdrop.waitFor({ state: "hidden", timeout: 10_000 }).catch(() => {});
+    await drawer.waitFor({ state: "hidden", timeout: 10_000 }).catch(() => {});
   }
 }
 
@@ -190,10 +269,20 @@ async function extractNpcReplyText(page) {
  * }>}
  */
 export async function sendSpeakOverlay(page, text, { speakTimeoutMs = 180_000 } = {}) {
+  page.setDefaultTimeout(speakTimeoutMs);
+  await closeShellDrawer(page);
   await engageDialogue(page);
 
-  const t0 = Date.now();
   const composer = page.locator("textarea.composer__input");
+  await page.waitForFunction(
+    () => {
+      const input = document.querySelector("textarea.composer__input");
+      return input && !input.disabled && input.getAttribute("aria-busy") !== "true";
+    },
+    { timeout: speakTimeoutMs },
+  );
+
+  const t0 = Date.now();
   await composer.fill(text);
   await page.locator("button.composer__submit").click();
 

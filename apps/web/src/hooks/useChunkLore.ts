@@ -19,6 +19,24 @@ export type LoreDiscoverToast = {
   storyHook: string;
 };
 
+export type DiscoveredLoreRow = {
+  nameZh: string;
+  storyHook: string;
+};
+
+/** Ready chunks with lore — read-only catalog for drawer「已发现」(no coordinates). */
+export function discoveredLoreRows(loreByChunk: Map<string, ChunkLoreEntry>): DiscoveredLoreRow[] {
+  const rows: DiscoveredLoreRow[] = [];
+  for (const entry of loreByChunk.values()) {
+    if (entry.status !== "ready") continue;
+    const hook = entry.lore?.storyHook?.trim();
+    const nameZh = entry.lore?.nameZh?.trim();
+    if (!hook || !nameZh) continue;
+    rows.push({ nameZh, storyHook: hook });
+  }
+  return rows.sort((a, b) => a.nameZh.localeCompare(b.nameZh, "zh"));
+}
+
 function chunkKey(cx: number, cy: number): string {
   return `${cx},${cy}`;
 }

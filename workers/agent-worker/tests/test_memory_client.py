@@ -1,7 +1,12 @@
 import httpx
 
 from src.config import Settings
-from src.memory.client import append_npc_memory, append_player_memory, fetch_memory_context
+from src.memory.client import (
+    append_npc_memory,
+    append_player_memory,
+    fetch_memory_context,
+    fetch_recent_memories,
+)
 
 
 def test_fetch_memory_context_retries_transient_502():
@@ -95,3 +100,26 @@ def test_append_player_memory_posts_role_player():
     assert captured["body"]["text"] == "hello there"
     assert captured["body"]["importance"] == 6
     assert captured["body"]["playerId"] == "player-abc"
+
+
+def test_fetch_recent_memories_retries_transient_502():
+    settings = Settings(game_server_url="http://test")
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(502, json={"ok": False, "error": "bad gateway"})
+        return httpx.Response(
+            200,
+            json={
+                "ok": True,
+                "memories": [{"text": "player: 请记住门禁密码是 7"}],
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    with httpx.Client(transport=transport) as client:
+        rows = fetch_recent_memories(client, settings, "default", player_id="player-abc")
+    assert len(rows) == 1
+    assert calls["n"] == 2

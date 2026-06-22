@@ -37,6 +37,9 @@ def _fake_client_factory():
             }
 
     class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
         def __enter__(self):
             return self
 

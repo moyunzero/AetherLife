@@ -9,6 +9,7 @@ import httpx
 from src.collective.schemas import SocialTurnOut, is_social_skip
 from src.collective.social_turn import reconcile_social_perception
 from src.config import Settings, get_settings
+from src.http_json import create_http_client
 from src.graph.action_intent import player_requests_physical_action
 from src.graph.job_context import record_phase_ms
 from src.graph.npc_loop import (
@@ -64,7 +65,7 @@ def run_casual_fast_lane(
     record_phase_ms("t_memory_ms", 0)
     record_phase_ms("t_social_llm_ms", 0)
 
-    with httpx.Client() as client:
+    with create_http_client() as client:
         t_fetch = time.perf_counter()
         state = fetch_state(
             state,

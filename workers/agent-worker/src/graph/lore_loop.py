@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 
 from src.config import Settings, get_settings
+from src.http_json import create_http_client
 from src.llm.errors import is_rate_limit_error, is_retryable_llm_error, should_try_lore_provider_fallback
 from src.llm.factory import PROVIDER_BASE_URLS, create_chat_model
 from src.llm.openrouter_keys import openrouter_keys
@@ -241,7 +242,7 @@ def run_lore_job(
     cfg = settings or get_settings()
     dominant = str(payload.get("dominantBiome") or "meadow")
     owns_client = client is None
-    http = client or httpx.Client()
+    http = client or create_http_client()
     try:
         lore = generate_lore_llm(payload, cfg)
         validate_lore(lore, dominant)

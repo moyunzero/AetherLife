@@ -107,14 +107,16 @@ def fetch_recent_memories(
     limit: int = 5,
     npc_id: str = "npc-1",
     player_id: str = "__legacy__",
+    attempts: int = 3,
 ) -> list[dict[str, Any]]:
-    res = client.get(
+    res = _get_with_retry(
+        client,
         f"{settings.game_server_url}/internal/rooms/{room_id}/recent-memories",
-        params={"limit": limit, "npcId": npc_id, "playerId": player_id},
+        params={"limit": str(limit), "npcId": npc_id, "playerId": player_id},
         headers=_game_headers(settings, player_id=player_id),
         timeout=30.0,
+        attempts=attempts,
     )
-    res.raise_for_status()
     body = safe_response_json(res)
     rows = body.get("memories")
     return rows if isinstance(rows, list) else []

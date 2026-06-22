@@ -34,3 +34,9 @@ def safe_response_json(
         return payload if isinstance(payload, dict) else fallback
 
     return fallback
+
+
+def create_http_client(**kwargs: Any) -> httpx.Client:
+    """Game-server client that ignores macOS/system HTTP proxies (trust_env=True → 502 on localhost)."""
+    kwargs.setdefault("trust_env", False)
+    return httpx.Client(**kwargs)
