@@ -186,6 +186,17 @@ export const GOLDEN_FLOWS = [
   },
 ];
 
+/**
+ * Stabilization baseline — run without git diff (`pnpm agent:verify:e2e-baseline`).
+ * Fast merge gate before v5; full ship gate remains `pnpm verify:phase22`.
+ * @type {string[]}
+ */
+export const E2E_BASELINE_SCRIPTS = [
+  "uat:phase7:reset-snap",
+  "verify:phase6:move-only",
+  "verify:phase13",
+];
+
 /** High-risk paths — warn on diff unless listed in declared scope. */
 export const PROTECTED_PATH_PATTERNS = [
   { id: "PP-01", label: "Colyseus core", pattern: /^apps\/game-server\/src\/colyseus\/GameRoom\.ts$/ },

@@ -78,6 +78,7 @@
     "agent:verify": "node scripts/agent-verify.mjs --fail",
     "agent:verify:plan": "node scripts/agent-verify.mjs --plan",
     "agent:verify:e2e": "node scripts/agent-verify.mjs --fail --e2e",
+    "agent:verify:e2e-baseline": "node scripts/agent-verify.mjs --fail --e2e-baseline",
     "agent:verify:scope": "node scripts/agent-verify.mjs --scope-check --fail",
     "agent:verify:test": "node --test scripts/agent-verify-map.test.mjs",
     "lint": "eslint scripts/lib scripts/agent-verify.mjs",

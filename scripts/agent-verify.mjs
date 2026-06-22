@@ -6,6 +6,7 @@
  *   pnpm agent:verify              # fast: unit tests for touched areas
  *   pnpm agent:verify --plan       # print plan only, run nothing
  *   pnpm agent:verify --e2e        # also run golden-flow verify:phase* (needs dev:stack)
+ *   pnpm agent:verify --e2e-baseline  # stabilization gate (no diff required)
  *   pnpm agent:verify --scope-check --scope "apps/game-server/src/collective/*"
  *
  * Env:
@@ -18,6 +19,7 @@ import {
   auditScope,
   collectGoldenFlows,
   collectUnitCommands,
+  E2E_BASELINE_SCRIPTS,
   flattenVerifyScripts,
   isCrossLayerDiff,
 } from "./lib/agent-verify-map.mjs";
@@ -29,6 +31,7 @@ loadRootEnv(root);
 const args = process.argv.slice(2);
 const planOnly = args.includes("--plan");
 const runE2e = args.includes("--e2e");
+const runE2eBaseline = args.includes("--e2e-baseline");
 const scopeCheck = args.includes("--scope-check");
 const failFast = args.includes("--fail");
 const againstBase = args.includes("--base");
@@ -91,8 +94,9 @@ function main() {
   console.log("=== Agent Verify Harness ===");
   console.log(`Root: ${root}`);
   console.log(`Changed files: ${files.length}`);
-  if (files.length === 0) {
+  if (files.length === 0 && !runE2eBaseline) {
     console.log("No local changes detected — nothing to verify.");
+    console.log("  Tip: pnpm agent:verify:e2e-baseline for stabilization gate (no diff).");
     return 0;
   }
 
@@ -152,13 +156,22 @@ function main() {
     }
   }
 
-  if (!runE2e) {
-    console.log("\nℹ Skipping E2E (pass --e2e to run). Requires: pnpm dev:stack + real LLM keys.");
+  const e2eScripts = runE2eBaseline ? [...E2E_BASELINE_SCRIPTS] : verifyScripts;
+
+  if (!runE2e && !runE2eBaseline) {
+    console.log("\nℹ Skipping E2E (pass --e2e or --e2e-baseline). Requires: pnpm dev:stack + real LLM keys.");
     console.log("  Recommended before merge:");
-    for (const script of verifyScripts) {
+    for (const script of verifyScripts.length ? verifyScripts : E2E_BASELINE_SCRIPTS) {
       console.log(`    pnpm ${script}`);
     }
     return exitCode;
+  }
+
+  if (runE2eBaseline) {
+    console.log("\n--- Stabilization E2E baseline ---");
+    for (const script of e2eScripts) {
+      console.log(`  · pnpm ${script}`);
+    }
   }
 
   if (!healthOk()) {
@@ -167,7 +180,7 @@ function main() {
     return failFast ? 1 : exitCode;
   }
 
-  for (const script of verifyScripts) {
+  for (const script of e2eScripts) {
     const code = runCmd("e2e", `pnpm ${script}`);
     if (code !== 0) exitCode = code;
     if (failFast && code !== 0) return code;

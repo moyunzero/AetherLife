@@ -43,12 +43,14 @@ async function gs(path, options = {}) {
   return body;
 }
 
-async function health(url, name) {
+async function health(url, name, path = "/health") {
   try {
-    const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(5000) });
-    if (!res.ok) fail(`${name} /health → ${res.status}`);
-    const body = await res.json();
-    if (body.status !== "ok") fail(`${name} /health invalid`);
+    const res = await fetch(`${url}${path}`, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) fail(`${name} ${path} → ${res.status}`);
+    if (path === "/health") {
+      const body = await res.json();
+      if (body.status !== "ok") fail(`${name} /health invalid`);
+    }
   } catch (err) {
     fail(`${name} 不可达 (${url}): ${err.message}`);
   }
@@ -104,6 +106,7 @@ async function assertNoResetWalkBack(page) {
 async function main() {
   assertE2eNoMock("uat:phase7:reset-snap");
   await health(GS, "game-server");
+  await health(WEB, "web", "/");
   await mkdir(outDir, { recursive: true });
 
   const initial = await gs(`/rooms/${ROOM}/state`);
@@ -149,6 +152,15 @@ async function main() {
     fullPage: true,
   });
 
+  await page.waitForFunction(
+    () =>
+      Boolean(
+        document.querySelector('[data-testid="corner-menu"] .corner-menu__status-dot--ok'),
+      ),
+    { timeout: 60_000 },
+  );
+  const cornerMenu = page.locator('[data-testid="corner-menu"]');
+  await cornerMenu.locator(".corner-menu__trigger").click();
   await page.getByTestId("reset-game-open").click();
   await page.getByTestId("reset-confirm-start").click();
 

@@ -15,6 +15,7 @@ status
 .DS_Store
 .cursorignore
 tmp/
+*.tsbuildinfo
 
 # Internal dev workflow (local only — not published)
 .planning/

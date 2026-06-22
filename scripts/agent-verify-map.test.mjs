@@ -48,3 +48,10 @@ test("flattenVerifyScripts adds phase8 on cross-layer", () => {
   const scripts = flattenVerifyScripts([], true);
   assert.ok(scripts.includes("verify:phase8"));
 });
+
+test("E2E_BASELINE_SCRIPTS includes GF-08 oracle", async () => {
+  const { E2E_BASELINE_SCRIPTS } = await import("./lib/agent-verify-map.mjs");
+  assert.ok(E2E_BASELINE_SCRIPTS.includes("uat:phase7:reset-snap"));
+  assert.ok(E2E_BASELINE_SCRIPTS.includes("verify:phase6:move-only"));
+  assert.ok(E2E_BASELINE_SCRIPTS.includes("verify:phase13"));
+});

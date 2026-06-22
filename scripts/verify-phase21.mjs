@@ -16,6 +16,7 @@ import {
   ensureMinDiscoveredRows,
   exploreUntilLoreDiscover,
   openDrawerDiscoveries,
+  readPlayerGrid,
   reloadHomesteadSession,
   waitForExploreReadyAfterSpeak,
 } from "./lib/uat-phase21-helpers.mjs";
@@ -33,6 +34,13 @@ const BOOT_WARN_MS = 5000;
 const BOOT_FAIL_MS = 8000;
 const BANNER_WAIT_MS = Number.parseInt(process.env.E2E_BANNER_WAIT_MS || "", 10) || 60_000;
 const POST_MOVE_QUIET_MS = Number.parseInt(process.env.VERIFY_POST_MOVE_QUIET_MS || "", 10) || 8_000;
+/** SOLO-02: Manhattan drift allowed after reload (matches uat-phase21 P21-06). */
+const RELOAD_DRIFT_MAX = 2;
+
+function gridDist(a, b) {
+  if (!a || !b) return Infinity;
+  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+}
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 loadRootEnv(root);
@@ -194,6 +202,12 @@ async function main() {
     await waitForExploreReadyAfterSpeak(page, { quietMs: POST_MOVE_QUIET_MS });
     console.log(`verify:phase21: post-move quietMs=${POST_MOVE_QUIET_MS}`);
 
+    const gridAfterMove = await readPlayerGrid(page);
+    if (!gridAfterMove) {
+      throw new Error("SOLO-02: readPlayerGrid after move returned null");
+    }
+    console.log(`verify:phase21: gridAfterMove=${JSON.stringify(gridAfterMove)}`);
+
     const rudeStart = Date.now();
     const rudeReply = await sendSpeakOverlay(page, "你真没礼貌，滚开", { speakTimeoutMs });
     console.log(
@@ -238,6 +252,16 @@ async function main() {
         ),
       { timeout: 60_000 },
     );
+
+    const gridAfterReload = await readPlayerGrid(page);
+    const reloadDrift = gridDist(gridAfterMove, gridAfterReload);
+    if (reloadDrift > RELOAD_DRIFT_MAX) {
+      throw new Error(
+        `SOLO-02 reload drift=${reloadDrift} exceeds ${RELOAD_DRIFT_MAX} ` +
+          `(after=${JSON.stringify(gridAfterMove)} reload=${JSON.stringify(gridAfterReload)})`,
+      );
+    }
+    console.log(`verify:phase21: SOLO-02 reload drift=${reloadDrift} OK`);
 
     const { reply: recallReply } = await sendSpeakOverlay(
       page,
