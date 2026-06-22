@@ -62,6 +62,7 @@
     "verify:phase21": "node scripts/verify-phase21.mjs",
     "verify:phase22": "node scripts/verify-phase22.mjs",
     "uat:phase21:playwright": "node scripts/uat-phase21-playwright.mjs",
+    "uat:phase22:playwright": "node scripts/uat-phase22-playwright.mjs",
     "uat:phase15:playwright": "node scripts/uat-phase15-playwright.mjs",
     "uat:phase13:playwright": "node scripts/uat-phase13-playwright.mjs",
     "uat:phase12.1:playwright": "node scripts/uat-phase12.1-playwright.mjs",
