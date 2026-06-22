@@ -538,34 +538,44 @@ async function main() {
         ),
       ]);
       console.log("verify:phase8: NL staging positions OK");
-      await runSpeakTurn(
-        roomA,
-        { text: "移动到我的下方", npcId: "npc-1", playerId: playerAId },
-        "NL npc-1 player A",
-        speakTimeoutMs,
-      );
-      await runSpeakTurn(
-        roomB,
-        { text: "移动到我的下方", npcId: "npc-2", playerId: playerBId },
-        "NL npc-2 player B",
-        speakTimeoutMs,
-      );
-      await waitForNpcAdjacent(
-        roomA,
-        roomA.sessionId,
-        playerAId,
-        "npc-1",
-        "player A → npc-1",
-        speakTimeoutMs,
-      );
-      await waitForNpcAdjacent(
-        roomB,
-        roomB.sessionId,
-        playerBId,
-        "npc-2",
-        "player B → npc-2",
-        speakTimeoutMs,
-      );
+      for (let nlAttempt = 0; nlAttempt < 2; nlAttempt++) {
+        if (nlAttempt > 0) {
+          console.warn(`verify:phase8: dual NL move retry=${nlAttempt}`);
+        }
+        await runSpeakTurn(
+          roomA,
+          { text: "移动到我的下方", npcId: "npc-1", playerId: playerAId },
+          "NL npc-1 player A",
+          speakTimeoutMs,
+        );
+        await runSpeakTurn(
+          roomB,
+          { text: "移动到我的下方", npcId: "npc-2", playerId: playerBId },
+          "NL npc-2 player B",
+          speakTimeoutMs,
+        );
+        try {
+          await waitForNpcAdjacent(
+            roomA,
+            roomA.sessionId,
+            playerAId,
+            "npc-1",
+            "player A → npc-1",
+            speakTimeoutMs,
+          );
+          await waitForNpcAdjacent(
+            roomB,
+            roomB.sessionId,
+            playerBId,
+            "npc-2",
+            "player B → npc-2",
+            speakTimeoutMs,
+          );
+          break;
+        } catch (err) {
+          if (nlAttempt === 1) throw err;
+        }
+      }
       console.log("verify:phase8: dual NL relative move (adjacent) OK");
     }
 

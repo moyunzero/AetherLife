@@ -38,6 +38,7 @@ if (!process.env.WORLD_SEED) {
 const httpBase = gameServerHttpBase();
 const webBase = process.env.WEB_URL || "http://localhost:5173";
 const speakTimeoutMs = Math.max(90_000, e2eSpeakTimeoutMs());
+const engageTimeoutMs = Math.max(90_000, speakTimeoutMs / 2);
 const BANNER_WAIT_MS = Number.parseInt(process.env.E2E_BANNER_WAIT_MS || "", 10) || 60_000;
 const MEMORY_POLL_MS = Number.parseInt(
   process.env.VERIFY_MEMORY_POLL_MS ||
@@ -157,6 +158,19 @@ async function assertCollectiveEventsWithSummaries(page, minCount) {
 }
 
 /**
+ * Wait for Colyseus connected indicator before engageDialogue (chained runs).
+ */
+async function waitCornerMenuConnected(page, timeoutMs = 60_000) {
+  await page.waitForFunction(
+    () =>
+      Boolean(
+        document.querySelector('[data-testid="corner-menu"] .corner-menu__status-dot--ok'),
+      ),
+    { timeout: timeoutMs },
+  );
+}
+
+/**
  * Inline SOLO-04 (rude auto-open + help path) + multi-preference C1 extension (D-17).
  * @returns {Promise<{ ok: boolean }>}
  */
@@ -186,11 +200,15 @@ async function runInlineDelta() {
       timeout: 45_000,
     });
     await page.locator('[data-testid="room-scene"]').waitFor({ timeout: 30_000 });
-    await engageDialogue(page);
+    await waitCornerMenuConnected(page);
+    await engageDialogue(page, { timeoutMs: engageTimeoutMs });
 
     // --- SOLO-04 rude path: auto-open without manual drawer helper (D-10) ---
     const rudeStart = Date.now();
-    const rudeReply = await sendSpeakOverlay(page, "你真没礼貌，滚开", { speakTimeoutMs });
+    const rudeReply = await sendSpeakOverlay(page, "你真没礼貌，滚开", {
+      speakTimeoutMs,
+      engageTimeoutMs,
+    });
     console.log(
       `verify:phase22: rudeSpeakMs=${rudeReply.speakMs} reply="${rudeReply.reply.slice(0, 60)}"`,
     );
@@ -233,7 +251,10 @@ async function runInlineDelta() {
 
     // --- SOLO-04 help path: API kind=help, banner, no second auto-open ---
     const helpStart = Date.now();
-    const helpReply = await sendSpeakOverlay(page, "请帮帮忙", { speakTimeoutMs });
+    const helpReply = await sendSpeakOverlay(page, "请帮帮忙", {
+      speakTimeoutMs,
+      engageTimeoutMs,
+    });
     console.log(
       `verify:phase22: helpSpeakMs=${helpReply.speakMs} reply="${helpReply.reply.slice(0, 60)}"`,
     );
@@ -320,10 +341,12 @@ async function runInlineDelta() {
       state: "visible",
       timeout: 45_000,
     });
-    await engageDialogue(page);
+    await waitCornerMenuConnected(page);
+    await engageDialogue(page, { timeoutMs: engageTimeoutMs });
 
     const { reply: teaReply } = await sendSpeakOverlay(page, "我喜欢喝什么茶？", {
       speakTimeoutMs,
+      engageTimeoutMs,
     });
     if (!teaReply.includes(prefA)) {
       throw new Error(`tea recall missing ${prefA}: "${teaReply.slice(0, 120)}"`);
@@ -335,6 +358,7 @@ async function runInlineDelta() {
 
     const { reply: bookReply } = await sendSpeakOverlay(page, "我喜欢看什么书？", {
       speakTimeoutMs,
+      engageTimeoutMs,
     });
     if (!bookReply.includes(prefB)) {
       throw new Error(`book recall missing ${prefB}: "${bookReply.slice(0, 120)}"`);
