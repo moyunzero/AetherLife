@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { CollectiveRepository } from "@aetherlife/npc-memory";
+import { KIND_FIXED_DELTA, personalitySeedForNpc } from "@aetherlife/shared";
 import { CollectiveService } from "./service.js";
 
 describe("CollectiveService", () => {
@@ -66,7 +67,7 @@ describe("CollectiveService", () => {
     });
     expect(result).toEqual(expect.objectContaining({ recorded: true }));
     const rep = await repo.getAttitude("solo", "npc-2", "p-a");
-    expect(rep).toBe(-8);
+    expect(rep).toBe(personalitySeedForNpc("npc-2") + KIND_FIXED_DELTA.rude);
   });
 
   it("recordWorkerEvent writes worker speak social for solo player", async () => {
@@ -83,6 +84,6 @@ describe("CollectiveService", () => {
     });
     expect(eventId).toBeTruthy();
     const rep = await repo.getAttitude("solo-worker", "npc-1", "p-a");
-    expect(rep).toBe(-13);
+    expect(rep).toBe(personalitySeedForNpc("npc-1") + (-8));
   });
 });
