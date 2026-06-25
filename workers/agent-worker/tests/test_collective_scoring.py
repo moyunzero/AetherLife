@@ -64,10 +64,16 @@ def test_allowed_tools_hostile():
     assert allowed_tools_for_band("hostile") == ["speak", "wait"]
 
 
-def test_npc_personality_seed_defaults():
-    assert NPC_PERSONALITY_SEED["npc-1"] == -5
-    assert NPC_PERSONALITY_SEED["npc-2"] == 0
-    assert NPC_PERSONALITY_SEED["npc-3"] == 15
+def test_npc_personality_seed_twelve_way_spread():
+    """D-COLLECTIVE-02: 12 council seats, non-uniform, against < for exemplars."""
+    assert len(NPC_PERSONALITY_SEED) == 12
+    values = list(NPC_PERSONALITY_SEED.values())
+    assert len(set(values)) > 1
+    assert len(set(values)) == 12
+    # npc-1 (against + order_keeper) vs npc-2 (for + expansionist)
+    assert NPC_PERSONALITY_SEED["npc-1"] < NPC_PERSONALITY_SEED["npc-2"]
+    assert NPC_PERSONALITY_SEED["npc-1"] == -52
+    assert NPC_PERSONALITY_SEED["npc-2"] == 58
 
 
 def test_chebyshev():
