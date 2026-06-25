@@ -122,7 +122,7 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 | **Speak 读** | 玩家 speak `GET .../memory-context` **必须** 真实 `playerId`；`MemoryService.buildMemoryContext` **拒绝** `playerId=__council__` |
 | **Speak 写** | `persist_turn_memory` 写 `(roomId, initiatorPlayerId, npcId)` — **禁止** 写入 `__council__` |
 | **Council 读（PERSONA-04）** | `buildCouncilMemoryContext(roomId, npcId, query)` + worker `fetch_council_memory_context`（`X-Player-Id: __council__`）；HTTP 路由对 `__council__` 走 council helper；Phase 25 vote/debate 唯一消费者 |
-| **Council 写** | Phase 23: seed only；Phase 25: debate/vote 理由 append 至 `__council__` |
+| **Council 写** | Phase 23: seed only；Phase 25: debate/vote 理由 append 至 `__council__`（写路径 25-03 激活；debate append finalize 25-06） |
 | **Reset** | `POST /rooms/:id/reset` 删除 **initiator** per-player memories (C-05)；**不**删除 `__council__` room-shared seeds（room-wide wipe defer Phase 24/25） |
 | **隔离** | 个人时间线 (`npc_personal_timeline`, D-RESERVE-BIO-02) 与 `__council__` 互斥 |
 | **禁止** | `playerId=__room__`；council 种子混入玩家 speak RAG；Colyseus schema 12-NPC（Phase 26） |
@@ -151,6 +151,25 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 **验证：** `pnpm --filter @aetherlife/game-server test -- index.test.ts world-history` · `pnpm agent:verify`
 
 **锚点文件：** `world/world-history-repository.ts`, `world/world-history-seed.ts`, `world/world-history-broadcast.ts`, `routes/world-history.ts`, `routes/internal-world-history.ts`, `room/store.ts`, `packages/shared/src/worldHistory.ts`, `packages/shared/src/colyseus.ts`（`worldHistorySync`）。
+
+---
+
+## C-09 — Runtime NPC relationships (`npc_relationships`) [DRAFT — Phase 25]
+
+| 层 | 契约 |
+|----|------|
+| **表** | `npc_relationships` room 共享；无向边 `npc_a_id < npc_b_id`（字符串序）；`UNIQUE (room_id, npc_a_id, npc_b_id)`；`affection` −100…100；`trust` 0…100 |
+| **种子** | 房间 **首次创建**（`getOrCreate`）异步 `seedCouncilRelationshipsIfNeeded`：从 registry `relationships[]` 映射 `base_tag` + 初始 `affection`/`trust`；**66 条边**（`COUNCIL_NPC_IDS` 全对）；幂等 `countRelationshipsForRoom >= 66` 跳过 |
+| **Registry 映射** | 种子读 registry 时用 `councilIndexEdgeIds`（席位序 npc-1…12）；**存储**仍用 `normalizeEdgeIds`（字符串序，满足 CHECK） |
+| **Worker 读** | `GET /internal/rooms/:roomId/npc-relationships`；`requireWorkerAuth`；可选 `?npcId=` + `limit` 返回 top-N by `|affection|` |
+| **Worker 写** | `POST /internal/rooms/:roomId/npc-relationships/apply-deltas`；body `{ deltas: RelationshipDeltaInput[], voteEpoch? }` → `{ linkedEdges }`；单次 `|affectionDelta| ≤ 15`；server clamp affection/trust |
+| **Reset** | `POST /rooms/:id/reset` **不得**删除 `npc_relationships`（room-shared，与 `world_history` / `__council__` 同类保留） |
+| **UI** | 客户端 **无**公开路由；`linkedEdges` 仅经 `councilDeliberationSync` / vote job 输出；Phase 25 名册 subtle hint only |
+| **C-07 辩论记忆** | Phase 25 debate/vote 理由 append `__council__` 写路径在 25-03 激活；本 plan 仅 C-09 地基 |
+
+**验证：** `pnpm --filter @aetherlife/shared test -- councilDeliberation` · `pnpm --filter @aetherlife/game-server test -- npc-relationships councilRelationshipSeed` · `rg C-09 docs/CONTRACTS.md`
+
+**锚点文件：** `world/npc-relationships-repository.ts`, `memory/councilRelationshipSeed.ts`, `routes/internal-npc-relationships.ts`, `room/store.ts`, `packages/shared/src/councilRelationships.ts`, `packages/shared/src/councilDeliberation.ts`, `packages/npc-memory/migrations/0009_npc_relationships.sql`.
 
 ---
 

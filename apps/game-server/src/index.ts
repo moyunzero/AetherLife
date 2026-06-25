@@ -16,6 +16,7 @@ import {
   createInternalLoreRouter,
 } from "./routes/internal-lore.js";
 import { createInternalAmbientIntentRouter } from "./routes/internal-ambient-intent.js";
+import { createInternalNpcRelationshipsRouter } from "./routes/internal-npc-relationships.js";
 import { attachColyseus } from "./colyseus/server.js";
 
 function formatZodError(error: { issues: Array<{ path: (string | number)[]; message: string }> }) {
@@ -53,6 +54,7 @@ export function createApp(): Express {
   app.use("/internal/rooms", json, createInternalCollectiveRouter());
   app.use("/internal/rooms", json, createInternalWorldHistoryRouter());
   app.use("/internal/rooms", json, createInternalAmbientIntentRouter());
+  app.use("/internal/rooms", json, createInternalNpcRelationshipsRouter());
   app.use("/internal/jobs", json, createInternalJobsRouter());
   app.use("/internal/world", json, createInternalLoreRouter());
   app.use("/internal/metrics", json, createInternalLoreMetricsRouter());
