@@ -106,18 +106,22 @@ def test_narrative_action_loads_memory_with_skip_embed():
     with patch("src.graph.npc_loop.fetch_state") as fetch_state:
         with patch("src.graph.npc_loop.fetch_nearby_lore_into_snapshot") as lazy_lore:
             with patch("src.graph.npc_loop.load_memory_context") as load_memory:
-                fetch_state.return_value = {**state, "room_snapshot": {"npcs": []}}
-                lazy_lore.side_effect = lambda s, **_: {
-                    **s,
-                    "room_snapshot": {"npcs": [], "nearbyLore": [{"cx": 0, "cy": 0}]},
-                }
-                load_memory.return_value = {
-                    **state,
-                    "memory_summary": "recall",
-                    "memory_count": 3,
-                    "attitude_band": "warm",
-                }
-                out = fetch_state_and_memory(state, settings=settings, client=MagicMock())
+                with patch(
+                    "src.graph.npc_loop._fetch_speak_enrichment",
+                    return_value={},
+                ):
+                    fetch_state.return_value = {**state, "room_snapshot": {"npcs": []}}
+                    lazy_lore.side_effect = lambda s, **_: {
+                        **s,
+                        "room_snapshot": {"npcs": [], "nearbyLore": [{"cx": 0, "cy": 0}]},
+                    }
+                    load_memory.return_value = {
+                        **state,
+                        "memory_summary": "recall",
+                        "memory_count": 3,
+                        "attitude_band": "warm",
+                    }
+                    out = fetch_state_and_memory(state, settings=settings, client=MagicMock())
 
     load_memory.assert_called_once()
     _, kwargs = load_memory.call_args
@@ -141,9 +145,13 @@ def test_recall_action_loads_memory_with_full_embed():
 
     with patch("src.graph.npc_loop.fetch_state") as fetch_state:
         with patch("src.graph.npc_loop.load_memory_context") as load_memory:
-            fetch_state.return_value = {**state, "room_snapshot": {"npcs": []}}
-            load_memory.return_value = {**state, "memory_count": 1, "attitude_band": "neutral"}
-            fetch_state_and_memory(state, settings=settings, client=MagicMock())
+            with patch(
+                "src.graph.npc_loop._fetch_speak_enrichment",
+                return_value={},
+            ):
+                fetch_state.return_value = {**state, "room_snapshot": {"npcs": []}}
+                load_memory.return_value = {**state, "memory_count": 1, "attitude_band": "neutral"}
+                fetch_state_and_memory(state, settings=settings, client=MagicMock())
 
     _, kwargs = load_memory.call_args
     assert kwargs.get("skip_embed") is False
