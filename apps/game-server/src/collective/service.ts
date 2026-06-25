@@ -20,6 +20,7 @@ import {
 import { allowedToolsForBand, type AllowedTool } from "./gate.js";
 import { detectSpeakRule } from "./rule-detector.js";
 import { getOrCreate } from "../room/store.js";
+import { recordCollectiveEvent } from "../world/world-vote-trigger.js";
 
 export type RecordRuleEventInput = {
   roomId: string;
@@ -124,6 +125,7 @@ export class CollectiveService {
     };
 
     const eventId = await this.repo.insertEvent(eventInput);
+    recordCollectiveEvent(input.roomId, deltaScore);
     const witnessUpdates = computeWitnessDeltas(
       { kind: input.kind, deltaScore, playerIds: [...distinct] },
       input.npcId,
@@ -165,6 +167,7 @@ export class CollectiveService {
     };
 
     const eventId = await this.repo.insertEvent(eventInput);
+    recordCollectiveEvent(input.roomId, deltaScore);
     const witnessUpdates = computeWitnessDeltas(
       { kind: input.kind, deltaScore, playerIds: distinct },
       input.npcId,
