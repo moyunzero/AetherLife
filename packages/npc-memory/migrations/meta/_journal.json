@@ -50,6 +50,13 @@
       "when": 1750896000000,
       "tag": "0008_world_history",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1750982400000,
+      "tag": "0009_npc_relationships",
+      "breakpoints": true
     }
   ]
 }

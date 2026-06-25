@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { CouncilArchetype } from "./council/types.js";
+import { COUNCIL_NPC_IDS, type CouncilNpcId } from "./council/constants.js";
 
 /** Per-archetype relationship delta multiplier (RELATIONSHIP-DYNAMICS.md). */
 export const ARCHETYPE_CHANGE_RATE: Record<CouncilArchetype, number> = {
@@ -68,6 +69,27 @@ export function normalizeEdgeIds(
   return npcAId < npcBId
     ? { npcAId, npcBId }
     : { npcAId: npcBId, npcBId: npcAId };
+}
+
+/**
+ * Order pair by COUNCIL_NPC_IDS seat index (npc-1…npc-12).
+ * Use for registry SSOT lookup; DB storage still uses {@link normalizeEdgeIds} string order.
+ */
+export function councilIndexEdgeIds(
+  npcAId: string,
+  npcBId: string,
+): { npcAId: string; npcBId: string } {
+  if (npcAId === npcBId) {
+    throw new Error("councilIndexEdgeIds: npc ids must differ");
+  }
+  const idxA = (COUNCIL_NPC_IDS as readonly string[]).indexOf(npcAId);
+  const idxB = (COUNCIL_NPC_IDS as readonly string[]).indexOf(npcBId);
+  if (idxA === -1 || idxB === -1) {
+    return normalizeEdgeIds(npcAId, npcBId);
+  }
+  return idxA < idxB
+    ? { npcAId: npcAId as CouncilNpcId, npcBId: npcBId as CouncilNpcId }
+    : { npcAId: npcBId as CouncilNpcId, npcBId: npcAId as CouncilNpcId };
 }
 
 export function clampAffection(value: number): number {

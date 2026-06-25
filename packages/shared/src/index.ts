@@ -338,6 +338,7 @@ export {
   initialTrustFromAffection,
   linkedEdgeSchema,
   normalizeEdgeIds,
+  councilIndexEdgeIds,
   parseRelationshipDeltaInput,
   relationshipDeltaInputSchema,
   safeParseRelationshipDeltaInput,

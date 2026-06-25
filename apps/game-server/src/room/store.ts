@@ -1,5 +1,6 @@
 import { createDefaultRoom, type RoomState } from "@aetherlife/shared";
 import { seedCouncilMemoriesIfNeeded } from "../memory/councilSeed.js";
+import { seedCouncilRelationshipsIfNeeded } from "../memory/councilRelationshipSeed.js";
 import { seedWorldHistoryIfNeeded } from "../world/world-history-seed.js";
 
 export type RoomRecord = {
@@ -36,6 +37,9 @@ export function getOrCreate(roomId: string): RoomRecord {
   });
   void seedWorldHistoryIfNeeded(roomId).catch((err) => {
     console.error("[world-history-seed] failed for room", roomId, err);
+  });
+  void seedCouncilRelationshipsIfNeeded(roomId).catch((err) => {
+    console.error("[council-relationship-seed] failed for room", roomId, err);
   });
   return record;
 }
