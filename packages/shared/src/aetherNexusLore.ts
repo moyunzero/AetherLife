@@ -18,7 +18,7 @@ export const AETHER_NEXUS_LORE: AetherNexusLore = {
   origin:
     "上古「万界崩裂纪」，无数独立小说世界因天道失衡、系统冲突与量子融合灾变剧烈碰撞；部分位面碎片重叠融合，形成规则混乱的太乙交汇界。",
   beginningFieldsRole:
-    "唯一被 12 大原位面共同承认的中立缓冲区；12 位顶尖代表在此设使馆，共同书写「融合后的共享世界历史」。",
+    "唯一被 12 大原位面共同承认的中立缓冲区「始源区」；12 位顶尖代表在此设使馆，共同书写「融合后的共享世界历史」。",
   historyEvolution:
     "世界历史经议会提案 + 投票动态演化；重大事件（位面规则入侵、新遗迹觉醒等）须 12 人多数票确认。玩家行动可作提案证据，影响历史走向。",
   coreConflicts: [
@@ -28,6 +28,12 @@ export const AETHER_NEXUS_LORE: AetherNexusLore = {
     "守护稳定 vs 自由探索",
   ],
 };
+
+/** Player-facing name for the home map / diplomatic buffer zone (LOCKED Phase 23 UAT). */
+export const BEGINNING_FIELDS_NAME_ZH = "始源区";
+
+/** Internal English key — code comments, Tiled assets, spawn constants. */
+export const BEGINNING_FIELDS_NAME_EN = "Beginning Fields";
 
 /** Compact world summary for LLM/registry imports (≤200 中文字符). */
 export function aetherNexusSummaryForPrompt(): string {

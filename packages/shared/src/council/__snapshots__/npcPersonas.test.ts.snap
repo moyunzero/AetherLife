@@ -1,0 +1,97 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`registry core key snapshots > npc-1 core keys match dossier 1`] = `
+{
+  "archetype": "order_keeper",
+  "displayName": "莫玄虚",
+  "votingLeaning": "against",
+}
+`;
+
+exports[`registry core key snapshots > npc-2 core keys match dossier 1`] = `
+{
+  "archetype": "expansionist",
+  "displayName": "阿斯托利亚",
+  "votingLeaning": "for",
+}
+`;
+
+exports[`registry core key snapshots > npc-3 core keys match dossier 1`] = `
+{
+  "archetype": "logician",
+  "displayName": "诸葛知危",
+  "votingLeaning": "swing",
+}
+`;
+
+exports[`registry core key snapshots > npc-4 core keys match dossier 1`] = `
+{
+  "archetype": "chaos_agent",
+  "displayName": "糖果",
+  "votingLeaning": "swing",
+}
+`;
+
+exports[`registry core key snapshots > npc-5 core keys match dossier 1`] = `
+{
+  "archetype": "pacifist",
+  "displayName": "白星烬",
+  "votingLeaning": "swing",
+}
+`;
+
+exports[`registry core key snapshots > npc-6 core keys match dossier 1`] = `
+{
+  "archetype": "power_broker",
+  "displayName": "瓦伦丁",
+  "votingLeaning": "against",
+}
+`;
+
+exports[`registry core key snapshots > npc-7 core keys match dossier 1`] = `
+{
+  "archetype": "mediator",
+  "displayName": "纳兰温言",
+  "votingLeaning": "swing",
+}
+`;
+
+exports[`registry core key snapshots > npc-8 core keys match dossier 1`] = `
+{
+  "archetype": "guardian",
+  "displayName": "克里斯",
+  "votingLeaning": "against",
+}
+`;
+
+exports[`registry core key snapshots > npc-9 core keys match dossier 1`] = `
+{
+  "archetype": "aesthete",
+  "displayName": "楚浅歌",
+  "votingLeaning": "swing",
+}
+`;
+
+exports[`registry core key snapshots > npc-10 core keys match dossier 1`] = `
+{
+  "archetype": "brawler",
+  "displayName": "斯卡蒂",
+  "votingLeaning": "for",
+}
+`;
+
+exports[`registry core key snapshots > npc-11 core keys match dossier 1`] = `
+{
+  "archetype": "perfectionist",
+  "displayName": "叶秋水",
+  "votingLeaning": "against",
+}
+`;
+
+exports[`registry core key snapshots > npc-12 core keys match dossier 1`] = `
+{
+  "archetype": "explorer",
+  "displayName": "海莲娜",
+  "votingLeaning": "for",
+}
+`;

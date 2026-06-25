@@ -12,6 +12,8 @@ export type AmbientIntentSegmentPayload = {
 export type NpcAmbientIntentJobPayload = {
   roomId: string;
   npcId: string;
+  /** Authoritative display name from room snapshot (C-06 ambient prompt). */
+  npcName?: string;
   gameMinute: number;
   segment: AmbientIntentSegmentPayload;
   trigger: "segment_change" | "speak_end";
@@ -77,6 +79,7 @@ export function ambientIntentJobId(
 export async function addNpcAmbientIntentJob(input: {
   roomId: string;
   npcId: string;
+  npcName?: string;
   gameMinute: number;
   segment: AmbientIntentSegmentPayload;
   trigger: "segment_change" | "speak_end";

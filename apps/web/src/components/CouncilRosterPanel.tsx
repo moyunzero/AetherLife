@@ -1,6 +1,8 @@
+import { createElement } from "react";
 import {
   COUNCIL_NPC_IDS,
   getPersona,
+  relationshipKindLabelZh,
   type PersonalTimelineEntry,
 } from "@aetherlife/shared";
 
@@ -38,12 +40,18 @@ export function CouncilRosterPanel({ biographyEntries }: Props = {}) {
                     {persona.originPlane} · {persona.faction} · {persona.mbti} ·{" "}
                     {persona.zodiacSign}
                   </span>
-                  <p className="council-roster-panel__personality">{persona.personality}</p>
+                  <p className="council-roster-panel__personality council-roster-panel__personality--teaser">
+                    {persona.personality}
+                  </p>
                 </summary>
                 <div className="council-roster-panel__expand">
                   {biographyEntries ? (
                     <CouncilBiographySlot entries={biographyEntries} />
                   ) : null}
+                  <section className="council-roster-panel__section">
+                    <h4 className="council-roster-panel__section-title">性格</h4>
+                    <p className="council-roster-panel__personality-full">{persona.personality}</p>
+                  </section>
                   <section className="council-roster-panel__section">
                     <h4 className="council-roster-panel__section-title">生平</h4>
                     <p className="council-roster-panel__backstory">{backstory}</p>
@@ -66,7 +74,7 @@ export function CouncilRosterPanel({ biographyEntries }: Props = {}) {
                             {getPersona(rel.targetId).displayName}
                           </span>
                           <span className="council-roster-panel__relationship-kind">
-                            {rel.kind}
+                            {relationshipKindLabelZh(rel.kind)}
                           </span>
                           <span className="council-roster-panel__relationship-summary">
                             {rel.summary}

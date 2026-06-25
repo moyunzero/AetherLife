@@ -11,6 +11,7 @@ import { CollectiveDebugPanel } from "./components/CollectiveDebugPanel.js";
 import { CornerMenu } from "./components/CornerMenu.js";
 import { DialogueOverlay } from "./components/DialogueOverlay.js";
 import type { DrawerTab } from "./components/DialogueBar.js";
+import { OnboardingCoach } from "./components/OnboardingCoach.js";
 import { ShellDrawer } from "./components/ShellDrawer.js";
 import { useCollectiveAttitude } from "./hooks/useCollectiveAttitude.js";
 import { SyncMetricsOverlay } from "./components/SyncMetricsOverlay.js";
@@ -481,6 +482,7 @@ export function ChatPage() {
               />
             </>
           ) : null}
+          <OnboardingCoach visible={connected && !bootPending && phaserOk} />
         </>
       }
       world={

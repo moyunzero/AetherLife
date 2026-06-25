@@ -298,6 +298,8 @@ export {
 
 export {
   AETHER_NEXUS_LORE,
+  BEGINNING_FIELDS_NAME_EN,
+  BEGINNING_FIELDS_NAME_ZH,
   aetherNexusSummaryForPrompt,
   type AetherNexusLore,
 } from "./aetherNexusLore.js";
@@ -319,3 +321,5 @@ export {
   type CouncilRelationship,
   type VotingLeaning,
 } from "./npcPersonas.js";
+
+export { relationshipKindLabelZh } from "./council/relationshipLabels.js";

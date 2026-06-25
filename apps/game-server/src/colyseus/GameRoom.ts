@@ -366,9 +366,12 @@ export class GameRoom extends Room {
     if (this.npcSpeakJobs.has(npcId)) return;
     const segment = resolveScheduleSegment(npcId, this.gameState.gameMinute);
     if (!segment) return;
+    const { state: mapState } = getOrCreate(this.mapRoomId);
+    const npcName = mapState.npcs.find((n) => n.id === npcId)?.name;
     void addNpcAmbientIntentJob({
       roomId: this.mapRoomId,
       npcId,
+      npcName,
       gameMinute: this.gameState.gameMinute,
       segment: {
         zoneId: segment.zoneId,

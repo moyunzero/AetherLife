@@ -93,6 +93,13 @@ def test_generate_mock_intent():
     assert intent["untilGameMinute"] == 720
 
 
+def test_generate_uses_payload_npc_name_over_stale_dict():
+    settings = Settings(llm_mock=True)
+    payload = _payload(npcName="路昂")
+    intent = generate_ambient_intent(payload, settings)
+    assert intent["zoneId"] == "home-yard"
+
+
 def test_run_ambient_intent_job_posts_to_game_server():
     settings = Settings(
         llm_mock=True,

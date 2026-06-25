@@ -1,5 +1,5 @@
 import { lookupPersona } from "./dossiers/index.js";
-import type { CouncilNpcId, CouncilPersona } from "./types.js";
+import type { CouncilPersona } from "./types.js";
 
 export const COUNCIL_NPC_IDS = [
   "npc-1",

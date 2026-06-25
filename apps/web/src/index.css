@@ -1712,7 +1712,7 @@ body {
   margin: 0 0 8px;
   font-size: 13px;
   font-weight: 600;
-  color: var(--text-primary, #e8e4dc);
+  color: var(--shell-ink, #3d3428);
 }
 
 .council-roster-panel__list {
@@ -1722,7 +1722,7 @@ body {
 }
 
 .council-roster-panel__row {
-  border-bottom: 1px solid color-mix(in srgb, var(--text-muted, #9a958a) 20%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--shell-wood, #8b6914) 22%, transparent);
 }
 
 .council-roster-panel__row:last-child {
@@ -1749,7 +1749,7 @@ body {
   margin: 0 0 2px;
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-primary, #e8e4dc);
+  color: var(--shell-ink, #3d3428);
 }
 
 .council-roster-panel__meta {
@@ -1757,18 +1757,30 @@ body {
   margin: 0 0 4px;
   font-size: 11px;
   line-height: 1.35;
-  color: var(--text-muted, #9a958a);
+  color: var(--shell-muted, #7a6f5c);
 }
 
-.council-roster-panel__personality {
+.council-roster-panel__personality--teaser {
   margin: 0;
   font-size: 12px;
   line-height: 1.35;
-  color: var(--text-muted, #9a958a);
+  color: var(--shell-muted, #7a6f5c);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.council-roster-panel__details[open] .council-roster-panel__personality--teaser {
+  display: none;
+}
+
+.council-roster-panel__personality-full {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--shell-ink, #3d3428);
+  white-space: pre-wrap;
 }
 
 .council-roster-panel__expand {
@@ -1783,7 +1795,7 @@ body {
   margin: 0 0 4px;
   font-size: 11px;
   font-weight: 600;
-  color: var(--accent, #c4a574);
+  color: var(--shell-accent, #c9a227);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -1793,7 +1805,7 @@ body {
   margin: 0;
   font-size: 12px;
   line-height: 1.45;
-  color: var(--text-muted, #9a958a);
+  color: var(--shell-ink, #3d3428);
   white-space: pre-wrap;
 }
 
@@ -1805,10 +1817,10 @@ body {
 
 .council-roster-panel__relationship {
   padding: 6px 0;
-  border-top: 1px solid color-mix(in srgb, var(--text-muted, #9a958a) 15%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--shell-wood, #8b6914) 18%, transparent);
   font-size: 12px;
   line-height: 1.4;
-  color: var(--text-muted, #9a958a);
+  color: var(--shell-ink, #3d3428);
 }
 
 .council-roster-panel__relationship:first-child {
@@ -1817,14 +1829,26 @@ body {
 
 .council-roster-panel__relationship-name {
   font-weight: 600;
-  color: var(--text-primary, #e8e4dc);
+  color: var(--shell-ink, #3d3428);
   margin-right: 6px;
 }
 
 .council-roster-panel__relationship-kind {
-  font-size: 11px;
-  color: var(--accent, #c4a574);
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.2;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm, 4px);
+  color: var(--shell-ink, #3d3428);
+  background: color-mix(in srgb, var(--shell-accent, #c9a227) 18%, var(--shell-parchment, #f5ecd7));
+  border: 1px solid color-mix(in srgb, var(--shell-accent, #c9a227) 35%, transparent);
   margin-right: 6px;
+  vertical-align: middle;
+}
+
+.council-roster-panel__relationship-summary {
+  color: var(--shell-muted, #7a6f5c);
 }
 
 .collective-browse-panel {

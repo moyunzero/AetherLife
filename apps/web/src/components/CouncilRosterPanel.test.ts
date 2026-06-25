@@ -9,6 +9,9 @@ describe("CouncilRosterPanel", () => {
     expect(html).toContain('data-testid="council-roster-panel"');
     expect(html).toContain("莫玄虚");
     expect(html).toContain("海莲娜");
+    expect(html).toContain("始源区");
+    expect(html).toContain("宿敌");
+    expect(html).not.toMatch(/\brival\b/);
     const rowMatches = html.match(/data-testid="council-roster-row"/g);
     expect(rowMatches).toHaveLength(12);
     expect(html).not.toContain("发送指令");
