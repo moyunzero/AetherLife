@@ -3,13 +3,23 @@ import { z } from "zod";
 import {
   chronicleGameYearFromMinute,
   parseWorldHistoryMinutes,
+  parseWorldHistoryStatusFilter,
   validateWorldHistoryStrings,
   worldHistoryMinutesSchema,
 } from "@aetherlife/shared";
 import { getContentBlockedResponse } from "../colyseus/npc-chat.js";
+import { getOrCreate } from "../room/store.js";
 import { broadcastWorldHistorySync } from "../world/world-history-broadcast.js";
-import { insertWorldHistoryEntry } from "../world/world-history-repository.js";
+import { insertWorldHistoryEntry, listWorldHistory } from "../world/world-history-repository.js";
+import { seedWorldHistoryIfNeeded } from "../world/world-history-seed.js";
 import { requireWorkerAuth } from "./internal.js";
+
+function parsePositiveInt(raw: unknown): number | undefined {
+  if (raw === undefined || raw === null || raw === "") return undefined;
+  const n = typeof raw === "number" ? raw : Number.parseInt(String(raw), 10);
+  if (!Number.isFinite(n) || n < 1) return undefined;
+  return Math.trunc(n);
+}
 
 const writebackBodySchema = z
   .object({
@@ -39,6 +49,35 @@ const writebackBodySchema = z
 export function createInternalWorldHistoryRouter(): Router {
   const router = Router();
   router.use(requireWorkerAuth);
+
+  router.get("/:roomId/world-history", async (req: Request, res: Response) => {
+    const roomId = req.params.roomId;
+    if (!roomId) {
+      res.status(400).json({ ok: false, error: "roomId required" });
+      return;
+    }
+
+    const gameYear = parsePositiveInt(req.query.gameYear);
+    const page = parsePositiveInt(req.query.page);
+    const pageSize = parsePositiveInt(req.query.pageSize);
+    const status = parseWorldHistoryStatusFilter(req.query.status);
+
+    try {
+      getOrCreate(roomId);
+      await seedWorldHistoryIfNeeded(roomId);
+      const payload = await listWorldHistory({
+        roomId,
+        gameYear,
+        page,
+        pageSize,
+        status,
+      });
+      res.json({ ok: true, ...payload });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "world-history list failed";
+      res.status(500).json({ ok: false, error: message });
+    }
+  });
 
   router.post("/:roomId/world-history", async (req: Request, res: Response) => {
     const roomId = req.params.roomId;
