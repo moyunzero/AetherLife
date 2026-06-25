@@ -150,6 +150,7 @@ export {
   type ColyseusSpeakBusyPayload,
   type ColyseusSpeakIdlePayload,
   type ColyseusSpeakPayload,
+  type ColyseusWorldHistorySyncPayload,
   type Facing,
   type StatePatchNpcDelta,
   type StatePatchPayload,
@@ -323,3 +324,28 @@ export {
 } from "./npcPersonas.js";
 
 export { relationshipKindLabelZh } from "./council/relationshipLabels.js";
+
+export {
+  chronicleGameYearFromMinute,
+  formatChronicleYearLabel,
+  toWorldHistoryListEntry,
+  genesisMinutesSchema,
+  genesisSignatorySchema,
+  parseWorldHistoryMinutes,
+  parseWorldHistoryStatusFilter,
+  safeParseWorldHistoryMinutes,
+  validateWorldHistoryStrings,
+  voteBallotSchema,
+  voteMinutesSchema,
+  worldHistoryMinutesSchema,
+  type GenesisMinutes,
+  type GenesisSignatory,
+  type VoteBallot,
+  type VoteMinutes,
+  type WorldHistoryEntryKind,
+  type WorldHistoryMinutes,
+  type WorldHistoryListEntry,
+  type WorldHistoryPublicEntry,
+  type WorldHistoryStatus,
+  type WorldHistoryStatusFilter,
+} from "./worldHistory.js";

@@ -13,6 +13,7 @@ import {
   type ChunkView,
   type ColyseusChunksSyncPayload,
   type ColyseusLoreSyncPayload,
+  type ColyseusWorldHistorySyncPayload,
   type RoomState,
 } from "@aetherlife/shared";
 
@@ -132,7 +133,13 @@ export type SyncMetrics = {
   pending: number;
 };
 
-export function useColyseusRoom(roomId = "default", map: RoomState | null = null) {
+export function useColyseusRoom(
+  roomId = "default",
+  map: RoomState | null = null,
+  mergeWorldHistorySync?: (payload: ColyseusWorldHistorySyncPayload) => void,
+) {
+  const mergeWorldHistorySyncRef = useRef(mergeWorldHistorySync);
+  mergeWorldHistorySyncRef.current = mergeWorldHistorySync;
   const roomRef = useRef<Room | null>(null);
   const [room, setRoom] = useState<Room | null>(null);
   const [connected, setConnected] = useState(false);
@@ -230,6 +237,7 @@ export function useColyseusRoom(roomId = "default", map: RoomState | null = null
     let restoredGridPos = false;
     let offChunksSync: (() => void) | undefined;
     let offLoreSync: (() => void) | undefined;
+    let offWorldHistorySync: (() => void) | undefined;
     let onStateChangeHandler: (() => void) | undefined;
     let onLeaveHandler: ((code: number, reason?: string) => void) | undefined;
 
@@ -305,6 +313,14 @@ export function useColyseusRoom(roomId = "default", map: RoomState | null = null
           mergeLoreSync(data);
         },
       );
+      offWorldHistorySync = joined.onMessage(
+        COLYSEUS_SERVER_MESSAGES.worldHistorySync,
+        (data: ColyseusWorldHistorySyncPayload) => {
+          if (generation !== joinGeneration) return;
+          if (!data?.entry?.id) return;
+          mergeWorldHistorySyncRef.current?.(data);
+        },
+      );
       joined.send(COLYSEUS_CLIENT_MESSAGES.requestChunksSync, {});
     };
 
@@ -369,6 +385,7 @@ export function useColyseusRoom(roomId = "default", map: RoomState | null = null
       joinGeneration += 1;
       offChunksSync?.();
       offLoreSync?.();
+      offWorldHistorySync?.();
       const leaving = activeRoom ?? roomRef.current;
       if (leaving) {
         if (onStateChangeHandler) {

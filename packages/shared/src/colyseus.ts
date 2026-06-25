@@ -34,6 +34,7 @@ export const COLYSEUS_SERVER_MESSAGES = {
   speakIdle: "speakIdle",
   chunksSync: "chunksSync",
   loreSync: "loreSync",
+  worldHistorySync: "worldHistorySync",
 } as const;
 
 export type ColyseusMovePayload =
@@ -110,6 +111,7 @@ export type ColyseusChunksSyncPayload = {
 };
 
 import type { ChunkLorePublic } from "./worldLore.js";
+import type { WorldHistoryPublicEntry } from "./worldHistory.js";
 
 export type ChunkLoreStatus = "home" | "pending" | "ready" | "void" | "failed";
 
@@ -124,4 +126,9 @@ export type ColyseusLoreSyncPayload = {
     /** True only for the session/player that triggered first enqueue (D-06). */
     isFirstDiscover?: boolean;
   }>;
+};
+
+/** Broadcast when a new world chronicle entry is appended (append-only). */
+export type ColyseusWorldHistorySyncPayload = {
+  entry: WorldHistoryPublicEntry;
 };

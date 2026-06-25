@@ -1851,6 +1851,342 @@ body {
   color: var(--shell-muted, #7a6f5c);
 }
 
+.world-history-panel--embedded {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 10px;
+}
+
+.world-history-panel__title {
+  margin: 0;
+  font-family: Fraunces, "Noto Serif SC", serif;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--shell-ink);
+}
+
+.world-history-panel__filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.world-history-panel__filter-btn {
+  font-size: 0.82rem;
+}
+
+.world-history-panel__volume {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--shell-wood) 22%, transparent);
+}
+
+.world-history-panel__volume-label {
+  font-family: Fraunces, "Noto Serif SC", serif;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--shell-ink);
+  min-width: 7em;
+  text-align: center;
+}
+
+.world-history-panel__volume-btn {
+  width: 28px;
+  height: 28px;
+  border: 1px solid color-mix(in srgb, var(--shell-wood) 30%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--shell-parchment) 70%, #fff);
+  color: var(--shell-ink);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.world-history-panel__volume-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.world-history-panel__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.world-history-panel__row {
+  display: block;
+  width: 100%;
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--shell-wood) 22%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--shell-parchment) 88%, #fff);
+  text-align: left;
+  font: inherit;
+  color: var(--shell-ink);
+  cursor: pointer;
+}
+
+.world-history-panel__row--rejected {
+  opacity: 0.62;
+  background: color-mix(in srgb, var(--shell-muted) 12%, var(--shell-parchment));
+}
+
+.world-history-panel__card-title {
+  margin: 0 0 6px;
+  font-family: Fraunces, "Noto Serif SC", serif;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.world-history-panel__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+}
+
+.world-history-panel__proposer {
+  color: var(--shell-muted);
+}
+
+.world-history-panel__tally {
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--shell-accent) 18%, transparent);
+  font-weight: 600;
+  font-size: 0.78rem;
+}
+
+.world-history-panel__badge {
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid color-mix(in srgb, var(--shell-wood) 35%, transparent);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.world-history-panel__badge--rejected {
+  border-color: color-mix(in srgb, var(--shell-muted) 50%, transparent);
+  color: var(--shell-muted);
+}
+
+.world-history-panel__empty {
+  margin: 12px 0;
+  font-size: 0.85rem;
+  color: var(--shell-muted);
+  text-align: center;
+}
+
+.world-history-panel__page-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--shell-wood) 22%, transparent);
+  flex-shrink: 0;
+}
+
+.world-history-panel__page-volume {
+  font-size: 0.78rem;
+  color: var(--shell-muted);
+  text-align: center;
+}
+
+.world-history-panel__page-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.world-history-panel__page-btn {
+  padding: 6px 12px;
+  border: 1px solid color-mix(in srgb, var(--shell-wood) 30%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--shell-parchment) 70%, #fff);
+  color: var(--shell-ink);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.world-history-panel__page-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.world-history-panel__page-indicator {
+  font-size: 0.8rem;
+  color: var(--shell-muted);
+}
+
+@media (max-width: 640px) {
+  .world-history-panel__page-footer {
+    position: sticky;
+    bottom: 0;
+    margin: 0 -12px -12px;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+    background: color-mix(in srgb, var(--shell-parchment) 96%, #fff);
+    box-shadow: 0 -4px 12px rgba(61, 52, 40, 0.08);
+    z-index: 2;
+  }
+}
+
+.world-history-minutes-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 14, 12, 0.72);
+}
+
+.world-history-minutes-modal {
+  width: min(100%, 720px);
+  max-height: min(90vh, 800px);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid color-mix(in srgb, var(--shell-wood) 35%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--shell-parchment) 96%, #fff);
+  color: var(--shell-ink);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
+}
+
+.world-history-minutes-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid color-mix(in srgb, var(--shell-wood) 22%, transparent);
+}
+
+.world-history-minutes-modal__title {
+  margin: 0;
+  font-family: Fraunces, "Noto Serif SC", serif;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.world-history-minutes-modal__close {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border: 1px solid color-mix(in srgb, var(--shell-wood) 30%, transparent);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--shell-ink);
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.world-history-minutes-modal__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 16px 18px;
+}
+
+.world-history-minutes-modal__proposal-text {
+  margin: 0 0 16px;
+  font-size: 0.88rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.world-history-minutes-modal__section-title {
+  margin: 0 0 10px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--shell-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.world-history-minutes-modal__grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.world-history-minutes-modal__card {
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--shell-wood) 22%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--shell-parchment) 80%, #fff);
+}
+
+.world-history-minutes-modal__card-name {
+  margin: 0 0 4px;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.world-history-minutes-modal__card-faction,
+.world-history-minutes-modal__card-stance,
+.world-history-minutes-modal__card-reason {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--shell-muted);
+}
+
+.world-history-minutes-modal__vote {
+  margin: 0 0 4px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.world-history-minutes-modal__vote--yes {
+  color: color-mix(in srgb, #3d6b4f 80%, var(--shell-ink));
+}
+
+.world-history-minutes-modal__vote--no {
+  color: color-mix(in srgb, #8b3a3a 80%, var(--shell-ink));
+}
+
+.world-history-minutes-modal__footnote {
+  margin: 12px 0 0;
+  font-size: 0.78rem;
+  font-style: italic;
+  color: var(--shell-muted);
+}
+
+@media (max-width: 640px) {
+  .world-history-minutes-backdrop {
+    padding: 0;
+    align-items: stretch;
+  }
+
+  .world-history-minutes-modal {
+    width: 100%;
+    max-height: none;
+    height: 100%;
+    border-radius: 0;
+    border: none;
+  }
+
+  .world-history-minutes-modal__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .collective-browse-panel {
   margin-top: 12px;
   padding: 8px;
