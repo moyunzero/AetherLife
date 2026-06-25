@@ -1,5 +1,6 @@
 import { createDefaultRoom, type RoomState } from "@aetherlife/shared";
 import { seedCouncilMemoriesIfNeeded } from "../memory/councilSeed.js";
+import { seedWorldHistoryIfNeeded } from "../world/world-history-seed.js";
 
 export type RoomRecord = {
   state: RoomState;
@@ -33,10 +34,14 @@ export function getOrCreate(roomId: string): RoomRecord {
   void seedCouncilMemoriesIfNeeded(roomId).catch((err) => {
     console.error("[council-seed] failed for room", roomId, err);
   });
+  void seedWorldHistoryIfNeeded(roomId).catch((err) => {
+    console.error("[world-history-seed] failed for room", roomId, err);
+  });
   return record;
 }
 
 export function reset(roomId: string): RoomRecord {
+  // CHRON-01: world_history is room-shared append-only; reset must not delete chronicle rows.
   const record: RoomRecord = { state: createDefaultRoom(roomId) };
   return touchRoom(roomId, record);
 }

@@ -6,7 +6,13 @@ import {
 } from "react";
 import { CollectiveFeedbackBanner } from "./CollectiveFeedbackBanner.js";
 
-export type DrawerTab = "history" | "collective" | "council" | "discoveries" | "memory";
+export type DrawerTab =
+  | "history"
+  | "collective"
+  | "council"
+  | "chronicle"
+  | "discoveries"
+  | "memory";
 
 type Props = {
   draft: string;
@@ -101,6 +107,14 @@ export function DialogueBar({
             onClick={() => onOpenDrawer("council")}
           >
             议会
+          </button>
+          <button
+            type="button"
+            className="dialogue-bar__drawer-btn"
+            aria-label="编年史"
+            onClick={() => onOpenDrawer("chronicle")}
+          >
+            编年史
           </button>
           <button
             type="button"

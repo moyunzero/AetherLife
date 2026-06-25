@@ -133,6 +133,27 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 
 ---
 
+## C-07b — World history chronicle [Phase 24]
+
+| 层 | 契约 |
+|----|------|
+| **表** | `world_history` room 共享、append-only；`(room_id, sequence)` 有序；`(room_id, vote_epoch)` 唯一（vote 行；genesis `vote_epoch` NULL） |
+| **种子** | 房间 **首次创建**（`getOrCreate`）异步 `seedWorldHistoryIfNeeded`：3 条 `entry_kind=genesis`、`status=accepted`；`minutes.kind=genesis_signatories`；**禁止**假票决 |
+| **公开读** | `GET /rooms/:roomId/world-history?…` 返回 `WorldHistoryListEntry[]`（**无** `minutes`）；`GET /rooms/:roomId/world-history/:entryId` 返回完整 `WorldHistoryPublicEntry`；`X-Player-Id` + `assertScopedPlayerRequest`；**无** embedding / 内部字段 |
+| **查询** | `status` = `accepted` \| `rejected` \| `all`（默认 `accepted`）；`pageSize` clamp 5–8（默认 6） |
+| **内部写** | `POST /internal/rooms/:roomId/world-history`；`requireWorkerAuth` + Bearer `INTERNAL_WORKER_TOKEN`；body Zod + `checkPlayerMessageContent` / `validateWorldHistoryStrings` |
+| **写回字段** | `entryKind` genesis \| vote；vote 行 **必须** `voteEpoch`；`gameYear` 由 `chronicleGameYearFromMinute(gameMinuteSnapshot)` 派生 |
+| **Reset** | `POST /rooms/:id/reset` **不得**删除 `world_history`（room-shared chronicle 跨 session / per-player reset 存活；同 C-05 collective 事件） |
+| **Colyseus** | `worldHistorySync` payload `{ entry: WorldHistoryPublicEntry }`；`broadcastWorldHistorySync`；客户端 `onMessage` + `off()` |
+| **Phase 25** | Worker 写 `entry_kind=vote`；通过后 `status=accepted`；debate minutes `kind=vote_minutes` |
+| **隔离** | 编年史与 C-07 `__council__` memory 读模型分离；禁止 council 种子混入 chronicle GET |
+
+**验证：** `pnpm --filter @aetherlife/game-server test -- index.test.ts world-history` · `pnpm agent:verify`
+
+**锚点文件：** `world/world-history-repository.ts`, `world/world-history-seed.ts`, `world/world-history-broadcast.ts`, `routes/world-history.ts`, `routes/internal-world-history.ts`, `room/store.ts`, `packages/shared/src/worldHistory.ts`, `packages/shared/src/colyseus.ts`（`worldHistorySync`）。
+
+---
+
 ## 变更检查清单（PR / Agent 自检）
 
 - [ ] 本 PR 触及上表哪几条 C-xx？

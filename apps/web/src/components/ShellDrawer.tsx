@@ -8,6 +8,8 @@ import { MessageList } from "./MessageList.js";
 import { NpcMemoryPanel } from "./NpcMemoryPanel.js";
 import type { DrawerTab } from "./DialogueBar.js";
 import type { DiscoveredLoreRow } from "../hooks/useChunkLore.js";
+import type { WorldHistoryListEntry, WorldHistoryPublicEntry, WorldHistoryStatusFilter } from "@aetherlife/shared";
+import { WorldHistoryPanel } from "./WorldHistoryPanel.js";
 
 type ParsedIntent = Record<string, unknown> | null;
 
@@ -24,6 +26,19 @@ type Props = {
   collectiveSnapshot: CollectiveAttitudeSnapshot | null;
   collectiveLoading: boolean;
   discoveredLoreRows: DiscoveredLoreRow[];
+  worldHistoryEntries: WorldHistoryListEntry[];
+  worldHistoryLoading?: boolean;
+  worldHistoryStatusFilter: WorldHistoryStatusFilter;
+  onWorldHistoryStatusFilterChange: (filter: WorldHistoryStatusFilter) => void;
+  worldHistoryGameYear: number;
+  worldHistoryGameYearLabel: string;
+  worldHistoryPage: number;
+  worldHistoryTotalPages: number;
+  worldHistoryAvailableYears: number[];
+  onWorldHistoryGameYearChange: (year: number) => void;
+  onWorldHistoryPageChange: (page: number) => void;
+  onFetchWorldHistoryEntry: (entryId: string) => Promise<WorldHistoryPublicEntry | null>;
+  chronicleHasUnread?: boolean;
   roomId: string;
   roomConnected: boolean;
   lastParsedIntent?: ParsedIntent;
@@ -34,6 +49,7 @@ const TABS: { id: DrawerTab; label: string }[] = [
   { id: "history", label: "对话历史" },
   { id: "collective", label: "集体见闻" },
   { id: "council", label: "星际议会" },
+  { id: "chronicle", label: "编年史" },
   { id: "discoveries", label: "已发现" },
   { id: "memory", label: "记忆" },
 ];
@@ -93,6 +109,19 @@ export function ShellDrawer({
   collectiveSnapshot,
   collectiveLoading,
   discoveredLoreRows,
+  worldHistoryEntries,
+  worldHistoryLoading = false,
+  worldHistoryStatusFilter,
+  onWorldHistoryStatusFilterChange,
+  worldHistoryGameYear,
+  worldHistoryGameYearLabel,
+  worldHistoryPage,
+  worldHistoryTotalPages,
+  worldHistoryAvailableYears,
+  onWorldHistoryGameYearChange,
+  onWorldHistoryPageChange,
+  onFetchWorldHistoryEntry,
+  chronicleHasUnread: _chronicleHasUnread = false,
   roomId,
   roomConnected,
   lastParsedIntent = null,
@@ -169,6 +198,23 @@ export function ShellDrawer({
           ) : null}
 
           {tab === "council" ? <CouncilRosterPanel /> : null}
+
+          {tab === "chronicle" ? (
+            <WorldHistoryPanel
+              entries={worldHistoryEntries}
+              loading={worldHistoryLoading}
+              statusFilter={worldHistoryStatusFilter}
+              onStatusFilterChange={onWorldHistoryStatusFilterChange}
+              gameYear={worldHistoryGameYear}
+              gameYearLabel={worldHistoryGameYearLabel}
+              page={worldHistoryPage}
+              totalPages={worldHistoryTotalPages}
+              availableYears={worldHistoryAvailableYears}
+              onGameYearChange={onWorldHistoryGameYearChange}
+              onPageChange={onWorldHistoryPageChange}
+              onFetchEntryDetail={onFetchWorldHistoryEntry}
+            />
+          ) : null}
 
           {tab === "discoveries" ? (
             <DiscoveredLorePanel rows={discoveredLoreRows} />

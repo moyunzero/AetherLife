@@ -1,4 +1,5 @@
 import { bandLabelZh, createDefaultRoom, isBackgroundNpc, type RoomState } from "@aetherlife/shared";
+import type { ColyseusWorldHistorySyncPayload } from "@aetherlife/shared";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useColyseusRoom } from "./hooks/useColyseusRoom.js";
@@ -14,6 +15,12 @@ import type { DrawerTab } from "./components/DialogueBar.js";
 import { OnboardingCoach } from "./components/OnboardingCoach.js";
 import { ShellDrawer } from "./components/ShellDrawer.js";
 import { useCollectiveAttitude } from "./hooks/useCollectiveAttitude.js";
+import {
+  CHRONICLE_TOAST_MESSAGE,
+  useWorldHistory,
+  type ChronicleToast,
+} from "./hooks/useWorldHistory.js";
+import { LORE_DISCOVER_TOAST_MS } from "./components/LoreDiscoverToast.js";
 import { SyncMetricsOverlay } from "./components/SyncMetricsOverlay.js";
 import { getMapRoomId } from "./lib/mapRoomId.js";
 import { stripNpcsForViewport } from "./lib/stripNpcsForViewport.js";
@@ -46,6 +53,12 @@ export function ChatPage() {
   const mapRoomId = getMapRoomId();
   const [duplicateTab, setDuplicateTab] = useState(false);
   const [moveMap, setMoveMap] = useState<RoomState>(() => createDefaultRoom());
+  const mergeWorldHistorySyncRef = useRef<(payload: ColyseusWorldHistorySyncPayload) => void>(
+    () => {},
+  );
+  const onWorldHistorySync = useCallback((payload: ColyseusWorldHistorySyncPayload) => {
+    mergeWorldHistorySyncRef.current(payload);
+  }, []);
   const {
     room,
     connected,
@@ -71,12 +84,29 @@ export function ChatPage() {
     npcAmbientById,
     mainNpcGridById,
     bgNpcGridById,
-  } = useColyseusRoom(mapRoomId, moveMap);
+  } = useColyseusRoom(mapRoomId, moveMap, onWorldHistorySync);
+  const {
+    pageState: worldHistoryPageState,
+    statusFilter: worldHistoryStatusFilter,
+    setStatusFilter: setWorldHistoryStatusFilter,
+    setGameYear: setWorldHistoryGameYear,
+    setPage: setWorldHistoryPage,
+    loading: worldHistoryLoading,
+    fetchWorldHistoryEntry,
+    mergeWorldHistorySync,
+    consumeChronicleToast,
+    chronicleToastQueue,
+  } = useWorldHistory(mapRoomId, connected);
+  mergeWorldHistorySyncRef.current = mergeWorldHistorySync;
   const discoverToast = loreToastQueue[0] ?? null;
+  const chronicleToast = chronicleToastQueue[0] ?? null;
   const discoveredRows = useMemo(() => discoveredLoreRows(loreByChunk), [loreByChunk]);
   const dismissDiscoverToast = useCallback(() => {
     consumeDiscoverToast();
   }, [consumeDiscoverToast]);
+  const dismissChronicleToast = useCallback(() => {
+    consumeChronicleToast();
+  }, [consumeChronicleToast]);
   const onCollectiveUpdatedRef = useRef<(() => void) | null>(null);
   const {
     messages,
@@ -420,11 +450,25 @@ export function ChatPage() {
             collectiveSnapshot={collectiveSnapshot}
             collectiveLoading={collectiveLoading}
             discoveredLoreRows={discoveredRows}
+            worldHistoryEntries={worldHistoryPageState.entries}
+            worldHistoryLoading={worldHistoryLoading}
+            worldHistoryStatusFilter={worldHistoryStatusFilter}
+            onWorldHistoryStatusFilterChange={setWorldHistoryStatusFilter}
+            worldHistoryGameYear={worldHistoryPageState.gameYear}
+            worldHistoryGameYearLabel={worldHistoryPageState.gameYearLabel}
+            worldHistoryPage={worldHistoryPageState.page}
+            worldHistoryTotalPages={worldHistoryPageState.totalPages}
+            worldHistoryAvailableYears={worldHistoryPageState.availableYears}
+            onWorldHistoryGameYearChange={setWorldHistoryGameYear}
+            onWorldHistoryPageChange={setWorldHistoryPage}
+            onFetchWorldHistoryEntry={fetchWorldHistoryEntry}
+            chronicleHasUnread={false}
             roomId={mapRoomId}
             roomConnected={connected}
             lastParsedIntent={lastParsedIntent}
             parseError={parseError}
           />
+          <ChronicleHistoryToast toast={chronicleToast} onDismiss={dismissChronicleToast} />
           {resetConfirmOpen ? (
             <div
               className="reset-confirm-backdrop"
@@ -596,5 +640,55 @@ export function ChatPage() {
         </main>
       }
     />
+  );
+}
+
+type ChronicleHistoryToastProps = {
+  toast: ChronicleToast | null;
+  onDismiss: () => void;
+};
+
+function ChronicleHistoryToast({ toast, onDismiss }: ChronicleHistoryToastProps) {
+  const [visible, setVisible] = useState(false);
+  const onDismissRef = useRef(onDismiss);
+  onDismissRef.current = onDismiss;
+
+  const dismissNow = useCallback(() => {
+    setVisible(false);
+    onDismissRef.current();
+  }, []);
+
+  const toastIdentity = toast ? `${toast.kind}:${toast.title}` : null;
+
+  useEffect(() => {
+    if (!toastIdentity) {
+      setVisible(false);
+      return;
+    }
+    setVisible(true);
+    const timer = window.setTimeout(dismissNow, LORE_DISCOVER_TOAST_MS);
+    return () => window.clearTimeout(timer);
+  }, [toastIdentity, dismissNow]);
+
+  if (!toast || !visible) return null;
+
+  return (
+    <div
+      className="lore-discover-toast chronicle-history-toast"
+      data-testid="chronicle-history-toast"
+      role="status"
+      aria-label={`${CHRONICLE_TOAST_MESSAGE}，点击关闭`}
+      onClick={dismissNow}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          dismissNow();
+        }
+      }}
+      tabIndex={0}
+    >
+      <p className="lore-discover-toast__title">{CHRONICLE_TOAST_MESSAGE}</p>
+      <p className="lore-discover-toast__body">{toast.title}</p>
+    </div>
   );
 }

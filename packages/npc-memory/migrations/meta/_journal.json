@@ -43,6 +43,13 @@
       "when": 1749532800000,
       "tag": "0007_npc_id_default",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1750896000000,
+      "tag": "0008_world_history",
+      "breakpoints": true
     }
   ]
 }
