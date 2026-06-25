@@ -8,9 +8,10 @@ from __future__ import annotations
 
 from typing import Any, TypedDict
 
-SPEAK_PROMPT_CHAR_BUDGET = 800
+from src.council.constants import COUNCIL_NPC_IDS
+from src.council.speak_dossiers import get_speak_dossier
 
-SPEAKABLE_NPC_IDS: tuple[str, ...] = ("npc-1", "npc-2", "npc-3")
+SPEAK_PROMPT_CHAR_BUDGET = 800
 
 
 class _Relationship(TypedDict):
@@ -167,6 +168,44 @@ def _top_relationships(relationships: list[_Relationship], limit: int = 3) -> li
     return sorted(relationships, key=lambda r: _relationship_priority(r["kind"]))[:limit]
 
 
+def _runtime_edges_to_relationships(
+    npc_id: str,
+    edges: list[dict[str, Any]],
+    *,
+    limit: int = 3,
+) -> list[_Relationship]:
+    related = [e for e in edges if e.get("npcAId") == npc_id or e.get("npcBId") == npc_id]
+    related.sort(key=lambda e: abs(int(e.get("affection", 0))), reverse=True)
+    lines: list[_Relationship] = []
+    for edge in related[:limit]:
+        other = edge["npcBId"] if edge.get("npcAId") == npc_id else edge["npcAId"]
+        affection = int(edge.get("affection", 0))
+        status_tags = edge.get("currentStatus") or edge.get("current_status") or []
+        history = (edge.get("historySummary") or edge.get("history_summary") or "").strip()
+        tag_str = "、".join(str(t) for t in status_tags[:3])
+        kind = str(edge.get("baseTag") or "mixed")
+        summary_parts = []
+        if tag_str:
+            summary_parts.append(f"[{tag_str}]")
+        summary_parts.append(f"affection={affection}")
+        if history:
+            summary_parts.append(history[:60])
+        lines.append(
+            {
+                "targetId": str(other),
+                "kind": kind,
+                "summary": " ".join(summary_parts),
+            }
+        )
+    return lines
+
+
+def _load_speak_persona(npc_id: str) -> _CompactPersona | None:
+    if npc_id in COMPACT_PERSONA:
+        return COMPACT_PERSONA[npc_id]
+    return get_speak_dossier(npc_id)
+
+
 def _truncate_voting_logic(voting_logic: str, max_len: int = 120) -> str:
     stripped = voting_logic.replace("**", "").replace("  ", " ").strip()
     if len(stripped) <= max_len:
@@ -180,10 +219,15 @@ def _truncate_backstory(backstory: str, max_len: int = 160) -> str:
     return f"{backstory[: max_len - 1]}…"
 
 
-def _format_persona_block(persona: _CompactPersona) -> str:
+def _format_persona_block(
+    persona: _CompactPersona,
+    *,
+    relationships: list[_Relationship] | None = None,
+) -> str:
+    rel_source = relationships if relationships is not None else persona["relationships"]
     rel_lines = [
         f"·{r['targetId']}({r['kind']})：{r['summary']}"
-        for r in _top_relationships(persona["relationships"])
+        for r in _top_relationships(rel_source)
     ]
     sections = [
         f"【{persona['displayName']}】",
@@ -217,9 +261,19 @@ def _format_persona_block(persona: _CompactPersona) -> str:
     return block[:SPEAK_PROMPT_CHAR_BUDGET]
 
 
-def build_persona_block(npc_id: str) -> str:
-    """Return compact persona block for speakable council NPCs; empty for npc-4..12 (D-SPEAK-02)."""
-    persona = COMPACT_PERSONA.get(npc_id)
+def build_persona_block(
+    npc_id: str,
+    runtime_relationships: list[dict[str, Any]] | None = None,
+) -> str:
+    """Return compact persona block for all COUNCIL_NPC_IDS; runtime edges override registry."""
+    if npc_id not in COUNCIL_NPC_IDS:
+        return ""
+    persona = _load_speak_persona(npc_id)
     if persona is None:
         return ""
-    return _format_persona_block(persona)
+    rels: list[_Relationship] | None = None
+    if runtime_relationships:
+        rels = _runtime_edges_to_relationships(npc_id, runtime_relationships)
+        if not rels:
+            rels = None
+    return _format_persona_block(persona, relationships=rels)
