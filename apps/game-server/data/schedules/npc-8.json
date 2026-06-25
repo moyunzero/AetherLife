@@ -1,0 +1,35 @@
+{
+  "npcId": "npc-8",
+  "persona": "guardian",
+  "_comment": "Guardian — AM orchard patrol, PM orchard stationary watch, evening plaza patrol.",
+  "segments": [
+    {
+      "fromMinute": 360,
+      "toMinute": 720,
+      "activityKey": "patrol",
+      "zoneId": "beginning-fields@v1:orchard",
+      "mobility": "wander"
+    },
+    {
+      "fromMinute": 720,
+      "toMinute": 1080,
+      "activityKey": "patrol",
+      "zoneId": "beginning-fields@v1:orchard",
+      "mobility": "stationary"
+    },
+    {
+      "fromMinute": 1080,
+      "toMinute": 1200,
+      "activityKey": "patrol",
+      "zoneId": "beginning-fields@v1:plaza",
+      "mobility": "wander"
+    },
+    {
+      "fromMinute": 1200,
+      "toMinute": 360,
+      "activityKey": "resting",
+      "zoneId": "beginning-fields@v1:orchard",
+      "mobility": "stationary"
+    }
+  ]
+}

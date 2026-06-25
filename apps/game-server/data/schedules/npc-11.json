@@ -1,0 +1,35 @@
+{
+  "npcId": "npc-11",
+  "persona": "perfectionist",
+  "_comment": "Perfectionist — AM orchard tending stationary, PM orchard watering, evening orchard reading.",
+  "segments": [
+    {
+      "fromMinute": 360,
+      "toMinute": 540,
+      "activityKey": "tending_crops",
+      "zoneId": "beginning-fields@v1:orchard",
+      "mobility": "stationary"
+    },
+    {
+      "fromMinute": 540,
+      "toMinute": 900,
+      "activityKey": "watering",
+      "zoneId": "beginning-fields@v1:orchard",
+      "mobility": "stationary"
+    },
+    {
+      "fromMinute": 900,
+      "toMinute": 1200,
+      "activityKey": "reading",
+      "zoneId": "beginning-fields@v1:orchard",
+      "mobility": "stationary"
+    },
+    {
+      "fromMinute": 1200,
+      "toMinute": 360,
+      "activityKey": "resting",
+      "zoneId": "beginning-fields@v1:orchard",
+      "mobility": "stationary"
+    }
+  ]
+}

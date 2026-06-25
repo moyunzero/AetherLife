@@ -1,0 +1,42 @@
+{
+  "npcId": "npc-12",
+  "persona": "explorer",
+  "_comment": "Explorer — AM orchard wander, PM plaza patrol, evening pond fishing, night plaza wander.",
+  "segments": [
+    {
+      "fromMinute": 360,
+      "toMinute": 540,
+      "activityKey": "wandering",
+      "zoneId": "beginning-fields@v1:orchard",
+      "mobility": "wander"
+    },
+    {
+      "fromMinute": 540,
+      "toMinute": 900,
+      "activityKey": "patrol",
+      "zoneId": "beginning-fields@v1:plaza",
+      "mobility": "wander"
+    },
+    {
+      "fromMinute": 900,
+      "toMinute": 1080,
+      "activityKey": "fishing",
+      "zoneId": "beginning-fields@v1:pond",
+      "mobility": "stationary"
+    },
+    {
+      "fromMinute": 1080,
+      "toMinute": 1200,
+      "activityKey": "socializing",
+      "zoneId": "beginning-fields@v1:plaza",
+      "mobility": "poi"
+    },
+    {
+      "fromMinute": 1200,
+      "toMinute": 360,
+      "activityKey": "wandering",
+      "zoneId": "beginning-fields@v1:plaza",
+      "mobility": "wander"
+    }
+  ]
+}

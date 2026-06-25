@@ -1,0 +1,35 @@
+{
+  "npcId": "npc-7",
+  "persona": "mediator",
+  "_comment": "Mediator — AM pond idle, midday plaza social poi, evening orchard stroll.",
+  "segments": [
+    {
+      "fromMinute": 360,
+      "toMinute": 540,
+      "activityKey": "idle",
+      "zoneId": "beginning-fields@v1:pond",
+      "mobility": "stationary"
+    },
+    {
+      "fromMinute": 540,
+      "toMinute": 900,
+      "activityKey": "socializing",
+      "zoneId": "beginning-fields@v1:plaza",
+      "mobility": "poi"
+    },
+    {
+      "fromMinute": 900,
+      "toMinute": 1200,
+      "activityKey": "patrol",
+      "zoneId": "beginning-fields@v1:orchard",
+      "mobility": "wander"
+    },
+    {
+      "fromMinute": 1200,
+      "toMinute": 360,
+      "activityKey": "resting",
+      "zoneId": "beginning-fields@v1:pond",
+      "mobility": "stationary"
+    }
+  ]
+}
