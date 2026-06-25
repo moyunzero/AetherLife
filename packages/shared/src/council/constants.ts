@@ -1,4 +1,5 @@
-import type { CouncilPersona } from "./types.js";
+import { lookupPersona } from "./dossiers/index.js";
+import type { CouncilNpcId, CouncilPersona } from "./types.js";
 
 export const COUNCIL_NPC_IDS = [
   "npc-1",
@@ -25,6 +26,12 @@ export function isCouncilNpcId(npcId: string): npcId is CouncilNpcId {
 }
 
 export function getPersona(npcId: string): CouncilPersona {
-  void npcId;
-  throw new Error("getPersona: dossiers index not wired yet");
+  if (!isCouncilNpcId(npcId)) {
+    throw new Error(`getPersona: not a council npc id: ${npcId}`);
+  }
+  const persona = lookupPersona(npcId);
+  if (!persona) {
+    throw new Error(`getPersona: dossier not loaded for ${npcId}`);
+  }
+  return persona;
 }
