@@ -326,6 +326,42 @@ export {
 export { relationshipKindLabelZh } from "./council/relationshipLabels.js";
 
 export {
+  ARCHETYPE_CHANGE_RATE,
+  RELATIONSHIP_AFFECTION_MAX,
+  RELATIONSHIP_AFFECTION_MIN,
+  RELATIONSHIP_DELTA_ABS_MAX,
+  changeRateForArchetype,
+  clampAffection,
+  clampDeltaMagnitude,
+  clampTrust,
+  initialAffectionFromKind,
+  initialTrustFromAffection,
+  linkedEdgeSchema,
+  normalizeEdgeIds,
+  parseRelationshipDeltaInput,
+  relationshipDeltaInputSchema,
+  safeParseRelationshipDeltaInput,
+  type LinkedEdge,
+  type RelationshipDeltaInput,
+  type RelationshipEdgePublic,
+} from "./councilRelationships.js";
+
+export {
+  councilDeliberationFeedRowSchema,
+  councilDeliberationPhaseSchema,
+  councilDeliberationSyncPayloadSchema,
+  councilDeliberationVoteKindSchema,
+  parseCouncilDeliberationFeedRow,
+  parseCouncilDeliberationPhase,
+  parseCouncilDeliberationSyncPayload,
+  safeParseCouncilDeliberationSyncPayload,
+  type CouncilDeliberationFeedRow,
+  type CouncilDeliberationPhase,
+  type CouncilDeliberationPublicState,
+  type CouncilDeliberationVoteKind,
+} from "./councilDeliberation.js";
+
+export {
   chronicleGameYearFromMinute,
   formatChronicleYearLabel,
   toWorldHistoryListEntry,

@@ -35,6 +35,7 @@ export const COLYSEUS_SERVER_MESSAGES = {
   chunksSync: "chunksSync",
   loreSync: "loreSync",
   worldHistorySync: "worldHistorySync",
+  councilDeliberationSync: "councilDeliberationSync",
 } as const;
 
 export type ColyseusMovePayload =
@@ -110,6 +111,7 @@ export type ColyseusChunksSyncPayload = {
   chunks: import("./chunk.js").ChunkView[];
 };
 
+import type { CouncilDeliberationPublicState } from "./councilDeliberation.js";
 import type { ChunkLorePublic } from "./worldLore.js";
 import type { WorldHistoryPublicEntry } from "./worldHistory.js";
 
@@ -132,3 +134,6 @@ export type ColyseusLoreSyncPayload = {
 export type ColyseusWorldHistorySyncPayload = {
   entry: WorldHistoryPublicEntry;
 };
+
+/** Incremental council deliberation state for Council Tab feed / chip (Phase 25). */
+export type ColyseusCouncilDeliberationSyncPayload = CouncilDeliberationPublicState;
