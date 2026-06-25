@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { AETHER_NEXUS_LORE } from "../aetherNexusLore.js";
+import { mainNpcDisplayName } from "../npcDisplayNames.js";
 import {
   COUNCIL_NPC_IDS,
   getPersona,
   isCouncilNpcId,
 } from "./constants.js";
+import { formatPersonaPromptBlock } from "./personaPrompt.js";
 import { COUNCIL_ARCHETYPE_ENUM, VOTING_LEANING_ENUM } from "./types.js";
 
 const SPEAKABLE_TRIO = ["npc-1", "npc-2", "npc-3"] as const;
@@ -91,5 +93,35 @@ describe("getPersona speakable trio", () => {
       if (otherId === npcId) continue;
       expect(targets.has(otherId)).toBe(true);
     }
+  });
+});
+
+describe("mainNpcDisplayName", () => {
+  it("derives display names from registry", () => {
+    expect(mainNpcDisplayName("npc-1")).toBe("莫玄虚");
+    expect(mainNpcDisplayName("npc-2")).toBe("阿斯托利亚");
+    expect(mainNpcDisplayName("npc-3")).toBe("诸葛知危");
+  });
+});
+
+describe("formatPersonaPromptBlock", () => {
+  it.each(SPEAKABLE_TRIO)("%s block is ≤800 Chinese characters", (npcId) => {
+    const block = formatPersonaPromptBlock(npcId, { mode: "speak" });
+    expect(block.length).toBeLessThanOrEqual(800);
+    expect(block).not.toContain("backstoryFull");
+  });
+
+  it("includes required speak fields for npc-1", () => {
+    const p = getPersona("npc-1");
+    const block = formatPersonaPromptBlock("npc-1", { mode: "speak" });
+    expect(block).toContain(p.displayName);
+    expect(block).toContain(p.originPlane);
+    expect(block).toContain(p.profession);
+    expect(block).toContain(p.personality);
+    expect(block).toContain(p.contrastMoe);
+    expect(block).toContain(p.speakStyle);
+    expect(block).toContain(p.mbti);
+    expect(block).toContain(p.zodiacSign);
+    expect(block).not.toContain(p.backstoryFull ?? "__none__");
   });
 });

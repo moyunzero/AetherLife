@@ -25,4 +25,4 @@ export {
 
 export { COUNCIL_PERSONAS } from "./council/dossiers/index.js";
 
-export { AETHER_NEXUS_LORE, aetherNexusSummaryForPrompt } from "./aetherNexusLore.js";
+export { formatPersonaPromptBlock, SPEAK_PROMPT_CHAR_BUDGET } from "./council/personaPrompt.js";

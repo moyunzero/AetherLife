@@ -26,6 +26,7 @@ export {
   type PlayerState,
   type RoomState,
 } from "./room.js";
+export { MAIN_NPC_DISPLAY_NAMES, mainNpcDisplayName } from "./npcDisplayNames.js";
 
 export {
   buildMoveGrid,
@@ -281,3 +282,40 @@ export {
   type ParsedCollectiveEvent,
   type WitnessDeltaUpdate,
 } from "./collectiveMemory.js";
+
+export {
+  AETHER_CALENDAR_EPOCH_YEAR,
+  AETHER_SEASONS,
+  NPC_PERSONAL_TIMELINE_TABLE,
+  PERSONAL_TIMELINE_TAGS,
+  formatAetherCalendarLabel,
+  type AetherCalendarLabel,
+  type AetherSeason,
+  type PersonalTimelineEntry,
+  type PersonalTimelineEventAnchor,
+  type PersonalTimelineTag,
+} from "./personalTimeline.js";
+
+export {
+  AETHER_NEXUS_LORE,
+  aetherNexusSummaryForPrompt,
+  type AetherNexusLore,
+} from "./aetherNexusLore.js";
+
+export {
+  COUNCIL_MEMORY_PLAYER_ID,
+  COUNCIL_NPC_IDS,
+  COUNCIL_PERSONAS,
+  formatPersonaPromptBlock,
+  getPersona,
+  isCouncilNpcId,
+  parseCouncilPersona,
+  safeParseCouncilPersona,
+  SPEAK_PROMPT_CHAR_BUDGET,
+  type CouncilArchetype,
+  type CouncilLifeNode,
+  type CouncilNpcId,
+  type CouncilPersona,
+  type CouncilRelationship,
+  type VotingLeaning,
+} from "./npcPersonas.js";
