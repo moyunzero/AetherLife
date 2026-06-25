@@ -218,6 +218,76 @@ body {
   color: color-mix(in srgb, var(--shell-ink) 92%, var(--shell-accent));
 }
 
+.dialogue-overlay__memory-ref {
+  margin: 0 0 4px;
+  padding: 6px 8px;
+  border-left: 3px solid color-mix(in srgb, var(--shell-accent) 55%, var(--shell-wood));
+  border-radius: 0 4px 4px 0;
+  background: color-mix(in srgb, var(--shell-parchment) 35%, transparent);
+  font-size: 0.75rem;
+  color: var(--shell-muted);
+}
+
+.dialogue-overlay__memory-ref-label {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: color-mix(in srgb, var(--shell-accent) 80%, var(--shell-ink));
+}
+
+.dialogue-overlay__memory-ref p {
+  margin: 0;
+  line-height: 1.35;
+}
+
+.onboarding-coach {
+  position: fixed;
+  left: max(12px, env(safe-area-inset-left));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  z-index: 85;
+  width: min(360px, calc(100vw - 24px));
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  border-radius: var(--radius-md);
+  background: linear-gradient(165deg, rgba(42, 36, 28, 0.96) 0%, rgba(22, 19, 15, 0.98) 100%);
+  box-shadow: var(--shadow-soft);
+  pointer-events: auto;
+}
+
+.onboarding-coach__step {
+  margin: 0 0 10px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--text);
+}
+
+.onboarding-coach__badge {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.68rem;
+  color: var(--accent);
+}
+
+.onboarding-coach__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.onboarding-coach__skip {
+  font-size: 0.78rem;
+}
+
+.onboarding-coach__next {
+  font-size: 0.78rem;
+}
+
 .dialogue-overlay__end-btn {
   align-self: flex-end;
   margin-top: 2px;
@@ -320,29 +390,6 @@ body {
 
 .immersive-shell__overlays > * {
   pointer-events: auto;
-}
-
-.chat-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 8px 0 4px;
-  padding: 10px 14px;
-  border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--border));
-  border-radius: var(--radius-md);
-  background:
-    linear-gradient(165deg, rgba(42, 36, 28, 0.92) 0%, rgba(22, 19, 15, 0.96) 100%);
-  box-shadow: var(--shadow-soft);
-}
-
-.chat-header__title {
-  font-family: Fraunces, "Noto Serif SC", serif;
-  font-size: 1.15rem;
-  font-weight: 600;
-  margin: 0;
-  letter-spacing: 0.03em;
-  color: color-mix(in srgb, var(--text) 94%, var(--accent));
 }
 
 .chat-main {
@@ -787,18 +834,9 @@ body {
   color: var(--text);
 }
 
-.immersive-shell .npc-tab-bar {
-  margin: 0 12px 8px;
-  flex-shrink: 0;
-}
-
 .immersive-shell .npc-avatar-strip {
   margin: 0 12px 6px;
   flex-shrink: 0;
-}
-
-.immersive-shell .room-player-strip {
-  margin: 0 12px 8px;
 }
 
 .immersive-shell .chat-main {
@@ -1192,28 +1230,6 @@ body {
   color: var(--text-muted);
 }
 
-.room-player-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 10px;
-  margin-top: 10px;
-  padding: 8px;
-  font-family: "IBM Plex Mono", monospace;
-  font-size: 0.72rem;
-  color: var(--text-muted);
-  border: none;
-  border-radius: calc(var(--radius-md) + 2px);
-  background: linear-gradient(180deg, #6b4f3a 0%, #4a3628 48%, #3d2e22 100%);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
-}
-
-.room-player-strip__name {
-  padding: 3px 9px;
-  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
-  border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--letterbox-bg) 70%, var(--surface));
-}
-
 .sync-metrics-overlay {
   position: fixed;
   right: 8px;
@@ -1277,66 +1293,6 @@ body {
   .chat-page {
     padding: 0 16px;
   }
-}
-
-.npc-tab-bar {
-  display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  margin: 0 0 8px;
-  padding: 8px 8px 0;
-  border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--border));
-  border-bottom: none;
-  border-radius: var(--radius-md) var(--radius-md) 0 0;
-  background:
-    linear-gradient(180deg, rgba(74, 54, 40, 0.55) 0%, rgba(42, 36, 28, 0.35) 100%);
-}
-
-.npc-tab {
-  position: relative;
-  flex: 1;
-  min-width: 88px;
-  min-height: 44px;
-  padding: 6px 12px 8px;
-  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
-  border-bottom: none;
-  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-  background: rgba(22, 19, 15, 0.55);
-  color: var(--text-muted);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.npc-tab:hover {
-  color: var(--text);
-  background: rgba(36, 30, 22, 0.75);
-}
-
-.npc-tab--active {
-  color: var(--text);
-  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
-  background: linear-gradient(180deg, #3d2e22 0%, #2a2218 100%);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 220, 170, 0.1),
-    0 -2px 8px rgba(201, 162, 39, 0.08);
-}
-
-.npc-tab--active::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 2px;
-  background: var(--accent);
 }
 
 .npc-avatar-strip {
@@ -1745,6 +1701,130 @@ body {
   margin: 0;
   font-size: 12px;
   color: var(--text-muted, #9a958a);
+}
+
+.council-roster-panel--embedded {
+  margin: 0;
+  padding: 0;
+}
+
+.council-roster-panel__title {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, #e8e4dc);
+}
+
+.council-roster-panel__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.council-roster-panel__row {
+  border-bottom: 1px solid color-mix(in srgb, var(--text-muted, #9a958a) 20%, transparent);
+}
+
+.council-roster-panel__row:last-child {
+  border-bottom: none;
+}
+
+.council-roster-panel__details {
+  margin: 0;
+}
+
+.council-roster-panel__summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 10px 4px;
+  min-height: 44px;
+}
+
+.council-roster-panel__summary::-webkit-details-marker {
+  display: none;
+}
+
+.council-roster-panel__name {
+  display: block;
+  margin: 0 0 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary, #e8e4dc);
+}
+
+.council-roster-panel__meta {
+  display: block;
+  margin: 0 0 4px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text-muted, #9a958a);
+}
+
+.council-roster-panel__personality {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--text-muted, #9a958a);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.council-roster-panel__expand {
+  padding: 0 4px 10px 8px;
+}
+
+.council-roster-panel__section {
+  margin-bottom: 10px;
+}
+
+.council-roster-panel__section-title {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent, #c4a574);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.council-roster-panel__backstory,
+.council-roster-panel__appearance {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted, #9a958a);
+  white-space: pre-wrap;
+}
+
+.council-roster-panel__relationships {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.council-roster-panel__relationship {
+  padding: 6px 0;
+  border-top: 1px solid color-mix(in srgb, var(--text-muted, #9a958a) 15%, transparent);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-muted, #9a958a);
+}
+
+.council-roster-panel__relationship:first-child {
+  border-top: none;
+}
+
+.council-roster-panel__relationship-name {
+  font-weight: 600;
+  color: var(--text-primary, #e8e4dc);
+  margin-right: 6px;
+}
+
+.council-roster-panel__relationship-kind {
+  font-size: 11px;
+  color: var(--accent, #c4a574);
+  margin-right: 6px;
 }
 
 .collective-browse-panel {
