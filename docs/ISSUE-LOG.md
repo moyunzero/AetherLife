@@ -161,6 +161,9 @@
 81. **worker httpx 须 `trust_env=False`**：访问 `127.0.0.1:2567` 一律 `create_http_client()`；macOS 系统 HTTP 代理会导致 emit/append **502**（ISSUE-055）。回归：`tests/test_http_json.py::test_create_http_client_disables_trust_env`。
 82. **player 记忆须在 emit `done` 前落库**：`process_job` 在 `done` 前 sync `append_player_memory`（`DEFAULT_IMPORTANCE`）；`persist_turn_memory` 见 `_player_line_persisted` 跳过重复写；tail 仍跑 importance/NPC 行（ISSUE-055）。回归：`pnpm verify:phase21` · `pnpm verify:phase20`。
 83. **Ambient NPC 显示名单一来源**：`npcDisplayNames.ts` / `createDefaultRoom` 为权威；`ambient_intent` prompt 用 `payload.npcName`（GameRoom 注入），禁止 worker 硬编码与 room 不一致的中文名（ISSUE-056）。回归：`test_ambient_intent.py`。
+84. **议会 vote LLM 路由禁止智谱**：`world_vote.py` 须走 `nvidia` / `agnes` reflect+lore 槽（`FORBIDDEN_VOTE_PROVIDERS` 含 `zhipu`）；**禁止**将 council debate/vote/proposal 接入智谱 speak 并发=1 路径。回归：`pytest tests/test_world_vote.py -q` · `pnpm verify:phase25`。
+85. **GameRoom tick 仅 LPUSH vote job**：`maybeEnqueueWorldVote` / `tickRoomVoteClock` 在 Colyseus tick 内 **仅** Redis/BullMQ enqueue + 状态机；**禁止** tick 内 LLM/HTTP/worker 同步调用（INVARIANTS MP tick 非阻塞不变）。回归：`world-vote-trigger.test.ts` · `pnpm agent:verify --e2e` GF-01。
+86. **关系 delta 仅 worker 异步写**：`applyRelationshipDeltas` 仅经 worker `world_vote` job `POST .../npc-relationships/apply-deltas`；**禁止** `onMessage("speak")` / `GameRoom` handler 内直接改 `npc_relationships`。回归：`test_world_vote.py` · `verify:phase25` affection before/after GET。
 
 ## 记录
 
