@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { COLLECTIVE_EVENT_TTL_MS, DEFAULT_COLLECTIVE_WINDOW_MS } from "@aetherlife/shared";
+import {
+  COLLECTIVE_EVENT_TTL_MS,
+  DEFAULT_COLLECTIVE_WINDOW_MS,
+  personalitySeedForNpc,
+} from "@aetherlife/shared";
 import { CollectiveRepository } from "./repository.js";
 
 describe("CollectiveRepository (in-memory)", () => {
@@ -57,8 +61,9 @@ describe("CollectiveRepository (in-memory)", () => {
 
   it("applies personality seed on first attitude upsert", async () => {
     const repo = new CollectiveRepository(null);
-    const rep = await repo.applyReputationDelta("r1", "npc-1", "p-a", -8);
-    expect(rep).toBe(-13);
+    const delta = -8;
+    const rep = await repo.applyReputationDelta("r1", "npc-1", "p-a", delta);
+    expect(rep).toBe(personalitySeedForNpc("npc-1") + delta);
   });
 
   it("deleteForPlayer clears attitudes but keeps room events", async () => {
