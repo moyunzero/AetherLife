@@ -18,10 +18,11 @@ from src.llm.errors import is_rate_limit_error, is_retryable_llm_error, should_t
 JOIN_VICINITY_DAILY_CAP = 2
 _join_vicinity_counts: dict[str, dict[str, int]] = {}
 
+# Must match packages/shared/src/npcDisplayNames.ts (MAIN_NPC_DISPLAY_NAMES).
 NPC_DISPLAY_NAMES = {
-    "npc-1": "林小满",
-    "npc-2": "陈叔",
-    "npc-3": "阿禾",
+    "npc-1": "莫玄虚",
+    "npc-2": "阿斯托利亚",
+    "npc-3": "诸葛知危",
 }
 
 
@@ -180,7 +181,7 @@ def generate_ambient_intent(payload: dict[str, Any], settings: Settings) -> dict
 
     segment = _segment(payload)
     npc_id = str(payload.get("npcId") or "npc-1")
-    npc_name = NPC_DISPLAY_NAMES.get(npc_id, npc_id)
+    npc_name = str(payload.get("npcName") or NPC_DISPLAY_NAMES.get(npc_id, npc_id))
     zone_id = str(segment.get("zoneId") or "home-yard")
     activity_key = str(segment.get("activityKey") or "idle")
     mobility = str(segment.get("mobility") or "wander")
