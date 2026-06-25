@@ -8,12 +8,12 @@
   "properties": {
     "npcId": {
       "type": "string",
-      "pattern": "^npc-[1-3]$",
-      "description": "Must match Colyseus map.npcs[].id for main ambient NPCs."
+      "pattern": "^npc-(?:[1-9]|1[0-2])$",
+      "description": "Council seat id npc-1..npc-12. Colyseus map may sync a subset until Phase 26."
     },
     "persona": {
       "type": "string",
-      "description": "Persona label for worker prompts and tooling (e.g. scholar, farmer, chef)."
+      "description": "Registry archetype slug for worker prompts and tooling (e.g. order_keeper, chaos_agent)."
     },
     "segments": {
       "type": "array",
