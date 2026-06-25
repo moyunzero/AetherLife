@@ -61,6 +61,7 @@
     "verify:phase15": "pnpm verify:phase21",
     "verify:phase21": "node scripts/verify-phase21.mjs",
     "verify:phase22": "node scripts/verify-phase22.mjs",
+    "verify:phase25": "node scripts/verify-phase25.mjs",
     "uat:phase21:playwright": "node scripts/uat-phase21-playwright.mjs",
     "uat:phase22:playwright": "node scripts/uat-phase22-playwright.mjs",
     "uat:phase15:playwright": "node scripts/uat-phase15-playwright.mjs",
