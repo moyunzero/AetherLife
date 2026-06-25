@@ -4,6 +4,7 @@ from typing import Any
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from src.graph.action_intent import player_requests_physical_action
+from src.graph.persona import build_persona_block
 from src.graph.state import GraphState
 from src.collective.constants import BAND_LABEL_ZH
 
@@ -148,7 +149,12 @@ def build_turn_messages(state: GraphState) -> list[SystemMessage | HumanMessage 
         just_happened=state.get("just_happened_summary"),
     )
 
-    system_text = f"{NPC_SYSTEM_PROMPT}\n{build_room_constraints(room)}\n\n{attitude}"
+    npc_id = state.get("npc_id") or "npc-1"
+    persona_block = build_persona_block(npc_id)
+    base_prompt = NPC_SYSTEM_PROMPT
+    if persona_block:
+        base_prompt = f"{base_prompt}\n\n{persona_block}"
+    system_text = f"{base_prompt}\n{build_room_constraints(room)}\n\n{attitude}"
     if memory:
         system_text = f"{system_text}\n\nMemory summary:\n{memory}"
 

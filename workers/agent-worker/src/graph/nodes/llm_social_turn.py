@@ -26,6 +26,7 @@ from src.graph.job_context import get_partial_emit, record_phase_ms
 from src.graph.recall_merge import is_recall_question
 from src.graph.speak_intent import SpeakIntent, is_casual_greeting_only
 from src.graph.stable_string_hash import stable_string_hash
+from src.graph.persona import build_persona_block
 from src.graph.prompt import build_room_constraints, format_attitude_context
 from src.graph.state import GraphState
 from src.graph.tools import load_tools_for_binding, parse_tool_calls, reply_from_turn
@@ -306,7 +307,12 @@ def _build_social_messages(
         effective_score=state.get("effective_score"),
         summaries=state.get("collective_summaries"),
     )
-    system_text = f"{SOCIAL_SYSTEM_PROMPT}\n{build_room_constraints(room)}\n\n{attitude}"
+    npc_id = state.get("npc_id") or "npc-1"
+    persona_block = build_persona_block(npc_id)
+    base_prompt = SOCIAL_SYSTEM_PROMPT
+    if persona_block:
+        base_prompt = f"{base_prompt}\n\n{persona_block}"
+    system_text = f"{base_prompt}\n{build_room_constraints(room)}\n\n{attitude}"
     memory = (state.get("memory_summary") or "").strip()
     if memory:
         system_text = (
