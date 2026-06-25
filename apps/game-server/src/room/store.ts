@@ -1,4 +1,5 @@
 import { createDefaultRoom, type RoomState } from "@aetherlife/shared";
+import { seedCouncilMemoriesIfNeeded } from "../memory/councilSeed.js";
 
 export type RoomRecord = {
   state: RoomState;
@@ -29,6 +30,9 @@ export function getOrCreate(roomId: string): RoomRecord {
   evictOldestRoomIfNeeded();
   const record: RoomRecord = { state: createDefaultRoom(roomId) };
   rooms.set(roomId, record);
+  void seedCouncilMemoriesIfNeeded(roomId).catch((err) => {
+    console.error("[council-seed] failed for room", roomId, err);
+  });
   return record;
 }
 
