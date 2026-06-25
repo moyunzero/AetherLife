@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { COUNCIL_NPC_IDS } from "./council/constants.js";
+import { personalitySeedForNpc as councilPersonalitySeedForNpc } from "./council/personalitySeed.js";
 import {
   COLLECTIVE_EVENT_KINDS,
   computeEffectiveScore,
@@ -8,6 +10,7 @@ import {
   LOUD_KINDS,
   NPC_PERSONALITY_SEED,
   parseCollectiveEvent,
+  personalitySeedForNpc,
   safeParseCollectiveEvent,
 } from "./collectiveMemory.js";
 
@@ -25,11 +28,48 @@ describe("COLLECTIVE_EVENT_KINDS", () => {
   });
 });
 
+describe("personalitySeedForNpc (D-COLLECTIVE-01)", () => {
+  it("returns negative seed for npc-1 (against + order_keeper)", () => {
+    expect(personalitySeedForNpc("npc-1")).toBeLessThan(0);
+    expect(personalitySeedForNpc("npc-1")).toBe(-52);
+  });
+
+  it("returns positive seed for npc-2 (for + expansionist)", () => {
+    expect(personalitySeedForNpc("npc-2")).toBeGreaterThan(0);
+    expect(personalitySeedForNpc("npc-2")).toBe(58);
+  });
+
+  it("covers all 12 council ids within -100..100", () => {
+    for (const id of COUNCIL_NPC_IDS) {
+      const seed = personalitySeedForNpc(id);
+      expect(seed).toBeGreaterThanOrEqual(-100);
+      expect(seed).toBeLessThanOrEqual(100);
+    }
+  });
+
+  it("produces non-uniform seeds across 12 seats (D-COLLECTIVE-02)", () => {
+    const values = COUNCIL_NPC_IDS.map((id) => personalitySeedForNpc(id));
+    expect(new Set(values).size).toBeGreaterThan(1);
+    expect(new Set(values).size).toBe(12);
+  });
+
+  it("returns 0 for non-council npc ids", () => {
+    expect(personalitySeedForNpc("bg-villager-1")).toBe(0);
+  });
+
+  it("re-exports match council module", () => {
+    for (const id of COUNCIL_NPC_IDS) {
+      expect(personalitySeedForNpc(id)).toBe(councilPersonalitySeedForNpc(id));
+    }
+  });
+});
+
 describe("NPC_PERSONALITY_SEED", () => {
-  it("matches D-17 defaults", () => {
-    expect(NPC_PERSONALITY_SEED["npc-1"]).toBe(-5);
-    expect(NPC_PERSONALITY_SEED["npc-2"]).toBe(0);
-    expect(NPC_PERSONALITY_SEED["npc-3"]).toBe(15);
+  it("has 12 registry-derived entries matching personalitySeedForNpc", () => {
+    expect(Object.keys(NPC_PERSONALITY_SEED)).toHaveLength(12);
+    for (const id of COUNCIL_NPC_IDS) {
+      expect(NPC_PERSONALITY_SEED[id]).toBe(personalitySeedForNpc(id));
+    }
   });
 });
 
