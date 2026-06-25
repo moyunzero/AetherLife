@@ -7,6 +7,7 @@ import {
 import {
   countGenesisEntries,
   insertWorldHistoryEntry,
+  listWorldHistory,
 } from "./world-history-repository.js";
 
 const GENESIS_PROPOSER = "议会共识";
@@ -59,7 +60,13 @@ async function seedWorldHistoryInner(roomId: string): Promise<void> {
     return;
   }
 
+  const { entries: existing } = await listWorldHistory({ roomId, status: "all" });
+  const existingGenesisTitles = new Set(
+    existing.filter((row) => row.entryKind === "genesis").map((row) => row.title),
+  );
+
   for (const row of GENESIS_ROWS) {
+    if (existingGenesisTitles.has(row.title)) continue;
     const minutes = buildGenesisSignatories(row.proposal);
     await insertWorldHistoryEntry({
       roomId,

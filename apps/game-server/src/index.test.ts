@@ -18,6 +18,7 @@ import { GameRoomState, PlayerSchema } from "./colyseus/schema.js";
 import { clearJobSubscribers, peekBufferedJobEvents } from "./sse/hub.js";
 import { clearWorldHistoryMemory } from "./world/world-history-repository.js";
 import { clearGenesisSeedCache } from "./world/world-history-seed.js";
+import * as worldHistoryBroadcast from "./world/world-history-broadcast.js";
 
 function voteMinutes(proposalFull: string, yesCount: number) {
   return {
@@ -455,6 +456,56 @@ describe("game-server", () => {
         entry: expect.objectContaining({ title: "广播测试", status: "accepted" }),
       }),
     );
+  });
+
+  it("POST internal world-history returns 200 when broadcast fails after persist", async () => {
+    const spy = vi
+      .spyOn(worldHistoryBroadcast, "broadcastWorldHistorySync")
+      .mockImplementation(() => {
+        throw new Error("room not registered");
+      });
+    try {
+      const res = await request(app)
+        .post("/internal/rooms/default/world-history")
+        .send({
+          entryKind: "vote",
+          status: "accepted",
+          title: "广播失败仍持久化",
+          proposal: "persist even when broadcast throws",
+          proposerDisplayName: "npc-3",
+          minutes: voteMinutes("persist even when broadcast throws", 6),
+          gameMinuteSnapshot: 2880,
+          yesCount: 6,
+          noCount: 4,
+          voteEpoch: "broadcast-fail-epoch",
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+      expect(res.body.entry?.title).toBe("广播失败仍持久化");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("POST internal world-history rejects mismatched mapRoomId", async () => {
+    const res = await request(app)
+      .post("/internal/rooms/default/world-history")
+      .send({
+        entryKind: "vote",
+        status: "accepted",
+        title: "mapRoomId 校验",
+        proposal: "mapRoomId must match path roomId",
+        proposerDisplayName: "npc-1",
+        minutes: voteMinutes("mapRoomId must match path roomId", 5),
+        gameMinuteSnapshot: 1440,
+        yesCount: 5,
+        noCount: 3,
+        voteEpoch: "map-room-mismatch",
+        mapRoomId: "other-room",
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/mapRoomId/);
   });
 
   it("POST internal world-history rejects abusive title with 400", async () => {

@@ -658,7 +658,7 @@ function ChronicleHistoryToast({ toast, onDismiss }: ChronicleHistoryToastProps)
     onDismissRef.current();
   }, []);
 
-  const toastIdentity = toast ? `${toast.kind}:${toast.title}` : null;
+  const toastIdentity = toast?.entryId ?? null;
 
   useEffect(() => {
     if (!toastIdentity) {

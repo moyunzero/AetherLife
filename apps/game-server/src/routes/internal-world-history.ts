@@ -84,6 +84,10 @@ export function createInternalWorldHistoryRouter(): Router {
 
     const gameYear = chronicleGameYearFromMinute(data.gameMinuteSnapshot);
     const mapRoomId = data.mapRoomId ?? roomId;
+    if (mapRoomId !== roomId) {
+      res.status(400).json({ ok: false, error: "mapRoomId must match roomId" });
+      return;
+    }
 
     try {
       const entry = await insertWorldHistoryEntry({
@@ -101,7 +105,14 @@ export function createInternalWorldHistoryRouter(): Router {
         gameMinuteSnapshot: data.gameMinuteSnapshot,
         voteEpoch: data.voteEpoch ?? null,
       });
-      broadcastWorldHistorySync(mapRoomId, entry);
+      try {
+        broadcastWorldHistorySync(roomId, entry);
+      } catch (broadcastErr) {
+        console.error(
+          "[world-history] broadcastWorldHistorySync failed after insert",
+          broadcastErr,
+        );
+      }
       res.json({ ok: true, entry });
     } catch (err) {
       const message = err instanceof Error ? err.message : "insert failed";

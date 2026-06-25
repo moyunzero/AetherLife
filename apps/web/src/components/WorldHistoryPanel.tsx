@@ -150,9 +150,12 @@ export function WorldHistoryPanel({
                   onClick={() => {
                     void (async () => {
                       setDetailLoading(true);
-                      const full = await onFetchEntryDetail(entry.id);
-                      setDetailLoading(false);
-                      if (full) setSelectedEntry(full);
+                      try {
+                        const full = await onFetchEntryDetail(entry.id);
+                        if (full) setSelectedEntry(full);
+                      } finally {
+                        setDetailLoading(false);
+                      }
                     })();
                   }}
                 >

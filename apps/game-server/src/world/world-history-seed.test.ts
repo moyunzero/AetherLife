@@ -8,6 +8,7 @@ import {
   clearWorldHistoryMemory,
   countGenesisEntries,
   getWorldHistoryEntry,
+  insertWorldHistoryEntry,
   listWorldHistory,
 } from "./world-history-repository.js";
 import { clearGenesisSeedCache, seedWorldHistoryIfNeeded } from "./world-history-seed.js";
@@ -96,5 +97,48 @@ describe("seedWorldHistoryIfNeeded", () => {
       status: "all",
     });
     expect(entries).toHaveLength(3);
+  });
+
+  it("fills only missing genesis rows after partial insert", async () => {
+    const signatories = COUNCIL_NPC_IDS.map((npcId) => {
+      const persona = getPersona(npcId);
+      return {
+        npcId,
+        displayName: persona.displayName,
+        faction: persona.faction,
+        ...(persona.stanceManifestoShort
+          ? { stanceManifestoShort: persona.stanceManifestoShort }
+          : {}),
+      };
+    });
+    await insertWorldHistoryEntry({
+      roomId: "room-partial",
+      entryKind: "genesis",
+      status: "accepted",
+      title: "万界崩裂纪",
+      proposal: AETHER_NEXUS_LORE.origin,
+      proposerDisplayName: "议会共识",
+      yesCount: null,
+      noCount: null,
+      minutes: {
+        kind: "genesis_signatories",
+        proposalFull: AETHER_NEXUS_LORE.origin,
+        signatories,
+        footnote: "此条为奠基文献，非本届廷议表决。",
+      },
+      gameYear: 1,
+      gameMinuteSnapshot: 0,
+      voteEpoch: null,
+    });
+    clearGenesisSeedCache();
+    await seedWorldHistoryIfNeeded("room-partial");
+
+    expect(await countGenesisEntries("room-partial")).toBe(3);
+    const { entries } = await listWorldHistory({
+      roomId: "room-partial",
+      status: "all",
+    });
+    expect(entries).toHaveLength(3);
+    expect(new Set(entries.map((e) => e.title)).size).toBe(3);
   });
 });

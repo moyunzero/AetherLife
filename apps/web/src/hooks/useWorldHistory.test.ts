@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { WorldHistoryPublicEntry } from "@aetherlife/shared";
 import {
+  canPrependSyncEntry,
   mergeEntryIntoPageState,
   shouldMergeEntryIntoVisibleList,
   worldHistoryListCacheKey,
@@ -96,6 +97,34 @@ describe("mergeEntryIntoPageState", () => {
     expect(next.gameYear).toBe(1);
     expect(next.availableYears).toContain(3);
   });
+
+  it("does not prepend on page > 1", () => {
+    const page2 = { ...emptyPageState, page: 2, entries: [genesisEntry()] };
+    const entry = genesisEntry({ id: "wh-page2", title: "页二同步" });
+    const { next, isNew, inserted } = mergeEntryIntoPageState(page2, entry, {
+      statusFilter: "accepted",
+    });
+    expect(isNew).toBe(true);
+    expect(inserted).toBe(false);
+    expect(next.entries).toHaveLength(1);
+    expect(next.page).toBe(2);
+  });
+
+  it("does not prepend when page 1 slice is full", () => {
+    const fullPage = {
+      ...emptyPageState,
+      entries: Array.from({ length: 6 }, (_, i) =>
+        genesisEntry({ id: `wh-full-${i}`, title: `条目${i}` }),
+      ),
+    };
+    expect(canPrependSyncEntry(fullPage)).toBe(false);
+    const entry = genesisEntry({ id: "wh-overflow", title: "满页同步" });
+    const { next, inserted } = mergeEntryIntoPageState(fullPage, entry, {
+      statusFilter: "accepted",
+    });
+    expect(inserted).toBe(false);
+    expect(next.entries).toHaveLength(6);
+  });
 });
 
 describe("worldHistoryListCacheKey", () => {
@@ -111,10 +140,10 @@ describe("worldHistoryListCacheKey", () => {
 });
 
 describe("worldHistorySyncToasts", () => {
-  it("queues new_entry toast with title", () => {
+  it("queues new_entry toast with entryId and title", () => {
     const entry = genesisEntry({ id: "wh-toast", title: "始源区辟" });
     const toasts = worldHistorySyncToasts(entry, new Set());
-    expect(toasts).toEqual([{ kind: "new_entry", title: "始源区辟" }]);
+    expect(toasts).toEqual([{ kind: "new_entry", entryId: "wh-toast", title: "始源区辟" }]);
   });
 
   it("skips toast when entry id missing or duplicate", () => {

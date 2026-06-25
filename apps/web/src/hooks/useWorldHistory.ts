@@ -22,6 +22,7 @@ export type WorldHistoryPageState = {
 
 export type ChronicleToast = {
   kind: "new_entry";
+  entryId: string;
   title: string;
 };
 
@@ -63,6 +64,13 @@ export function shouldMergeEntryIntoVisibleList(
   return true;
 }
 
+/** Live sync may prepend only on page 1 with room left in the slice. */
+export function canPrependSyncEntry(
+  pageState: Pick<WorldHistoryPageState, "page" | "entries" | "pageSize">,
+): boolean {
+  return pageState.page === 1 && pageState.entries.length < pageState.pageSize;
+}
+
 export function mergeEntryIntoPageState(
   prev: WorldHistoryPageState,
   entry: WorldHistoryPublicEntry,
@@ -90,6 +98,14 @@ export function mergeEntryIntoPageState(
     };
   }
 
+  if (!canPrependSyncEntry(prev)) {
+    return {
+      next: { ...prev, availableYears },
+      isNew: true,
+      inserted: false,
+    };
+  }
+
   return {
     next: {
       ...prev,
@@ -106,7 +122,7 @@ export function worldHistorySyncToasts(
   seenIds: Set<string>,
 ): ChronicleToast[] {
   if (!entry.id || seenIds.has(entry.id)) return [];
-  return [{ kind: "new_entry", title: entry.title }];
+  return [{ kind: "new_entry", entryId: entry.id, title: entry.title }];
 }
 
 function emptyPageState(pageSize = DEFAULT_PAGE_SIZE): WorldHistoryPageState {
@@ -350,15 +366,25 @@ export function useWorldHistory(roomId: string, roomConnected = false) {
         setToastQueue((q) => [...q, ...toasts]);
       }
 
+      let shouldRefetch = false;
       setPageState((prev) => {
-        const { next, isNew } = mergeEntryIntoPageState(prev, entry, {
+        const { next, isNew, inserted } = mergeEntryIntoPageState(prev, entry, {
           statusFilter: statusFilterRef.current,
         });
         if (!isNew) return prev;
+        if (
+          !inserted &&
+          shouldMergeEntryIntoVisibleList(entry, statusFilterRef.current, prev)
+        ) {
+          shouldRefetch = true;
+        }
         return next;
       });
+      if (shouldRefetch) {
+        void fetchWorldHistory({ background: true });
+      }
     },
-    [invalidateListCache],
+    [invalidateListCache, fetchWorldHistory],
   );
 
   const consumeChronicleToast = useCallback((): ChronicleToast | null => {

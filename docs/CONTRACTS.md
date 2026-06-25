@@ -143,7 +143,7 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 | **查询** | `status` = `accepted` \| `rejected` \| `all`（默认 `accepted`）；`pageSize` clamp 5–8（默认 6） |
 | **内部写** | `POST /internal/rooms/:roomId/world-history`；`requireWorkerAuth` + Bearer `INTERNAL_WORKER_TOKEN`；body Zod + `checkPlayerMessageContent` / `validateWorldHistoryStrings` |
 | **写回字段** | `entryKind` genesis \| vote；vote 行 **必须** `voteEpoch`；`gameYear` 由 `chronicleGameYearFromMinute(gameMinuteSnapshot)` 派生 |
-| **Reset** | `POST /rooms/:id/reset` **不得**删除 `world_history`（room-shared chronicle 跨 session / per-player reset 存活；同 C-05 collective 事件） |
+| **Reset** | `POST /rooms/:id/reset` **不得**删除 `world_history`（room-shared append-only chronicle；跨 session / per-player reset 存活，与 C-06 `__council__` seed 同类 room-wide 保留） |
 | **Colyseus** | `worldHistorySync` payload `{ entry: WorldHistoryPublicEntry }`；`broadcastWorldHistorySync`；客户端 `onMessage` + `off()` |
 | **Phase 25** | Worker 写 `entry_kind=vote`；通过后 `status=accepted`；debate minutes `kind=vote_minutes` |
 | **隔离** | 编年史与 C-07 `__council__` memory 读模型分离；禁止 council 种子混入 chronicle GET |
