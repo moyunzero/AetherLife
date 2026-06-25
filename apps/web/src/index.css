@@ -2019,6 +2019,12 @@ body {
   vertical-align: middle;
 }
 
+.shell-drawer__council-deliberation {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
 .world-history-panel--embedded {
   display: flex;
   flex-direction: column;
