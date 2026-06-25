@@ -1,11 +1,12 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { isKnownActivityKey, type WorldRegistry } from "@aetherlife/shared";
+import { getPersona, isKnownActivityKey, type WorldRegistry } from "@aetherlife/shared";
 
 const MAX_SEGMENTS = 48;
 
 const SCHEDULES_DIR = join(dirname(fileURLToPath(import.meta.url)), "../../data/schedules");
+const NPC_SCHEDULE_FILE = /^npc-(?:[1-9]|1[0-2])\.json$/;
 
 export type Mobility = "wander" | "stationary" | "poi";
 
@@ -95,7 +96,7 @@ function parseScheduleFile(filePath: string): NpcSchedule {
 
 function loadSchedules(): Map<string, NpcSchedule> {
   const schedules = new Map<string, NpcSchedule>();
-  const files = readdirSync(SCHEDULES_DIR).filter((name) => /^npc-[1-3]\.json$/.test(name));
+  const files = readdirSync(SCHEDULES_DIR).filter((name) => NPC_SCHEDULE_FILE.test(name));
 
   for (const file of files) {
     const schedule = parseScheduleFile(join(SCHEDULES_DIR, file));
@@ -140,6 +141,12 @@ export function validateNpcSchedulesAgainstRegistry(registry: WorldRegistry): vo
     }
   }
   for (const schedule of SCHEDULES.values()) {
+    const expectedPersona = getPersona(schedule.npcId).archetype;
+    if (schedule.persona !== expectedPersona) {
+      throw new Error(
+        `Schedule ${schedule.npcId}: persona ${schedule.persona} !== registry archetype ${expectedPersona}`,
+      );
+    }
     for (const segment of schedule.segments) {
       if (!knownZoneIds.has(segment.zoneId)) {
         throw new Error(
