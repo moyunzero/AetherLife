@@ -2,6 +2,7 @@ import type { KeyboardEvent } from "react";
 import type { ChatMessage } from "../hooks/useNpcChat.js";
 import type { CollectiveAttitudeSnapshot } from "../hooks/useCollectiveAttitude.js";
 import { CollectiveBrowsePanel } from "./CollectiveBrowsePanel.js";
+import { CouncilRosterPanel } from "./CouncilRosterPanel.js";
 import { DiscoveredLorePanel } from "./DiscoveredLorePanel.js";
 import { MessageList } from "./MessageList.js";
 import { NpcMemoryPanel } from "./NpcMemoryPanel.js";
@@ -32,6 +33,7 @@ type Props = {
 const TABS: { id: DrawerTab; label: string }[] = [
   { id: "history", label: "对话历史" },
   { id: "collective", label: "集体见闻" },
+  { id: "council", label: "星际议会" },
   { id: "discoveries", label: "已发现" },
   { id: "memory", label: "记忆" },
 ];
@@ -163,12 +165,13 @@ export function ShellDrawer({
               activeNpcName={activeNpcName}
               snapshot={collectiveSnapshot}
               loading={collectiveLoading}
-              embedded
             />
           ) : null}
 
+          {tab === "council" ? <CouncilRosterPanel /> : null}
+
           {tab === "discoveries" ? (
-            <DiscoveredLorePanel rows={discoveredLoreRows} embedded />
+            <DiscoveredLorePanel rows={discoveredLoreRows} />
           ) : null}
 
           {tab === "memory" ? (

@@ -66,4 +66,28 @@ describe("DialogueOverlay streaming partial", () => {
     expect(html).toContain("dialogue-overlay__thinking");
     expect(html).not.toContain("dialogue-overlay-streaming");
   });
+
+  it("shows memory quote when last npc message recalls player", () => {
+    const html = renderToStaticMarkup(
+      createElement(DialogueOverlay, {
+        ...baseProps,
+        thinkingNpcId: null,
+        composerBusyForActiveNpc: false,
+        sendingNpcId: null,
+        messages: [
+          {
+            id: "m1",
+            role: "npc",
+            text: "我记得你说过密码的事。",
+            npcId: "npc-1",
+            npcName: "路昂",
+            memoryQuote: "玩家说过暗号是晨曦",
+          },
+        ],
+      }),
+    );
+    expect(html).toContain('data-testid="dialogue-overlay-memory-ref"');
+    expect(html).toContain("记得你曾说过");
+    expect(html).toContain("玩家说过暗号是晨曦");
+  });
 });

@@ -160,6 +160,7 @@
 80. **叙事问句勿误判 PHYSICAL**：standalone `那边|那里|那儿` 会误伤「那里有什么历史？」；`MOVE_PATTERNS` / `speakIntent.ts` 须用 contextual regex（去/到/往…那边、可以去…那边、那边…你去），relay UAT 句仍须 PHYSICAL。回归：`test_speak_intent.py` · `packages/shared/src/speakIntent.test.ts` · `test_action_intent.py::test_relay_summon_phrases_from_uat`。
 81. **worker httpx 须 `trust_env=False`**：访问 `127.0.0.1:2567` 一律 `create_http_client()`；macOS 系统 HTTP 代理会导致 emit/append **502**（ISSUE-055）。回归：`tests/test_http_json.py::test_create_http_client_disables_trust_env`。
 82. **player 记忆须在 emit `done` 前落库**：`process_job` 在 `done` 前 sync `append_player_memory`（`DEFAULT_IMPORTANCE`）；`persist_turn_memory` 见 `_player_line_persisted` 跳过重复写；tail 仍跑 importance/NPC 行（ISSUE-055）。回归：`pnpm verify:phase21` · `pnpm verify:phase20`。
+83. **Ambient NPC 显示名单一来源**：`npcDisplayNames.ts` / `createDefaultRoom` 为权威；`ambient_intent` prompt 用 `payload.npcName`（GameRoom 注入），禁止 worker 硬编码与 room 不一致的中文名（ISSUE-056）。回归：`test_ambient_intent.py`。
 
 ## 记录
 
@@ -2146,6 +2147,33 @@ Worker 主循环仅在 npc-turn 队列 **连续 5s 为空** 时才 `BLPOP` chunk
 **防复发**
 
 - Guardrails #81–#82
+
+---
+
+### ISSUE-056 — ambient intent LLM 使用错误 NPC 中文名（林小满 vs 路昂）
+
+- **状态:** fixed
+- **发现:** 2026-06-24（优化路线图审计）
+- **阶段/范围:** `workers/agent-worker/src/graph/ambient_intent.py` · `GameRoom.enqueueAmbientIntentIfIdle`
+- **严重性:** major（沉浸感 / 与 room.ts 权威名分裂）
+
+**根因**
+
+`NPC_DISPLAY_NAMES` 硬编码旧名（林小满/陈叔/阿禾），未与 `packages/shared/src/room.ts`（路昂/费雪/南宫婉）同步。
+
+**修复**
+
+- 更正 `NPC_DISPLAY_NAMES` 为权威名；prompt 优先 `payload.npcName`（game-server 从 room snapshot 注入）
+- 新增 `packages/shared/src/npcDisplayNames.ts` 作为 TS 侧单一来源
+
+**验证**
+
+- `cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_ambient_intent.py -q` → 8 passed
+- `pnpm agent:verify` → exit 0
+
+**防复发**
+
+- Guardrails #83
 
 ---
 

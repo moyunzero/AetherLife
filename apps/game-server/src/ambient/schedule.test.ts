@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BEGINNING_FIELDS_ID, defaultBeginningFieldsBundle, loadWorldRegistry } from "@aetherlife/shared";
+import { BEGINNING_FIELDS_ID, COUNCIL_NPC_IDS, defaultBeginningFieldsBundle, getPersona, loadWorldRegistry } from "@aetherlife/shared";
 import {
   getNpcSchedule,
   isLingerMobility,
@@ -56,8 +56,16 @@ describe("minuteInSegment", () => {
 });
 
 describe("resolveScheduleSegment", () => {
-  it("loads three persona schedule files at module init", () => {
-    expect(loadedScheduleCount()).toBe(3);
+  it("loads twelve council schedule files at module init", () => {
+    expect(loadedScheduleCount()).toBe(12);
+  });
+
+  it("each loaded schedule persona matches registry archetype slug", () => {
+    for (const npcId of COUNCIL_NPC_IDS) {
+      const schedule = getNpcSchedule(npcId);
+      expect(schedule, `missing schedule for ${npcId}`).toBeDefined();
+      expect(schedule!.persona).toBe(getPersona(npcId).archetype);
+    }
   });
 
   it("returns reading segment for npc-1 at 6:00 (360)", () => {
@@ -116,18 +124,20 @@ describe("hybrid persona schedules (D-zone-persona-hybrid)", () => {
     expect(evening.some((s) => s.mobility === "stationary")).toBe(true);
   });
 
-  it("npc-2 has AM stationary home zone and PM wander public zone", () => {
+  it("npc-2 expansionist has AM orchard stationary and PM plaza wander", () => {
     const schedule = getNpcSchedule("npc-2")!;
+    expect(schedule.persona).toBe("expansionist");
     const morning = schedule.segments.find((s) => s.fromMinute === 360)!;
     expect(morning.mobility).toBe("stationary");
-    expect(morning.zoneId).toBe("beginning-fields@v1:pond");
+    expect(morning.zoneId).toBe("beginning-fields@v1:orchard");
     const afternoon = schedule.segments.find((s) => s.fromMinute === 540)!;
     expect(afternoon.mobility).toBe("wander");
-    expect(afternoon.zoneId).toBe("beginning-fields@v1:orchard");
+    expect(afternoon.zoneId).toBe("beginning-fields@v1:plaza");
   });
 
-  it("npc-3 has evening socialize poi at plaza", () => {
+  it("npc-3 logician has evening socialize poi at plaza", () => {
     const schedule = getNpcSchedule("npc-3")!;
+    expect(schedule.persona).toBe("logician");
     const socialize = schedule.segments.find((s) => s.activityKey === "socializing")!;
     expect(socialize.mobility).toBe("poi");
     expect(socialize.zoneId).toBe("beginning-fields@v1:plaza");

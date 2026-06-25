@@ -43,9 +43,33 @@ describe("ShellDrawer a11y", () => {
     );
     expect(html).toContain('id="shell-drawer-tab-history"');
     expect(html).toContain('aria-controls="shell-drawer-panel-history"');
+    expect(html).toContain('id="shell-drawer-tab-council"');
+    expect(html).toContain("星际议会");
     expect(html).toContain('role="tabpanel"');
     expect(html).toContain('id="shell-drawer-panel-history"');
     expect(html).toContain('aria-labelledby="shell-drawer-tab-history"');
     expect(html).not.toContain("npc-avatar-npc-1");
+  });
+
+  it("renders council roster when council tab active", () => {
+    const html = renderToStaticMarkup(
+      createElement(ShellDrawer, {
+        open: true,
+        tab: "council",
+        onTabChange: () => {},
+        onClose: () => {},
+        messages: [],
+        thinkingNpcId: null,
+        activeNpcId: "npc-1",
+        activeNpcName: "阿明",
+        collectiveSnapshot: null,
+        collectiveLoading: false,
+        discoveredLoreRows: [],
+        roomId: "room-1",
+        roomConnected: true,
+      }),
+    );
+    expect(html).toContain('data-testid="council-roster-panel"');
+    expect(html).toContain('id="shell-drawer-panel-council"');
   });
 });

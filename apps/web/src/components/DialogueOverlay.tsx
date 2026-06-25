@@ -26,11 +26,14 @@ type Props = {
   onEndDialogue: () => void;
 };
 
-function lastNpcLineFor(messages: ChatMessage[], npcId: string): string | null {
+function lastNpcMessageFor(
+  messages: ChatMessage[],
+  npcId: string,
+): ChatMessage | null {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const msg = messages[i];
     if (msg?.role === "npc" && msg.npcId === npcId) {
-      return msg.text;
+      return msg;
     }
   }
   return null;
@@ -39,6 +42,11 @@ function lastNpcLineFor(messages: ChatMessage[], npcId: string): string | null {
 function portraitInitial(name: string): string {
   const trimmed = name.trim();
   return trimmed ? trimmed.slice(0, 1) : "?";
+}
+
+function formatMemoryDisplay(text: string, maxLen = 100): { display: string; title?: string } {
+  if (text.length <= maxLen) return { display: text };
+  return { display: `${text.slice(0, maxLen)}…`, title: text };
 }
 
 /** Contextual Stardew-style dialogue shell (UI-SPEC-v2-A). DOM input; overlay on world. */
@@ -51,7 +59,9 @@ export function DialogueOverlay({
   onEndDialogue,
   ...dialogueBarProps
 }: Props) {
-  const lastLine = lastNpcLineFor(messages, activeNpcId);
+  const lastNpc = lastNpcMessageFor(messages, activeNpcId);
+  const lastLine = lastNpc?.text ?? null;
+  const memoryQuote = lastNpc?.memoryQuote?.trim() ?? "";
   const partialText = streamingReply?.trim()
     ? sanitizeNpcReplyText(streamingReply)
     : "";
@@ -60,6 +70,7 @@ export function DialogueOverlay({
     Boolean(partialText) && dialogueBarProps.thinkingNpcId === activeNpcId;
   const showThinkingOnly =
     dialogueBarProps.thinkingNpcId === activeNpcId && !displayLine;
+  const memoryDisplay = memoryQuote ? formatMemoryDisplay(memoryQuote) : null;
 
   return (
     <div
@@ -98,11 +109,19 @@ export function DialogueOverlay({
                 {displayLine}
               </p>
             ) : null}
+            {memoryDisplay && !isStreaming ? (
+              <blockquote
+                className="dialogue-overlay__memory-ref"
+                data-testid="dialogue-overlay-memory-ref"
+                title={memoryDisplay.title}
+              >
+                <span className="dialogue-overlay__memory-ref-label">记得你曾说过</span>
+                <p>{memoryDisplay.display}</p>
+              </blockquote>
+            ) : null}
             <DialogueBar
               activeNpcId={activeNpcId}
               activeNpcName={activeNpcName}
-              messages={messages}
-              layout="overlay"
               {...dialogueBarProps}
             />
             <button

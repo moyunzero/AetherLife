@@ -1,4 +1,4 @@
-"""Keep in sync with packages/shared/src/collectiveMemory.ts."""
+"""Keep in sync with packages/shared/src/council/personalitySeed.ts (COUNCIL_PERSONALITY_SEEDS)."""
 
 COLLECTIVE_EVENT_KINDS = (
     "rude",
@@ -33,9 +33,18 @@ KIND_FIXED_DELTA: dict[str, int] = {
 LOUD_KINDS = frozenset({"rude", "contradict", "steal_attempt", "compete_object", "betray"})
 
 NPC_PERSONALITY_SEED: dict[str, int] = {
-    "npc-1": -5,
-    "npc-2": 0,
-    "npc-3": 15,
+    "npc-1": -52,
+    "npc-2": 58,
+    "npc-3": 0,
+    "npc-4": 8,
+    "npc-5": -5,
+    "npc-6": -55,
+    "npc-7": 3,
+    "npc-8": -50,
+    "npc-9": 2,
+    "npc-10": 55,
+    "npc-11": -48,
+    "npc-12": 52,
 }
 
 DEFAULT_COLLECTIVE_WINDOW_MS = 300_000

@@ -4,6 +4,7 @@ import {
   type SimilarMemory,
   type SummaryKind,
 } from "@aetherlife/npc-memory";
+import { COUNCIL_MEMORY_PLAYER_ID } from "@aetherlife/shared";
 import { embedText } from "./embed.js";
 import { scoreImportance } from "./importance.js";
 import type { CollectiveContext } from "../collective/service.js";
@@ -335,6 +336,29 @@ export class MemoryService {
   }
 
   async buildMemoryContext(
+    roomId: string,
+    playerMessage: string,
+    npcId: string,
+    playerId: string,
+    options?: { skipEmbed?: boolean; embedPriority?: boolean },
+  ): Promise<MemoryContext> {
+    if (playerId === COUNCIL_MEMORY_PLAYER_ID) {
+      throw new Error("buildMemoryContext: __council__ scope is not valid for player speak");
+    }
+    return this.fetchMemoryContext(roomId, playerMessage, npcId, playerId, options);
+  }
+
+  /** Council-scoped RAG for vote/debate jobs (PERSONA-04); not for player speak. */
+  async buildCouncilMemoryContext(
+    roomId: string,
+    npcId: string,
+    query: string,
+    options?: { skipEmbed?: boolean; embedPriority?: boolean },
+  ): Promise<MemoryContext> {
+    return this.fetchMemoryContext(roomId, query, npcId, COUNCIL_MEMORY_PLAYER_ID, options);
+  }
+
+  private async fetchMemoryContext(
     roomId: string,
     playerMessage: string,
     npcId: string,

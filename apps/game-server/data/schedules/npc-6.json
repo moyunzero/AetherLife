@@ -1,0 +1,35 @@
+{
+  "npcId": "npc-6",
+  "persona": "power_broker",
+  "_comment": "Power broker — AM orchard reading, PM plaza social poi, evening plaza patrol.",
+  "segments": [
+    {
+      "fromMinute": 360,
+      "toMinute": 540,
+      "activityKey": "reading",
+      "zoneId": "beginning-fields@v1:orchard",
+      "mobility": "stationary"
+    },
+    {
+      "fromMinute": 540,
+      "toMinute": 900,
+      "activityKey": "socializing",
+      "zoneId": "beginning-fields@v1:plaza",
+      "mobility": "poi"
+    },
+    {
+      "fromMinute": 900,
+      "toMinute": 1200,
+      "activityKey": "patrol",
+      "zoneId": "beginning-fields@v1:plaza",
+      "mobility": "wander"
+    },
+    {
+      "fromMinute": 1200,
+      "toMinute": 360,
+      "activityKey": "resting",
+      "zoneId": "beginning-fields@v1:orchard",
+      "mobility": "stationary"
+    }
+  ]
+}

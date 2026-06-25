@@ -1,5 +1,9 @@
 import { z } from "zod";
 import { bandFromEffectiveScore, clampAttitudeScore, type AttitudeBand } from "./attitude.js";
+import {
+  COUNCIL_PERSONALITY_SEEDS,
+  personalitySeedForNpc as councilPersonalitySeedForNpc,
+} from "./council/personalitySeed.js";
 
 export const COLLECTIVE_EVENT_KINDS = [
   "rude",
@@ -46,12 +50,8 @@ export const LOUD_KINDS: ReadonlySet<CollectiveEventKind> = new Set([
   "betray",
 ]);
 
-/** NPC personality seeds on first upsert (D-17). */
-export const NPC_PERSONALITY_SEED: Record<string, number> = {
-  "npc-1": -5,
-  "npc-2": 0,
-  "npc-3": 15,
-};
+/** NPC personality seeds on first upsert (D-17) — derived from council registry (D-COLLECTIVE-01). */
+export const NPC_PERSONALITY_SEED: Record<string, number> = { ...COUNCIL_PERSONALITY_SEEDS };
 
 export const DEFAULT_COLLECTIVE_WINDOW_MS = 300_000;
 export const COLLECTIVE_EVENT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -106,9 +106,7 @@ export function clampLlmRefineDelta(delta: number): number {
   return Math.max(LLM_REFINE_DELTA_MIN, Math.min(LLM_REFINE_DELTA_MAX, Math.round(delta)));
 }
 
-export function personalitySeedForNpc(npcId: string): number {
-  return NPC_PERSONALITY_SEED[npcId] ?? 0;
-}
+export { councilPersonalitySeedForNpc as personalitySeedForNpc };
 
 export function chebyshev(a: CollectivePosition, b: CollectivePosition): number {
   return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));

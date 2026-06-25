@@ -6,7 +6,7 @@ import { DiscoveredLorePanel } from "./DiscoveredLorePanel.js";
 describe("DiscoveredLorePanel", () => {
   it("renders empty state", () => {
     const html = renderToStaticMarkup(
-      createElement(DiscoveredLorePanel, { rows: [], embedded: true }),
+      createElement(DiscoveredLorePanel, { rows: [] }),
     );
     expect(html).toContain('data-testid="discovered-lore-panel"');
     expect(html).toContain('data-testid="discovered-lore-empty"');
@@ -17,7 +17,6 @@ describe("DiscoveredLorePanel", () => {
     const html = renderToStaticMarkup(
       createElement(DiscoveredLorePanel, {
         rows: [{ nameZh: "测试草甸", storyHook: "据说这里有故事。" }],
-        embedded: true,
       }),
     );
     expect(html).toContain('data-testid="discovered-lore-row"');

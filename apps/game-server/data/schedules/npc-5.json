@@ -1,0 +1,42 @@
+{
+  "npcId": "npc-5",
+  "persona": "pacifist",
+  "_comment": "Pacifist — AM pond fishing, midday orchard tending, evening pond rest.",
+  "segments": [
+    {
+      "fromMinute": 360,
+      "toMinute": 540,
+      "activityKey": "fishing",
+      "zoneId": "beginning-fields@v1:pond",
+      "mobility": "stationary"
+    },
+    {
+      "fromMinute": 540,
+      "toMinute": 900,
+      "activityKey": "tending_crops",
+      "zoneId": "beginning-fields@v1:orchard",
+      "mobility": "stationary"
+    },
+    {
+      "fromMinute": 900,
+      "toMinute": 1080,
+      "activityKey": "watering",
+      "zoneId": "beginning-fields@v1:orchard",
+      "mobility": "stationary"
+    },
+    {
+      "fromMinute": 1080,
+      "toMinute": 1200,
+      "activityKey": "fishing",
+      "zoneId": "beginning-fields@v1:pond",
+      "mobility": "stationary"
+    },
+    {
+      "fromMinute": 1200,
+      "toMinute": 360,
+      "activityKey": "resting",
+      "zoneId": "beginning-fields@v1:pond",
+      "mobility": "stationary"
+    }
+  ]
+}

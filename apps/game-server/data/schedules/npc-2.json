@@ -1,35 +1,35 @@
 {
   "npcId": "npc-2",
-  "persona": "farmer",
-  "_comment": "Hybrid persona — AM stationary pond (farm), PM wander orchard, evening pond.",
+  "persona": "expansionist",
+  "_comment": "Expansionist — AM orchard crops, PM wander plaza outreach, evening orchard patrol, night pond rest.",
   "segments": [
     {
       "fromMinute": 360,
       "toMinute": 540,
       "activityKey": "tending_crops",
-      "zoneId": "beginning-fields@v1:pond",
+      "zoneId": "beginning-fields@v1:orchard",
       "mobility": "stationary"
     },
     {
       "fromMinute": 540,
-      "toMinute": 720,
-      "activityKey": "watering",
-      "zoneId": "beginning-fields@v1:orchard",
+      "toMinute": 900,
+      "activityKey": "patrol",
+      "zoneId": "beginning-fields@v1:plaza",
       "mobility": "wander"
     },
     {
-      "fromMinute": 720,
+      "fromMinute": 900,
       "toMinute": 1080,
-      "activityKey": "fishing",
-      "zoneId": "beginning-fields@v1:pond",
-      "mobility": "stationary"
+      "activityKey": "socializing",
+      "zoneId": "beginning-fields@v1:plaza",
+      "mobility": "poi"
     },
     {
       "fromMinute": 1080,
       "toMinute": 1200,
-      "activityKey": "tending_crops",
-      "zoneId": "beginning-fields@v1:pond",
-      "mobility": "stationary"
+      "activityKey": "watering",
+      "zoneId": "beginning-fields@v1:orchard",
+      "mobility": "wander"
     },
     {
       "fromMinute": 1200,

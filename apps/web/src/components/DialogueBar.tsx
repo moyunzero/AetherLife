@@ -3,12 +3,10 @@ import {
   FormEvent,
   KeyboardEvent,
   RefObject,
-  useMemo,
 } from "react";
-import type { ChatMessage } from "../hooks/useNpcChat.js";
 import { CollectiveFeedbackBanner } from "./CollectiveFeedbackBanner.js";
 
-export type DrawerTab = "history" | "collective" | "discoveries" | "memory";
+export type DrawerTab = "history" | "collective" | "council" | "discoveries" | "memory";
 
 type Props = {
   draft: string;
@@ -16,7 +14,6 @@ type Props = {
   sendMessage: (text: string, npcId: string) => Promise<void>;
   activeNpcId: string;
   activeNpcName: string;
-  messages: ChatMessage[];
   thinkingNpcId: string | null;
   composerBusyForActiveNpc: boolean;
   speakBusyNpcId: string | null;
@@ -27,22 +24,7 @@ type Props = {
   reducedMotion?: boolean;
   composerRef: RefObject<HTMLTextAreaElement | null>;
   onOpenDrawer: (tab: DrawerTab) => void;
-  /** Overlay shell: NPC line shown once above; hide duplicate summary. */
-  layout?: "default" | "overlay";
 };
-
-function latestNpcReplyFor(
-  messages: ChatMessage[],
-  activeNpcId: string,
-): ChatMessage | null {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const message = messages[i];
-    if (message.role === "npc" && message.npcId === activeNpcId) {
-      return message;
-    }
-  }
-  return null;
-}
 
 export function DialogueBar({
   draft,
@@ -50,7 +32,6 @@ export function DialogueBar({
   sendMessage,
   activeNpcId,
   activeNpcName,
-  messages,
   thinkingNpcId,
   composerBusyForActiveNpc,
   speakBusyNpcId,
@@ -61,13 +42,7 @@ export function DialogueBar({
   reducedMotion = false,
   composerRef,
   onOpenDrawer,
-  layout = "default",
 }: Props) {
-  const latestReply = useMemo(
-    () => latestNpcReplyFor(messages, activeNpcId),
-    [messages, activeNpcId],
-  );
-  const isThinking = thinkingNpcId === activeNpcId;
   const composerSpeakBusyOtherPlayer =
     speakBusyNpcId === activeNpcId &&
     thinkingNpcId !== activeNpcId &&
@@ -96,42 +71,12 @@ export function DialogueBar({
     ? `请等待${activeNpcName}回复…`
     : `你想让${activeNpcName}做什么？`;
 
-  const summaryText = isThinking
-    ? "…思考中"
-    : latestReply
-      ? sanitizeNpcReplyText(latestReply.text)
-      : "";
-
-  const inOverlay = layout === "overlay";
-
   return (
     <div
-      className={`dialogue-bar${inOverlay ? " dialogue-bar--overlay" : ""}${reducedMotion ? " dialogue-bar--reduced-motion" : ""}`}
+      className={`dialogue-bar dialogue-bar--overlay${reducedMotion ? " dialogue-bar--reduced-motion" : ""}`}
       data-testid="dialogue-bar"
     >
       <div className="dialogue-bar__header">
-        {!inOverlay ? (
-          <div className="dialogue-bar__summary">
-            <span className="dialogue-bar__npc-name">{activeNpcName}</span>
-            {summaryText ? (
-              <span
-                className={`dialogue-bar__summary-text${isThinking ? " dialogue-bar__summary-text--thinking" : ""}`}
-                role={isThinking ? "status" : undefined}
-              >
-                {isThinking ? (
-                  <>
-                    <span className="dialogue-bar__thinking-pulse" aria-hidden="true">
-                      …
-                    </span>
-                    思考中
-                  </>
-                ) : (
-                  summaryText
-                )}
-              </span>
-            ) : null}
-          </div>
-        ) : null}
         <div className="dialogue-bar__drawer-actions">
           <button
             type="button"
@@ -152,10 +97,27 @@ export function DialogueBar({
           <button
             type="button"
             className="dialogue-bar__drawer-btn"
+            aria-label="星际议会"
+            onClick={() => onOpenDrawer("council")}
+          >
+            议会
+          </button>
+          <button
+            type="button"
+            className="dialogue-bar__drawer-btn"
             aria-label="已发现"
             onClick={() => onOpenDrawer("discoveries")}
           >
             已发现
+          </button>
+          <button
+            type="button"
+            className="dialogue-bar__drawer-btn"
+            aria-label="NPC 记忆"
+            data-testid="dialogue-drawer-memory"
+            onClick={() => onOpenDrawer("memory")}
+          >
+            记忆
           </button>
         </div>
       </div>
@@ -189,7 +151,7 @@ export function DialogueBar({
             <textarea
               ref={composerRef}
               className="composer__input dialogue-bar__input"
-              rows={layout === "overlay" ? 1 : 2}
+              rows={1}
               placeholder={composerPlaceholder}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  bandFromEffectiveScore,
+  computeEffectiveScore,
+  personalitySeedForNpc,
+} from "@aetherlife/shared";
+import {
   baselineCollectiveSnapshots,
   shouldRefetchCollectiveOnJobDone,
   snapshotsFromPayload,
@@ -62,9 +67,11 @@ describe("snapshotsFromPayload", () => {
 describe("baselineCollectiveSnapshots", () => {
   it("seeds default npc bands from personality", () => {
     const map = baselineCollectiveSnapshots();
-    expect(map.get("npc-1")?.band).toBe("wary");
-    expect(map.get("npc-2")?.band).toBe("neutral");
-    expect(map.get("npc-3")?.band).toBe("neutral");
-    expect(map.get("npc-1")?.playerReputation).toBe(-5);
+    for (const npcId of ["npc-1", "npc-2", "npc-3"] as const) {
+      const reputation = personalitySeedForNpc(npcId);
+      const effectiveScore = computeEffectiveScore(reputation, []);
+      expect(map.get(npcId)?.band).toBe(bandFromEffectiveScore(effectiveScore));
+      expect(map.get(npcId)?.playerReputation).toBe(reputation);
+    }
   });
 });

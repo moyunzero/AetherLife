@@ -112,6 +112,27 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 
 ---
 
+## C-07 — Council memory scope (`__council__`) [DRAFT — Phase 23]
+
+| 层 | 契约 |
+|----|------|
+| **Scope 常量** | `@aetherlife/shared` `COUNCIL_MEMORY_PLAYER_ID = '__council__'` |
+| **存储** | `npc_memories` + `memory_summaries` 沿用 C-05 表；键 `(roomId, npcId, playerId='__council__')` |
+| **种子** | 房间 **首次创建**（`getOrCreate` 新 record）异步 `seedCouncilMemoriesIfNeeded`：每 npc 写入 `stanceManifestoShort` + `ltmSeeds[]`；**禁止** LLM 生成种子；per-npc `getMemoryCount` 门闩防重复 |
+| **Speak 读** | 玩家 speak `GET .../memory-context` **必须** 真实 `playerId`；`MemoryService.buildMemoryContext` **拒绝** `playerId=__council__` |
+| **Speak 写** | `persist_turn_memory` 写 `(roomId, initiatorPlayerId, npcId)` — **禁止** 写入 `__council__` |
+| **Council 读（PERSONA-04）** | `buildCouncilMemoryContext(roomId, npcId, query)` + worker `fetch_council_memory_context`（`X-Player-Id: __council__`）；HTTP 路由对 `__council__` 走 council helper；Phase 25 vote/debate 唯一消费者 |
+| **Council 写** | Phase 23: seed only；Phase 25: debate/vote 理由 append 至 `__council__` |
+| **Reset** | `POST /rooms/:id/reset` 删除 **initiator** per-player memories (C-05)；**不**删除 `__council__` room-shared seeds（room-wide wipe defer Phase 24/25） |
+| **隔离** | 个人时间线 (`npc_personal_timeline`, D-RESERVE-BIO-02) 与 `__council__` 互斥 |
+| **禁止** | `playerId=__room__`；council 种子混入玩家 speak RAG；Colyseus schema 12-NPC（Phase 26） |
+
+**验证：** `pnpm --filter @aetherlife/game-server test -- councilSeed service.test` · `cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_council_memory_context.py -q` · `pnpm agent:verify`
+
+**锚点文件：** `memory/councilSeed.ts`, `memory/service.ts`, `room/store.ts`, `workers/.../council/memory_context.py`, `docs/CONTRACTS.md` C-05 交叉引用。
+
+---
+
 ## 变更检查清单（PR / Agent 自检）
 
 - [ ] 本 PR 触及上表哪几条 C-xx？

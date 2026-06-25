@@ -1,12 +1,12 @@
 {
   "npcId": "npc-3",
-  "persona": "host",
-  "_comment": "Hybrid persona — AM stationary pond (home), midday poi plaza, evening wander plaza.",
+  "persona": "logician",
+  "_comment": "Logician — AM pond reading, midday plaza debate poi, evening plaza patrol, night pond rest.",
   "segments": [
     {
       "fromMinute": 360,
       "toMinute": 540,
-      "activityKey": "cooking",
+      "activityKey": "reading",
       "zoneId": "beginning-fields@v1:pond",
       "mobility": "stationary"
     },

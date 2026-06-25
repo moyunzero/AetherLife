@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { MAX_PLAYER_MESSAGE_LEN } from "@aetherlife/shared";
+import { COUNCIL_MEMORY_PLAYER_ID, MAX_PLAYER_MESSAGE_LEN } from "@aetherlife/shared";
 import { requireWorkerAuth } from "./internal.js";
 import { playerIdFromRequest } from "../http/player-id.js";
 import { MemoryService } from "../memory/service.js";
@@ -91,13 +91,16 @@ export function createInternalMemoriesRouter(): Router {
 
     try {
       const service = MemoryService.getInstance();
-      const context = await service.buildMemoryContext(
-        roomId,
-        playerMessage,
-        npcId,
-        playerId,
-        { skipEmbed, embedPriority: speakHotPath },
-      );
+      const context =
+        playerId === COUNCIL_MEMORY_PLAYER_ID
+          ? await service.buildCouncilMemoryContext(roomId, npcId, playerMessage, {
+              skipEmbed,
+              embedPriority: speakHotPath,
+            })
+          : await service.buildMemoryContext(roomId, playerMessage, npcId, playerId, {
+              skipEmbed,
+              embedPriority: speakHotPath,
+            });
       setCachedMemoryContext(cacheKey, context);
       logInternalLatency({
         route: "memory-context",

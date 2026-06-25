@@ -1,7 +1,7 @@
 {
   "npcId": "npc-1",
-  "persona": "scholar",
-  "_comment": "Hybrid persona — AM stationary orchard (home), PM wander plaza, evening orchard.",
+  "persona": "order_keeper",
+  "_comment": "Order keeper — AM stationary orchard study, PM patrol orchard, evening plaza social, night orchard rest.",
   "segments": [
     {
       "fromMinute": 360,
