@@ -25,7 +25,7 @@ def _fake_client_factory():
                     "roomId": "default",
                     "width": 8,
                     "height": 8,
-                    "npcs": [{"id": "npc-1", "name": "路昂", "x": 2, "y": 2, "inventory": []}],
+                    "npcs": [{"id": "npc-1", "name": "莫玄虚", "x": 2, "y": 2, "inventory": []}],
                     "objects": [],
                 },
                 "collective": {

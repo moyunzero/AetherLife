@@ -150,13 +150,19 @@ def build_turn_messages(state: GraphState) -> list[SystemMessage | HumanMessage 
     )
 
     npc_id = state.get("npc_id") or "npc-1"
-    persona_block = build_persona_block(npc_id)
+    persona_block = build_persona_block(
+        npc_id,
+        runtime_relationships=state.get("runtime_relationships"),
+    )
     base_prompt = NPC_SYSTEM_PROMPT
     if persona_block:
         base_prompt = f"{base_prompt}\n\n{persona_block}"
     system_text = f"{base_prompt}\n{build_room_constraints(room)}\n\n{attitude}"
     if memory:
         system_text = f"{system_text}\n\nMemory summary:\n{memory}"
+    canon = (state.get("canon_context") or "").strip()
+    if canon:
+        system_text = f"{system_text}\n\n{canon}"
 
     messages: list[SystemMessage | HumanMessage | AIMessage] = [
         SystemMessage(content=system_text)

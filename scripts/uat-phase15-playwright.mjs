@@ -113,7 +113,7 @@ async function main() {
     await pageA.locator('[data-testid="room-scene"]').waitFor({ timeout: 30_000 });
     await pageB.locator('[data-testid="room-scene"]').waitFor({ timeout: 30_000 });
 
-    await pageA.getByRole("tab", { name: /路昂|NPC/ }).first().click().catch(() => {});
+    await pageA.getByRole("tab", { name: /莫玄虚|NPC/ }).first().click().catch(() => {});
     await sendRudeSpeak(pageA);
 
     await waitFor(

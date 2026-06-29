@@ -78,8 +78,8 @@ describe("world-history-repository", () => {
       minutes: {
         kind: "vote_minutes",
         proposalFull: "新提案。",
-        ballots: Array.from({ length: 12 }, (_, i) => ({
-          npcId: `npc-${i + 1}`,
+        ballots: Array.from({ length: 11 }, (_, i) => ({
+          npcId: `npc-${i + 2}`,
           displayName: `Seat ${i + 1}`,
           vote: i < 8 ? "yes" : "no",
           reasonZh: "理由",
@@ -206,8 +206,8 @@ describe("world-history-repository", () => {
       minutes: {
         kind: "vote_minutes",
         proposalFull: "y1",
-        ballots: Array.from({ length: 12 }, (_, i) => ({
-          npcId: `npc-${i + 1}`,
+        ballots: Array.from({ length: 11 }, (_, i) => ({
+          npcId: `npc-${i + 2}`,
           displayName: `Seat ${i + 1}`,
           vote: i < 7 ? "yes" : "no",
           reasonZh: "r",
@@ -229,8 +229,8 @@ describe("world-history-repository", () => {
       minutes: {
         kind: "vote_minutes",
         proposalFull: "y2",
-        ballots: Array.from({ length: 12 }, (_, i) => ({
-          npcId: `npc-${i + 1}`,
+        ballots: Array.from({ length: 11 }, (_, i) => ({
+          npcId: `npc-${i + 2}`,
           displayName: `Seat ${i + 1}`,
           vote: i < 9 ? "yes" : "no",
           reasonZh: "r",
@@ -260,8 +260,8 @@ describe("world-history-repository", () => {
       minutes: {
         kind: "vote_minutes",
         proposalFull: "ok",
-        ballots: Array.from({ length: 12 }, (_, i) => ({
-          npcId: `npc-${i + 1}`,
+        ballots: Array.from({ length: 11 }, (_, i) => ({
+          npcId: `npc-${i + 2}`,
           displayName: `Seat ${i + 1}`,
           vote: i < 8 ? "yes" : "no",
           reasonZh: "r",
@@ -283,8 +283,8 @@ describe("world-history-repository", () => {
       minutes: {
         kind: "vote_minutes",
         proposalFull: "no",
-        ballots: Array.from({ length: 12 }, (_, i) => ({
-          npcId: `npc-${i + 1}`,
+        ballots: Array.from({ length: 11 }, (_, i) => ({
+          npcId: `npc-${i + 2}`,
           displayName: `Seat ${i + 1}`,
           vote: i < 4 ? "yes" : "no",
           reasonZh: "r",
@@ -331,8 +331,8 @@ describe("world-history-repository", () => {
       minutes: {
         kind: "vote_minutes",
         proposalFull: "v",
-        ballots: Array.from({ length: 12 }, (_, i) => ({
-          npcId: `npc-${i + 1}`,
+        ballots: Array.from({ length: 11 }, (_, i) => ({
+          npcId: `npc-${i + 2}`,
           displayName: `Seat ${i + 1}`,
           vote: i < 7 ? "yes" : "no",
           reasonZh: "r",

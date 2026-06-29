@@ -32,6 +32,8 @@ class GraphState(TypedDict, total=False):
     collective_updated: bool
     just_happened_summary: str
     speak_intent: str
+    runtime_relationships: list[dict[str, Any]]
+    canon_context: str
     phase_timing_ms: dict[str, int]
     tool_calls: list[dict[str, Any]]
     pending_actions: list[dict[str, Any]]

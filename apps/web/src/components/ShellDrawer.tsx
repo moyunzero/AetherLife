@@ -8,7 +8,18 @@ import { MessageList } from "./MessageList.js";
 import { NpcMemoryPanel } from "./NpcMemoryPanel.js";
 import type { DrawerTab } from "./DialogueBar.js";
 import type { DiscoveredLoreRow } from "../hooks/useChunkLore.js";
-import type { WorldHistoryListEntry, WorldHistoryPublicEntry, WorldHistoryStatusFilter } from "@aetherlife/shared";
+import type {
+  CouncilDeliberationFeedRow,
+  CouncilDeliberationPhase,
+  CouncilDeliberationVoteKind,
+  LinkedEdge,
+  WorldHistoryListEntry,
+  WorldHistoryPublicEntry,
+  WorldHistoryStatusFilter,
+} from "@aetherlife/shared";
+import { CouncilDeliberationBanner } from "./CouncilDeliberationBanner.js";
+import { CouncilDeliberationFeed } from "./CouncilDeliberationFeed.js";
+import { CouncilDeliberationProgress } from "./CouncilDeliberationProgress.js";
 import { WorldHistoryPanel } from "./WorldHistoryPanel.js";
 
 type ParsedIntent = Record<string, unknown> | null;
@@ -39,6 +50,13 @@ type Props = {
   onWorldHistoryPageChange: (page: number) => void;
   onFetchWorldHistoryEntry: (entryId: string) => Promise<WorldHistoryPublicEntry | null>;
   chronicleHasUnread?: boolean;
+  deliberationActive?: boolean;
+  deliberationVoteKind?: CouncilDeliberationVoteKind;
+  deliberationPhase?: CouncilDeliberationPhase;
+  deliberationRound?: number;
+  deliberationRoundTotal?: number;
+  deliberationFeedRows?: CouncilDeliberationFeedRow[];
+  councilLinkedEdges?: LinkedEdge[];
   roomId: string;
   roomConnected: boolean;
   lastParsedIntent?: ParsedIntent;
@@ -121,7 +139,14 @@ export function ShellDrawer({
   onWorldHistoryGameYearChange,
   onWorldHistoryPageChange,
   onFetchWorldHistoryEntry,
-  chronicleHasUnread: _chronicleHasUnread = false,
+  chronicleHasUnread = false,
+  deliberationActive = false,
+  deliberationVoteKind = "regular",
+  deliberationPhase = "proposal",
+  deliberationRound = 0,
+  deliberationRoundTotal = 1,
+  deliberationFeedRows = [],
+  councilLinkedEdges = [],
   roomId,
   roomConnected,
   lastParsedIntent = null,
@@ -160,6 +185,13 @@ export function ShellDrawer({
                 onKeyDown={(event) => handleDrawerTabKeyDown(event, index, onTabChange)}
               >
                 {item.label}
+                {item.id === "chronicle" && chronicleHasUnread ? (
+                  <span
+                    className="shell-drawer__tab-badge"
+                    data-testid="shell-drawer-tab-chronicle-unread"
+                    aria-label="编年史有新条目"
+                  />
+                ) : null}
               </button>
             ))}
           </div>
@@ -197,7 +229,22 @@ export function ShellDrawer({
             />
           ) : null}
 
-          {tab === "council" ? <CouncilRosterPanel /> : null}
+          {tab === "council" ? (
+            <div className="shell-drawer__council-deliberation">
+              {deliberationActive ? (
+                <>
+                  <CouncilDeliberationBanner voteKind={deliberationVoteKind} />
+                  <CouncilDeliberationProgress
+                    round={deliberationRound}
+                    roundTotal={deliberationRoundTotal}
+                    phase={deliberationPhase}
+                  />
+                  <CouncilDeliberationFeed rows={deliberationFeedRows} />
+                </>
+              ) : null}
+              <CouncilRosterPanel linkedEdges={councilLinkedEdges} />
+            </div>
+          ) : null}
 
           {tab === "chronicle" ? (
             <WorldHistoryPanel

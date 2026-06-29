@@ -210,7 +210,7 @@ function rowFromDb(raw: DbRow): WorldHistoryRow {
     proposerDisplayName: raw.proposer_display_name,
     yesCount: raw.yes_count,
     noCount: raw.no_count,
-    minutesJson: parseWorldHistoryMinutes(raw.minutes_json),
+    minutesJson: parseWorldHistoryMinutes(raw.minutes_json, { proposerNpcId: raw.proposer_npc_id }),
     gameYear: raw.game_year,
     gameMinuteSnapshot: raw.game_minute_snapshot,
     voteEpoch: raw.vote_epoch,

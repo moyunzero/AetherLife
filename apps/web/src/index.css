@@ -1813,42 +1813,229 @@ body {
   margin: 0;
   padding: 0;
   list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .council-roster-panel__relationship {
-  padding: 6px 0;
-  border-top: 1px solid color-mix(in srgb, var(--shell-wood, #8b6914) 18%, transparent);
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--shell-wood, #8b6914) 14%, transparent);
+  border-radius: var(--radius-sm, 4px);
+  background: color-mix(in srgb, var(--shell-parchment, #f5ecd7) 55%, transparent);
   font-size: 12px;
-  line-height: 1.4;
+  line-height: 1.45;
   color: var(--shell-ink, #3d3428);
 }
 
-.council-roster-panel__relationship:first-child {
-  border-top: none;
+.council-roster-panel__relationship-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin-bottom: 6px;
 }
 
 .council-roster-panel__relationship-name {
   font-weight: 600;
   color: var(--shell-ink, #3d3428);
-  margin-right: 6px;
 }
 
 .council-roster-panel__relationship-kind {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
   font-size: 10px;
   font-weight: 600;
   line-height: 1.2;
-  padding: 1px 6px;
+  padding: 2px 7px;
   border-radius: var(--radius-sm, 4px);
   color: var(--shell-ink, #3d3428);
   background: color-mix(in srgb, var(--shell-accent, #c9a227) 18%, var(--shell-parchment, #f5ecd7));
   border: 1px solid color-mix(in srgb, var(--shell-accent, #c9a227) 35%, transparent);
-  margin-right: 6px;
-  vertical-align: middle;
 }
 
 .council-roster-panel__relationship-summary {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--shell-muted, #7a6f5c);
+}
+
+.council-roster-panel__relationship--changed {
+  border-color: color-mix(in srgb, var(--shell-accent, #c9a227) 42%, transparent);
+  background: color-mix(in srgb, var(--shell-accent, #c9a227) 8%, var(--shell-parchment, #f5ecd7));
+  box-shadow: inset 3px 0 0 var(--shell-accent, #c9a227);
+}
+
+.council-roster-panel__relationship-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--shell-accent, #c9a227);
+}
+
+.council-roster-panel__relationship-hint-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-accent, var(--shell-accent, #c9a227));
+  flex-shrink: 0;
+}
+
+.council-deliberation-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  padding: 4px 10px;
+  border: 1px solid color-mix(in srgb, var(--color-accent, #c9a227) 45%, transparent);
+  border-radius: var(--radius-sm, 4px);
+  background: color-mix(in srgb, var(--color-accent, #c9a227) 12%, transparent);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--shell-ink, #3d3428);
+  cursor: pointer;
+}
+
+.council-deliberation-chip__label {
+  color: var(--color-accent, #c9a227);
+  font-weight: 600;
+}
+
+.council-deliberation-chip__title {
+  color: var(--shell-muted, #7a6f5c);
+  max-width: 14em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.council-deliberation-banner {
+  width: 100%;
+  padding: 16px;
+  margin-bottom: 16px;
+  border-radius: var(--radius-sm, 4px);
+  border: 1px solid color-mix(in srgb, var(--shell-wood, #5c4a32) 25%, transparent);
+  background: color-mix(in srgb, var(--shell-parchment, #f5ecd7) 55%, #fff);
+}
+
+.council-deliberation-banner--epoch {
+  border-color: var(--color-accent, #c9a227);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-accent, #c9a227) 10%, var(--shell-parchment, #f5ecd7)),
+    color-mix(in srgb, var(--shell-parchment, #f5ecd7) 80%, #fff)
+  );
+}
+
+.council-deliberation-banner__title {
+  margin: 0;
+  font-family: Fraunces, "Noto Serif SC", serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--shell-ink, #3d3428);
+}
+
+.council-deliberation-progress {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-bottom: 24px;
+  font-size: 12px;
+  color: var(--shell-muted, #7a6f5c);
+}
+
+.council-deliberation-progress__round,
+.council-deliberation-progress__phase {
+  margin: 0;
+}
+
+.council-deliberation-progress__phase {
+  font-weight: 600;
+  color: var(--shell-ink, #3d3428);
+}
+
+.council-deliberation-feed {
+  list-style: none;
+  margin: 0 0 24px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.council-deliberation-feed__row {
+  padding: 8px;
+  border-radius: var(--radius-sm, 4px);
+  background: color-mix(in srgb, var(--shell-parchment, #f5ecd7) 40%, transparent);
+}
+
+.council-deliberation-feed__speaker {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: var(--shell-ink, #3d3428);
+}
+
+.council-deliberation-feed__quote,
+.council-deliberation-feed__reason {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--shell-ink, #3d3428);
+}
+
+.council-deliberation-feed__traveler-prefix {
+  display: block;
+  font-size: 12px;
+  color: var(--color-text-muted, var(--shell-muted, #7a6f5c));
+  margin-bottom: 2px;
+}
+
+.council-deliberation-feed__vote {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.council-deliberation-feed__row--vote-yes .council-deliberation-feed__vote {
+  color: #6b9e7a;
+}
+
+.council-deliberation-feed__row--vote-no .council-deliberation-feed__vote {
+  color: #c97a6a;
+}
+
+.council-vote-toast--accepted .council-vote-toast__title {
+  color: var(--color-accent, #c9a227);
+}
+
+.council-vote-toast--epoch {
+  border-left-width: 4px;
+  border-left-color: var(--color-accent, #c9a227);
+}
+
+.council-vote-toast--rejected .council-vote-toast__title {
+  color: var(--color-text-muted, var(--text-muted, #9a9488));
+}
+
+.shell-drawer__tab-badge {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 4px;
+  border-radius: 50%;
+  background: var(--color-accent, #c9a227);
+  vertical-align: middle;
+}
+
+.shell-drawer__council-deliberation {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .world-history-panel--embedded {
@@ -2159,6 +2346,43 @@ body {
 
 .world-history-minutes-modal__vote--no {
   color: color-mix(in srgb, #8b3a3a 80%, var(--shell-ink));
+}
+
+.world-history-minutes-modal__debate-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.world-history-minutes-modal__debate-excerpt {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--shell-surface) 92%, var(--shell-accent) 8%);
+  border: 1px solid color-mix(in srgb, var(--shell-border) 80%, transparent);
+}
+
+.world-history-minutes-modal__debate-meta {
+  margin: 0 0 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--shell-muted);
+}
+
+.world-history-minutes-modal__debate-full {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: var(--shell-ink);
+}
+
+.world-history-minutes-modal__debate-feed-quote {
+  margin: 6px 0 0;
+  font-size: 0.78rem;
+  font-style: italic;
+  color: var(--shell-muted);
 }
 
 .world-history-minutes-modal__footnote {

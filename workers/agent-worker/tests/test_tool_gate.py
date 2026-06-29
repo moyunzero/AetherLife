@@ -151,15 +151,15 @@ def test_apply_tools_injects_move_when_physical_and_tool_calls_empty():
         "height": 40,
         "player": {"x": 34, "y": 13},
         "npcs": [
-            {"id": "npc-1", "name": "路昂", "x": 23, "y": 10},
-            {"id": "npc-2", "name": "费雪", "x": 9, "y": 21},
+            {"id": "npc-1", "name": "莫玄虚", "x": 23, "y": 10},
+            {"id": "npc-2", "name": "阿斯托利亚", "x": 9, "y": 21},
         ],
     }
     state = {
         "room_id": "default",
         "npc_id": "npc-2",
         "player_id": "p1",
-        "player_message": "你可以去路昂那边吗？他好像有事情找你",
+        "player_message": "你可以去莫玄虚那边吗？他好像有事情找你",
         "room_snapshot": room,
         "tool_calls": [],
         "allowed_tools": ["speak", "wait", "move", "interact"],

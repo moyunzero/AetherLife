@@ -1,4 +1,4 @@
-import { bandLabelZh, createDefaultRoom, isBackgroundNpc, type RoomState } from "@aetherlife/shared";
+import { bandLabelZh, createDefaultRoom, isBackgroundNpc, type RoomState, type WorldHistoryPublicEntry } from "@aetherlife/shared";
 import type { ColyseusWorldHistorySyncPayload } from "@aetherlife/shared";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
@@ -21,7 +21,13 @@ import {
   type ChronicleToast,
 } from "./hooks/useWorldHistory.js";
 import { LORE_DISCOVER_TOAST_MS } from "./components/LoreDiscoverToast.js";
+import { CouncilVoteToast } from "./components/CouncilVoteToast.js";
+import { WorldHistoryMinutesModal } from "./components/WorldHistoryMinutesModal.js";
 import { SyncMetricsOverlay } from "./components/SyncMetricsOverlay.js";
+import {
+  useCouncilDeliberation,
+  type CouncilVoteToast as CouncilVoteToastPayload,
+} from "./hooks/useCouncilDeliberation.js";
 import { getMapRoomId } from "./lib/mapRoomId.js";
 import { stripNpcsForViewport } from "./lib/stripNpcsForViewport.js";
 import {
@@ -56,8 +62,16 @@ export function ChatPage() {
   const mergeWorldHistorySyncRef = useRef<(payload: ColyseusWorldHistorySyncPayload) => void>(
     () => {},
   );
+  const mergeCouncilDeliberationSyncRef = useRef<(payload: unknown) => void>(() => {});
+  const markChronicleVoteEntryRef = useRef<() => void>(() => {});
   const onWorldHistorySync = useCallback((payload: ColyseusWorldHistorySyncPayload) => {
     mergeWorldHistorySyncRef.current(payload);
+    if (payload.entry?.entryKind === "vote") {
+      markChronicleVoteEntryRef.current();
+    }
+  }, []);
+  const onCouncilDeliberationSync = useCallback((payload: unknown) => {
+    mergeCouncilDeliberationSyncRef.current(payload);
   }, []);
   const {
     room,
@@ -84,7 +98,7 @@ export function ChatPage() {
     npcAmbientById,
     mainNpcGridById,
     bgNpcGridById,
-  } = useColyseusRoom(mapRoomId, moveMap, onWorldHistorySync);
+  } = useColyseusRoom(mapRoomId, moveMap, onWorldHistorySync, onCouncilDeliberationSync);
   const {
     pageState: worldHistoryPageState,
     statusFilter: worldHistoryStatusFilter,
@@ -123,6 +137,7 @@ export function ChatPage() {
     thinkingNpcId,
     thinkingNpcIds,
     sendingNpcId,
+    speakQueueBusy,
     composerBusyForActiveNpc,
     attitudeGateCue,
     clearAttitudeGateCue,
@@ -131,6 +146,36 @@ export function ChatPage() {
   } = useNpcChat(room, mapRoomId, {
     onCollectiveUpdated: () => onCollectiveUpdatedRef.current?.(),
   });
+  const {
+    active: deliberationActive,
+    voteKind: deliberationVoteKind,
+    phase: deliberationPhase,
+    round: deliberationRound,
+    roundTotal: deliberationRoundTotal,
+    proposalTitle: deliberationProposalTitle,
+    feedRows: deliberationFeedRows,
+    linkedEdges: councilLinkedEdges,
+    toastQueue: councilVoteToastQueue,
+    chronicleUnread,
+    mergeCouncilDeliberationSync,
+    markChronicleVoteEntry,
+    clearChronicleUnread,
+    consumeVoteToast,
+  } = useCouncilDeliberation(speakQueueBusy);
+  mergeCouncilDeliberationSyncRef.current = mergeCouncilDeliberationSync;
+  markChronicleVoteEntryRef.current = markChronicleVoteEntry;
+  const councilVoteToast = councilVoteToastQueue[0] ?? null;
+  const dismissCouncilVoteToast = useCallback(() => {
+    consumeVoteToast();
+  }, [consumeVoteToast]);
+  const [minutesEntry, setMinutesEntry] = useState<WorldHistoryPublicEntry | null>(null);
+  const openMinutesForEntry = useCallback(
+    async (entryId: string) => {
+      const entry = await fetchWorldHistoryEntry(entryId);
+      if (entry) setMinutesEntry(entry);
+    },
+    [fetchWorldHistoryEntry],
+  );
   const [draft, setDraft] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerTab, setDrawerTab] = useState<DrawerTab>("history");
@@ -204,7 +249,33 @@ export function ChatPage() {
   const openDrawer = useCallback((tab: DrawerTab) => {
     setDrawerTab(tab);
     setDrawerOpen(true);
-  }, []);
+    if (tab === "chronicle") {
+      clearChronicleUnread();
+    }
+  }, [clearChronicleUnread]);
+
+  const handleDrawerTabChange = useCallback(
+    (tab: DrawerTab) => {
+      setDrawerTab(tab);
+      if (tab === "chronicle") {
+        clearChronicleUnread();
+      }
+    },
+    [clearChronicleUnread],
+  );
+
+  const handleCouncilVoteToastClick = useCallback(
+    (toast: CouncilVoteToastPayload) => {
+      if (toast.kind === "deliberation_start") {
+        openDrawer("council");
+        return;
+      }
+      setDrawerTab("chronicle");
+      setDrawerOpen(true);
+      void openMinutesForEntry(toast.resultEntryId);
+    },
+    [openDrawer, openMinutesForEntry],
+  );
 
   useEffect(() => {
     if (forcePhaserFallback) {
@@ -440,7 +511,7 @@ export function ChatPage() {
           <ShellDrawer
             open={drawerOpen}
             tab={drawerTab}
-            onTabChange={setDrawerTab}
+            onTabChange={handleDrawerTabChange}
             onClose={() => setDrawerOpen(false)}
             messages={messages}
             thinkingNpcId={thinkingNpcId}
@@ -462,13 +533,31 @@ export function ChatPage() {
             onWorldHistoryGameYearChange={setWorldHistoryGameYear}
             onWorldHistoryPageChange={setWorldHistoryPage}
             onFetchWorldHistoryEntry={fetchWorldHistoryEntry}
-            chronicleHasUnread={false}
+            chronicleHasUnread={chronicleUnread}
+            deliberationActive={deliberationActive}
+            deliberationVoteKind={deliberationVoteKind}
+            deliberationPhase={deliberationPhase}
+            deliberationRound={deliberationRound}
+            deliberationRoundTotal={deliberationRoundTotal}
+            deliberationFeedRows={deliberationFeedRows}
+            councilLinkedEdges={councilLinkedEdges}
             roomId={mapRoomId}
             roomConnected={connected}
             lastParsedIntent={lastParsedIntent}
             parseError={parseError}
           />
           <ChronicleHistoryToast toast={chronicleToast} onDismiss={dismissChronicleToast} />
+          <CouncilVoteToast
+            toast={councilVoteToast}
+            onDismiss={dismissCouncilVoteToast}
+            onClick={handleCouncilVoteToastClick}
+          />
+          {minutesEntry ? (
+            <WorldHistoryMinutesModal
+              entry={minutesEntry}
+              onClose={() => setMinutesEntry(null)}
+            />
+          ) : null}
           {resetConfirmOpen ? (
             <div
               className="reset-confirm-backdrop"
@@ -634,6 +723,8 @@ export function ChatPage() {
               reducedMotion={reducedMotion}
               composerRef={composerRef}
               onOpenDrawer={openDrawer}
+              deliberationActive={deliberationActive}
+              deliberationProposalTitle={deliberationProposalTitle}
               onEndDialogue={endDialogue}
             />
           </div>

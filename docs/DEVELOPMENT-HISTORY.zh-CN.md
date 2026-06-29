@@ -775,7 +775,7 @@
 
 **目标:** 12 council NPCs single source of truth registry + `__council__` memory scope; persona data layer for vote/map expansion.
 
-**思路:** COUNCIL_PERSONAS SSOT + 12 dossiers; worker speak persona injection (npc-1..3); pgvector `__council__` isolated from player speak memory.
+**思路:** COUNCIL_PERSONAS SSOT + 12 dossiers；worker speak/vote 镜像经 `council-personas-speak.json` + `council-personas-compact.json`（`pnpm council:export-personas`）；pgvector `__council__` 与玩家 speak 记忆隔离。
 
 **Key deliverables:** packages/shared/src/council/* + npcPersonas.ts; councilSeed.ts + C-07 CONTRACTS; CouncilRosterPanel drawer tab「星际议会」; 12 schedule JSON + personality seeds
 

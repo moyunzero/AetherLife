@@ -2,6 +2,7 @@ import {
   customType,
   index,
   integer,
+  jsonb,
   pgTable,
   primaryKey,
   real,
@@ -128,5 +129,28 @@ export const mutationAuditLogs = pgTable(
   },
   (table) => [
     index("mutation_audit_logs_room_created").on(table.roomId, table.createdAt),
+  ],
+);
+
+export const npcRelationships = pgTable(
+  "npc_relationships",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    roomId: text("room_id").notNull(),
+    npcAId: text("npc_a_id").notNull(),
+    npcBId: text("npc_b_id").notNull(),
+    baseTag: text("base_tag").notNull(),
+    affection: integer("affection").notNull().default(0),
+    trust: integer("trust").notNull().default(50),
+    interactionCount: integer("interaction_count").notNull().default(0),
+    lastInteractAt: timestamp("last_interact_at", { withTimezone: true }),
+    currentStatus: jsonb("current_status").notNull().default([]),
+    historySummary: text("history_summary").notNull().default(""),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("npc_relationships_room_idx").on(table.roomId),
+    index("npc_relationships_room_npc_a_idx").on(table.roomId, table.npcAId),
+    index("npc_relationships_room_npc_b_idx").on(table.roomId, table.npcBId),
   ],
 );

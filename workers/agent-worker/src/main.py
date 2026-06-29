@@ -18,6 +18,7 @@ from src.graph.nodes.llm_social_turn import preview_casual_stub
 from src.graph.action_intent import player_requests_physical_action
 from src.graph.speak_intent import can_use_casual_fast_lane, can_use_social_edge_fast_lane
 from src.graph.social_edge_fast_lane import run_social_edge_fast_lane
+from src.graph.world_vote import process_world_vote_job
 from src.graph.job_context import reset_job_context, set_job_context
 from src.llm.call_budget import (
     get_recorder,
@@ -35,6 +36,7 @@ from src.memory.importance import DEFAULT_IMPORTANCE
 BRIDGE_LIST_KEY = "aetherlife:npc-turn:jobs"
 LORE_BRIDGE_LIST_KEY = "aetherlife:chunk-lore:jobs"
 AMBIENT_INTENT_BRIDGE_LIST_KEY = "aetherlife:npc-ambient-intent:jobs"
+WORLD_VOTE_BRIDGE_LIST_KEY = "aetherlife:world-vote:jobs"
 BLPOP_TIMEOUT_S = 5
 LORE_BLPOP_TIMEOUT_S = 1
 AMBIENT_BLPOP_TIMEOUT_S = 1
@@ -143,6 +145,27 @@ def process_ambient_intent_job(client: httpx.Client, settings: Settings, payload
         file=sys.stderr,
     )
     run_ambient_intent_job(payload, settings=settings, client=client)
+
+
+def process_world_vote_job_wrapper(client: httpx.Client, settings: Settings, payload: dict) -> None:
+    process_world_vote_job(client, settings, payload)
+
+
+def drain_one_world_vote_job(r: redis.Redis, client: httpx.Client, settings: Settings) -> bool:
+    """Lowest priority — defer when speak or npc-turn backlog active."""
+    if _is_speak_in_progress() or r.llen(BRIDGE_LIST_KEY) > 0:
+        return False
+    raw = r.rpop(WORLD_VOTE_BRIDGE_LIST_KEY)
+    if not raw:
+        return False
+    payload = _parse_bridge_payload(raw, queue="world-vote")
+    if not payload:
+        return True
+    try:
+        process_world_vote_job_wrapper(client, settings, payload)
+    except Exception as exc:
+        print(f"world-vote job error jobId={payload.get('jobId')}: {exc}", file=sys.stderr)
+    return True
 
 
 def drain_one_ambient_intent_job(r: redis.Redis, client: httpx.Client, settings: Settings) -> bool:
@@ -434,6 +457,7 @@ def run_worker() -> None:
                 continue
 
             if not item or not queue:
+                drain_one_world_vote_job(r, client, settings)
                 continue
             _, raw = item
             payload = _parse_bridge_payload(raw, queue=queue)
@@ -467,17 +491,20 @@ def run_worker() -> None:
                 # Fairness: one lore job per speak job when lore backlog exists (ISSUE-030)
                 drain_one_lore_job(r, client, settings)
                 drain_one_ambient_intent_job(r, client, settings)
+                drain_one_world_vote_job(r, client, settings)
                 continue
             if queue == "lore":
                 try:
                     process_lore_job(client, settings, payload)
                 except Exception as exc:
                     print(f"lore job error jobId={payload.get('jobId')}: {exc}", file=sys.stderr)
+                drain_one_world_vote_job(r, client, settings)
                 continue
             try:
                 process_ambient_intent_job(client, settings, payload)
             except Exception as exc:
                 print(f"ambient intent job error jobId={payload.get('jobId')}: {exc}", file=sys.stderr)
+            drain_one_world_vote_job(r, client, settings)
 
 
 def main() -> None:

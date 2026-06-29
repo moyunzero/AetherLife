@@ -12,6 +12,7 @@ import {
   chunkViewsFingerprint,
   type ChunkView,
   type ColyseusChunksSyncPayload,
+  type ColyseusCouncilDeliberationSyncPayload,
   type ColyseusLoreSyncPayload,
   type ColyseusWorldHistorySyncPayload,
   type RoomState,
@@ -137,9 +138,12 @@ export function useColyseusRoom(
   roomId = "default",
   map: RoomState | null = null,
   mergeWorldHistorySync?: (payload: ColyseusWorldHistorySyncPayload) => void,
+  mergeCouncilDeliberationSync?: (payload: ColyseusCouncilDeliberationSyncPayload) => void,
 ) {
   const mergeWorldHistorySyncRef = useRef(mergeWorldHistorySync);
   mergeWorldHistorySyncRef.current = mergeWorldHistorySync;
+  const mergeCouncilDeliberationSyncRef = useRef(mergeCouncilDeliberationSync);
+  mergeCouncilDeliberationSyncRef.current = mergeCouncilDeliberationSync;
   const roomRef = useRef<Room | null>(null);
   const [room, setRoom] = useState<Room | null>(null);
   const [connected, setConnected] = useState(false);
@@ -238,6 +242,7 @@ export function useColyseusRoom(
     let offChunksSync: (() => void) | undefined;
     let offLoreSync: (() => void) | undefined;
     let offWorldHistorySync: (() => void) | undefined;
+    let offCouncilDeliberationSync: (() => void) | undefined;
     let onStateChangeHandler: (() => void) | undefined;
     let onLeaveHandler: ((code: number, reason?: string) => void) | undefined;
 
@@ -321,6 +326,13 @@ export function useColyseusRoom(
           mergeWorldHistorySyncRef.current?.(data);
         },
       );
+      offCouncilDeliberationSync = joined.onMessage(
+        COLYSEUS_SERVER_MESSAGES.councilDeliberationSync,
+        (data: ColyseusCouncilDeliberationSyncPayload) => {
+          if (generation !== joinGeneration) return;
+          mergeCouncilDeliberationSyncRef.current?.(data);
+        },
+      );
       joined.send(COLYSEUS_CLIENT_MESSAGES.requestChunksSync, {});
     };
 
@@ -386,6 +398,7 @@ export function useColyseusRoom(
       offChunksSync?.();
       offLoreSync?.();
       offWorldHistorySync?.();
+      offCouncilDeliberationSync?.();
       const leaving = activeRoom ?? roomRef.current;
       if (leaving) {
         if (onStateChangeHandler) {

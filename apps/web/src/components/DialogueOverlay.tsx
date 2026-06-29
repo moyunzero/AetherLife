@@ -23,6 +23,8 @@ type Props = {
   reducedMotion?: boolean;
   composerRef: RefObject<HTMLTextAreaElement | null>;
   onOpenDrawer: (tab: DrawerTab) => void;
+  deliberationActive?: boolean;
+  deliberationProposalTitle?: string;
   onEndDialogue: () => void;
 };
 

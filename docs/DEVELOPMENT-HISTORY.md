@@ -775,7 +775,7 @@ This document synthesizes all **37 development phases** (including sub-phases). 
 
 **Goal:** 12 council NPCs single source of truth registry + `__council__` memory scope; persona data layer for vote/map expansion.
 
-**Rationale:** COUNCIL_PERSONAS SSOT + 12 dossiers; worker speak persona injection (npc-1..3); pgvector `__council__` isolated from player speak memory.
+**Rationale:** COUNCIL_PERSONAS SSOT + 12 dossiers; worker speak/vote mirrors via `council-personas-speak.json` + `council-personas-compact.json` (`pnpm council:export-personas`); pgvector `__council__` isolated from player speak memory.
 
 **Key deliverables:** packages/shared/src/council/* + npcPersonas.ts; councilSeed.ts + C-07 CONTRACTS; CouncilRosterPanel drawer tab「星际议会」; 12 schedule JSON + personality seeds
 

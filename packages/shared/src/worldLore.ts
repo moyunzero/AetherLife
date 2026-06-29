@@ -13,8 +13,8 @@ export type ChunkLorePublic = {
 /** Fixed home chunk (0,0) — no LLM (D-02, 11-UI-SPEC). */
 export const HOME_CHUNK_LORE: ChunkLore = {
   nameZh: "晨曦村",
-  flavorOneLine: "路昂、费雪与南宫婉的日常据点",
-  storyHook: "这里是路昂、费雪与南宫婉一起生活的起点。",
+  flavorOneLine: "十二议会使节常驻的始源区枢纽",
+  storyHook: "万界融合后，诸位使节在此共议规则与未来。",
   proceduralBiome: "home",
   moodTag: "家园",
   npcRumor: "村民常说清晨的露水会带来好运。",

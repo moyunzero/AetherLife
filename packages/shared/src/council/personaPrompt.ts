@@ -1,7 +1,17 @@
 import { getPersona } from "./constants.js";
+import { relationshipKindLabelZh } from "./relationshipLabels.js";
 import type { CouncilRelationship } from "./types.js";
 
 const SPEAK_PROMPT_CHAR_BUDGET = 800;
+
+/** Runtime edge shape for speak/worker persona injection (REL-04). */
+export type RuntimeRelationshipLine = {
+  targetId: string;
+  kind: string;
+  summary: string;
+  affection?: number;
+  statusTags?: string[];
+};
 
 /** Relationship kind priority for compact speak blocks (D-SPEAK-01). */
 const RELATIONSHIP_KIND_PRIORITY: Record<string, number> = {
@@ -38,6 +48,8 @@ export type PersonaPromptMode = "speak";
 
 export type FormatPersonaPromptOptions = {
   mode?: PersonaPromptMode;
+  /** When present, overrides registry `relationships[]` (runtime table wins). */
+  runtimeRelationships?: RuntimeRelationshipLine[];
 };
 
 /**
@@ -50,9 +62,18 @@ export function formatPersonaPromptBlock(
 ): string {
   void options.mode;
   const p = getPersona(npcId);
-  const relLines = topRelationships(p.relationships).map(
-    (r) => `·${r.targetId}(${r.kind})：${r.summary}`,
-  );
+  const relLines =
+    options.runtimeRelationships && options.runtimeRelationships.length > 0
+      ? options.runtimeRelationships.slice(0, 3).map((r) => {
+          const kind = relationshipKindLabelZh(r.kind);
+          const tags = r.statusTags?.length ? `[${r.statusTags.join("、")}] ` : "";
+          const aff =
+            r.affection !== undefined ? `affection=${r.affection} ` : "";
+          return `·${r.targetId}(${kind})：${tags}${aff}${r.summary}`;
+        })
+      : topRelationships(p.relationships).map(
+          (r) => `·${r.targetId}(${relationshipKindLabelZh(r.kind)})：${r.summary}`,
+        );
 
   const sections = [
     `【${p.displayName}】`,

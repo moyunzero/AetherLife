@@ -44,16 +44,29 @@ def test_importance_defaults_to_nvidia_nano():
     assert "nemotron-nano" in model
 
 
-def test_auxiliary_attempts_never_includes_zhipu_by_default():
-    primary = social_provider_model(Settings())
-    attempts = auxiliary_provider_attempts(Settings(), primary=primary)
+def test_auxiliary_attempts_never_includes_zhipu_by_default(monkeypatch):
+    monkeypatch.delenv("LLM_PROVIDER_SOCIAL", raising=False)
+    monkeypatch.delenv("LLM_MODEL_SOCIAL", raising=False)
+    monkeypatch.delenv("LLM_PROVIDER_AUXILIARY_FALLBACK", raising=False)
+    settings = Settings(
+        llm_provider_social="nvidia",
+        llm_model_social="meta/llama-3.3-70b-instruct",
+        llm_provider_social_fallback="agnes",
+    )
+    primary = social_provider_model(settings)
+    attempts = auxiliary_provider_attempts(settings, primary=primary)
     assert attempts[0][0] == "nvidia"
     assert attempts[1][0] == "agnes"
     assert all(p != "zhipu" for p, _ in attempts)
 
 
-def test_auxiliary_attempts_optional_fallback():
-    settings = Settings(llm_provider_social_fallback="agnes")
+def test_auxiliary_attempts_optional_fallback(monkeypatch):
+    monkeypatch.delenv("LLM_PROVIDER_AUXILIARY_FALLBACK", raising=False)
+    settings = Settings(
+        llm_provider_social="nvidia",
+        llm_model_social="meta/llama-3.3-70b-instruct",
+        llm_provider_social_fallback="agnes",
+    )
     primary = social_provider_model(settings)
     attempts = auxiliary_provider_attempts(
         settings,

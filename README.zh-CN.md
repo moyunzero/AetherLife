@@ -163,6 +163,7 @@ Action schema：[packages/game-actions/README.md](./packages/game-actions/README
 | [docs/MOVEMENT-ARCHITECTURE.md](./docs/MOVEMENT-ARCHITECTURE.md) | Phaser 移动与 Colyseus 同步 |
 | [docs/E2E-POLICY.md](./docs/E2E-POLICY.md) | E2E / UAT 策略与 Golden Flows |
 | [docs/PHASE-EVOLUTION.md](./docs/PHASE-EVOLUTION.md) | 阶段演进与跨层防债务 |
+| [docs/COUNCIL-PERSONAS.md](./docs/COUNCIL-PERSONAS.md) | 十二议会人设 SSOT + 导出/审计 |
 
 ## 贡献
 

@@ -119,7 +119,7 @@ describe("parseCollectiveEvent", () => {
       roomId: "r1",
       npcId: "npc-1",
       kind: "rude",
-      summary: "玩家A对路昂出言不逊",
+      summary: "玩家A对莫玄虚出言不逊",
       playerIds: ["p-a", "p-b"],
       deltaScore: fixedDeltaForKind("rude"),
     });

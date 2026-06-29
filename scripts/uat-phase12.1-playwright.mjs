@@ -143,8 +143,8 @@ async function main() {
 
   const callsAfterLoad = collectiveStateCalls;
 
-  await page.getByRole("tab", { name: /路昂/ }).click();
-  record("P121-UAT-02", "选中路昂 tab", true);
+  await page.getByRole("tab", { name: /莫玄虚/ }).click();
+  record("P121-UAT-02", "选中莫玄虚 tab", true);
   await shot(page, "02-luan-tab");
 
   const composer = page.locator(".composer__input");

@@ -7,6 +7,13 @@ from typing import Any
 import httpx
 
 from src.config import Settings
+from src.council.world_history_rag import (
+    fetch_world_history_canon_context,
+    format_canon_bullet,
+    format_council_bullet,
+    merge_dual_rag_block,
+    topic_relevant,
+)
 from src.memory.client import fetch_memory_context
 
 COUNCIL_MEMORY_PLAYER_ID = "__council__"
@@ -31,3 +38,39 @@ def fetch_council_memory_context(
         player_id=COUNCIL_MEMORY_PLAYER_ID,
         skip_embed=skip_embed,
     )
+
+
+def fetch_dual_rag_context(
+    client: httpx.Client,
+    settings: Settings,
+    room_id: str,
+    query: str,
+    *,
+    npc_id: str = "npc-1",
+    skip_embed: bool = False,
+) -> dict[str, Any]:
+    """Combine world_history canon slice + __council__ memory for speak injection."""
+    canon_entries = fetch_world_history_canon_context(client, settings, room_id)
+    skip_council_embed = skip_embed or not topic_relevant(query, canon_entries)
+    council_ctx = fetch_council_memory_context(
+        client,
+        settings,
+        room_id,
+        query,
+        npc_id=npc_id,
+        skip_embed=skip_council_embed,
+    )
+    retrieved = list(council_ctx.get("retrieved") or [])
+    canon_bullets = [format_canon_bullet(e) for e in canon_entries]
+    council_bullets = [format_council_bullet(r) for r in retrieved if format_council_bullet(r)]
+    canon_context = merge_dual_rag_block(
+        query,
+        canon_bullets=canon_bullets,
+        council_bullets=council_bullets,
+        canon_entries=canon_entries,
+    )
+    return {
+        "canon_context": canon_context,
+        "canon_entries": canon_entries,
+        "council_retrieved": retrieved,
+    }

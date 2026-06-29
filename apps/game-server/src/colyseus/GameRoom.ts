@@ -41,6 +41,7 @@ import { resolveScheduleSegment, segmentKey } from "../ambient/schedule.js";
 import { applySegmentStartIntentFallback } from "../ambient/segment-intent.js";
 import { MAIN_AMBIENT_NPC_IDS, runAmbientTick } from "../ambient/tick.js";
 import { addNpcAmbientIntentJob } from "../queue/npc-ambient-intent.js";
+import { maybeEnqueueWorldVote, recordPlayerSpeak } from "../world/world-vote-trigger.js";
 
 export const AMBIENT_MS = 6000;
 
@@ -266,6 +267,7 @@ export class GameRoom extends Room {
         await startNpcChatTurn(this.mapRoomId, text, npcId, playerId, jobId, {
           casualPreviewEmitted: Boolean(casualStub),
         });
+        recordPlayerSpeak(this.mapRoomId);
       } catch (err) {
         const held = this.npcSpeakJobs.get(npcId);
         if (held === pendingToken || held === jobId) {
@@ -412,6 +414,18 @@ export class GameRoom extends Room {
         this.enqueueAmbientIntentIfIdle(npcId, "segment_change");
       }
     }
+    this.enqueueWorldVoteIfDue();
+  }
+
+  private enqueueWorldVoteIfDue(): void {
+    if (this.npcSpeakJobs.size > 0) return;
+    void maybeEnqueueWorldVote({
+      roomId: this.mapRoomId,
+      gameMinute: this.gameState.gameMinute,
+      npcSpeakInFlight: false,
+    }).catch((err) => {
+      console.error("[GameRoom] world-vote enqueue failed", err);
+    });
   }
 
   /** Release per-NPC speak slot when job completes (called from hub after terminal emit). */

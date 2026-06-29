@@ -76,7 +76,7 @@ def reconcile_social_perception(message: str, perception: SocialPerception) -> S
 
 
 def personality_multiplier(npc_id: str, kind: str) -> float:
-    """D-06b: seed modulates sensitivity (路昂 npc-1 more sensitive to insults)."""
+    """D-06b: seed modulates sensitivity (莫玄虚 npc-1 more sensitive to insults)."""
     seed = NPC_PERSONALITY_SEED.get(npc_id, 0)
     negative_kinds = frozenset(
         {"rude", "contradict", "steal_attempt", "compete_object", "betray", "ignore"},

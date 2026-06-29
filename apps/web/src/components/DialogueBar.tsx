@@ -5,6 +5,7 @@ import {
   RefObject,
 } from "react";
 import { CollectiveFeedbackBanner } from "./CollectiveFeedbackBanner.js";
+import { CouncilDeliberationChip } from "./CouncilDeliberationChip.js";
 
 export type DrawerTab =
   | "history"
@@ -30,6 +31,8 @@ type Props = {
   reducedMotion?: boolean;
   composerRef: RefObject<HTMLTextAreaElement | null>;
   onOpenDrawer: (tab: DrawerTab) => void;
+  deliberationActive?: boolean;
+  deliberationProposalTitle?: string;
 };
 
 export function DialogueBar({
@@ -48,6 +51,8 @@ export function DialogueBar({
   reducedMotion = false,
   composerRef,
   onOpenDrawer,
+  deliberationActive = false,
+  deliberationProposalTitle = "",
 }: Props) {
   const composerSpeakBusyOtherPlayer =
     speakBusyNpcId === activeNpcId &&
@@ -148,6 +153,12 @@ export function DialogueBar({
           >
             {attitudeGateHint}
           </p>
+        ) : null}
+        {deliberationActive ? (
+          <CouncilDeliberationChip
+            proposalTitle={deliberationProposalTitle}
+            onOpenCouncil={() => onOpenDrawer("council")}
+          />
         ) : null}
         {composerBusyForActiveNpc ? (
           <p

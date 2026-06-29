@@ -15,11 +15,11 @@ describe("classifySpeakIntent", () => {
   it("physical intent", () => {
     expect(classifySpeakIntent("向右走一步")).toBe(SpeakIntent.PHYSICAL);
     expect(classifySpeakIntent("打开门")).toBe(SpeakIntent.PHYSICAL);
-    expect(classifySpeakIntent("去费雪旁边")).toBe(SpeakIntent.PHYSICAL);
+    expect(classifySpeakIntent("去阿斯托利亚旁边")).toBe(SpeakIntent.PHYSICAL);
     expect(classifySpeakIntent("move to (3,4)")).toBe(SpeakIntent.PHYSICAL);
     expect(classifySpeakIntent("请帮我走到左侧")).toBe(SpeakIntent.PHYSICAL);
-    expect(classifySpeakIntent("路昂找你，麻烦您去一下")).toBe(SpeakIntent.PHYSICAL);
-    expect(classifySpeakIntent("你可以去南宫婉那边吗？他有事情找你")).toBe(SpeakIntent.PHYSICAL);
+    expect(classifySpeakIntent("莫玄虚找你，麻烦您去一下")).toBe(SpeakIntent.PHYSICAL);
+    expect(classifySpeakIntent("你可以去诸葛知危那边吗？他有事情找你")).toBe(SpeakIntent.PHYSICAL);
   });
 
   it("recall intent", () => {

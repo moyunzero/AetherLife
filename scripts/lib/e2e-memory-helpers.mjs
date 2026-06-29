@@ -271,11 +271,13 @@ async function extractNpcReplyText(page) {
 export async function sendSpeakOverlay(
   page,
   text,
-  { speakTimeoutMs = 180_000, engageTimeoutMs = 45_000 } = {},
+  { speakTimeoutMs = 180_000, engageTimeoutMs = 45_000, skipEngage = false } = {},
 ) {
   page.setDefaultTimeout(speakTimeoutMs);
   await closeShellDrawer(page);
-  await engageDialogue(page, { timeoutMs: engageTimeoutMs });
+  if (!skipEngage) {
+    await engageDialogue(page, { timeoutMs: engageTimeoutMs });
+  }
 
   const composer = page.locator("textarea.composer__input");
   await page.waitForFunction(

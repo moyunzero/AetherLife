@@ -64,6 +64,7 @@ from src.graph.speak_intent import (
     should_skip_memory_embed,
 )
 from src.llm.call_budget import record_llm_call
+from src.council.memory_context import fetch_dual_rag_context
 from src.memory.client import (
     _MEMORY_CONTEXT_INTERACTIVE_TIMEOUT_S,
     _MEMORY_CONTEXT_RECALL_ATTEMPTS,
@@ -95,6 +96,7 @@ _FETCH_STATE_TIMEOUT_S = 6.0
 _FETCH_STATE_ATTEMPTS = 2
 _FETCH_STATE_HOT_CACHE_TTL_S = 3.0
 _STALE_SNAPSHOT_TTL_S = 300.0
+_RUNTIME_REL_TIMEOUT_S = 6.0
 _stale_worker_snapshots: dict[str, tuple[dict[str, Any], float]] = {}
 
 
@@ -147,6 +149,69 @@ def _neutral_memory_fields() -> dict[str, Any]:
         "effective_score": None,
         "allowed_tools": list(allowed_tools_for_band(band)),
         "collective_summaries": [],
+        "runtime_relationships": [],
+        "canon_context": "",
+    }
+
+
+def fetch_runtime_relationship_edges(
+    state: GraphState,
+    *,
+    settings: Settings,
+    client: httpx.Client,
+) -> list[dict[str, Any]]:
+    room_id = state["room_id"]
+    npc_id = state.get("npc_id") or "npc-1"
+    url = f"{settings.game_server_url}/internal/rooms/{room_id}/npc-relationships"
+    try:
+        res = client.get(
+            url,
+            params={"npcId": npc_id, "limit": "5"},
+            headers=_game_headers(settings),
+            timeout=_RUNTIME_REL_TIMEOUT_S,
+        )
+        res.raise_for_status()
+        return list(safe_response_json(res).get("edges") or [])
+    except Exception as exc:
+        print(
+            f"npc-relationships fetch failed room={room_id} npc={npc_id}: {exc}",
+            file=sys.stderr,
+        )
+        return []
+
+
+def _fetch_speak_enrichment(
+    state: GraphState,
+    *,
+    settings: Settings,
+    client: httpx.Client,
+    skip_dual_rag: bool,
+) -> dict[str, Any]:
+    npc_id = state.get("npc_id") or "npc-1"
+    edges: list[dict[str, Any]] = []
+    canon_context = ""
+    if not skip_dual_rag:
+        edges = fetch_runtime_relationship_edges(state, settings=settings, client=client)
+        speak_intent = state.get("speak_intent")
+        if speak_intent:
+            intent = SpeakIntent(speak_intent)
+        else:
+            intent = classify_speak_intent(
+                state.get("player_message") or "",
+                state.get("recent_turns"),
+            )
+        dual = fetch_dual_rag_context(
+            client,
+            settings,
+            state["room_id"],
+            state.get("player_message") or "",
+            npc_id=npc_id,
+            skip_embed=should_skip_memory_embed(intent),
+        )
+        canon_context = str(dual.get("canon_context") or "")
+    return {
+        "runtime_relationships": edges,
+        "canon_context": canon_context,
     }
 
 
@@ -428,6 +493,24 @@ _MEMORY_MERGE_KEYS = (
 )
 
 
+def _attach_speak_enrichment(
+    state: GraphState,
+    *,
+    settings: Settings,
+    skip_dual_rag: bool,
+) -> GraphState:
+    t0 = time.perf_counter()
+    with create_http_client() as thread_client:
+        enrichment = _fetch_speak_enrichment(
+            state,
+            settings=settings,
+            client=thread_client,
+            skip_dual_rag=skip_dual_rag,
+        )
+    record_phase_ms("t_speak_enrichment_ms", int((time.perf_counter() - t0) * 1000))
+    return {**state, **enrichment}
+
+
 def fetch_state_and_memory(
     state: GraphState,
     *,
@@ -468,7 +551,11 @@ def fetch_state_and_memory(
         else:
             record_phase_ms("t_memory_ms", 0)
         merged["speak_intent"] = intent.value
-        return merged
+        return _attach_speak_enrichment(
+            merged,
+            settings=settings,
+            skip_dual_rag=True,
+        )
 
     def _fetch() -> GraphState:
         t0 = time.perf_counter()
@@ -523,7 +610,11 @@ def fetch_state_and_memory(
             )
         record_phase_ms("t_lazy_lore_ms", int((time.perf_counter() - t0) * 1000))
 
-    return merged
+    return _attach_speak_enrichment(
+        merged,
+        settings=settings,
+        skip_dual_rag=False,
+    )
 
 
 def _invoke_llm_turn(
@@ -985,6 +1076,8 @@ def _npc_turn_initial(
         "collective_updated": False,
         "just_happened_summary": "",
         "speak_intent": "",
+        "runtime_relationships": [],
+        "canon_context": "",
         "phase_timing_ms": {},
         "trace_run_id": None,
     }

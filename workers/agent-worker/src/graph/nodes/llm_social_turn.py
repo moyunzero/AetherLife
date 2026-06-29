@@ -308,7 +308,10 @@ def _build_social_messages(
         summaries=state.get("collective_summaries"),
     )
     npc_id = state.get("npc_id") or "npc-1"
-    persona_block = build_persona_block(npc_id)
+    persona_block = build_persona_block(
+        npc_id,
+        runtime_relationships=state.get("runtime_relationships"),
+    )
     base_prompt = SOCIAL_SYSTEM_PROMPT
     if persona_block:
         base_prompt = f"{base_prompt}\n\n{persona_block}"
@@ -319,6 +322,9 @@ def _build_social_messages(
             f"{system_text}\n\nMemory summary:\n{memory}\n"
             "若玩家追问 Memory summary 中已有的事实，reply 须直接给出答案，勿拒绝或说「不记得」。"
         )
+    canon = (state.get("canon_context") or "").strip()
+    if canon:
+        system_text = f"{system_text}\n\n{canon}"
     append = (system_append or "").strip()
     if append:
         system_text = f"{system_text}\n\n{append}"

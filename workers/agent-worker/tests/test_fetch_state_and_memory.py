@@ -19,7 +19,7 @@ def _clear_worker_snapshot_cache():
 def test_physical_action_skips_full_memory_but_loads_collective_gate():
     state = {
         "room_id": "default",
-        "player_message": "费雪找你，去她下方好吗？",
+        "player_message": "阿斯托利亚找你，去她下方好吗？",
         "npc_id": "npc-1",
         "player_id": "p1",
     }
@@ -31,8 +31,8 @@ def test_physical_action_skips_full_memory_but_loads_collective_gate():
         "state": {
             "roomId": "default",
             "npcs": [
-                {"id": "npc-1", "name": "路昂", "x": 23, "y": 10},
-                {"id": "npc-2", "name": "费雪", "x": 9, "y": 21},
+                {"id": "npc-1", "name": "莫玄虚", "x": 23, "y": 10},
+                {"id": "npc-2", "name": "阿斯托利亚", "x": 9, "y": 21},
             ],
             "objects": [],
         },
@@ -106,18 +106,22 @@ def test_narrative_action_loads_memory_with_skip_embed():
     with patch("src.graph.npc_loop.fetch_state") as fetch_state:
         with patch("src.graph.npc_loop.fetch_nearby_lore_into_snapshot") as lazy_lore:
             with patch("src.graph.npc_loop.load_memory_context") as load_memory:
-                fetch_state.return_value = {**state, "room_snapshot": {"npcs": []}}
-                lazy_lore.side_effect = lambda s, **_: {
-                    **s,
-                    "room_snapshot": {"npcs": [], "nearbyLore": [{"cx": 0, "cy": 0}]},
-                }
-                load_memory.return_value = {
-                    **state,
-                    "memory_summary": "recall",
-                    "memory_count": 3,
-                    "attitude_band": "warm",
-                }
-                out = fetch_state_and_memory(state, settings=settings, client=MagicMock())
+                with patch(
+                    "src.graph.npc_loop._fetch_speak_enrichment",
+                    return_value={},
+                ):
+                    fetch_state.return_value = {**state, "room_snapshot": {"npcs": []}}
+                    lazy_lore.side_effect = lambda s, **_: {
+                        **s,
+                        "room_snapshot": {"npcs": [], "nearbyLore": [{"cx": 0, "cy": 0}]},
+                    }
+                    load_memory.return_value = {
+                        **state,
+                        "memory_summary": "recall",
+                        "memory_count": 3,
+                        "attitude_band": "warm",
+                    }
+                    out = fetch_state_and_memory(state, settings=settings, client=MagicMock())
 
     load_memory.assert_called_once()
     _, kwargs = load_memory.call_args
@@ -141,14 +145,42 @@ def test_recall_action_loads_memory_with_full_embed():
 
     with patch("src.graph.npc_loop.fetch_state") as fetch_state:
         with patch("src.graph.npc_loop.load_memory_context") as load_memory:
-            fetch_state.return_value = {**state, "room_snapshot": {"npcs": []}}
-            load_memory.return_value = {**state, "memory_count": 1, "attitude_band": "neutral"}
-            fetch_state_and_memory(state, settings=settings, client=MagicMock())
+            with patch(
+                "src.graph.npc_loop._fetch_speak_enrichment",
+                return_value={},
+            ):
+                fetch_state.return_value = {**state, "room_snapshot": {"npcs": []}}
+                load_memory.return_value = {**state, "memory_count": 1, "attitude_band": "neutral"}
+                fetch_state_and_memory(state, settings=settings, client=MagicMock())
 
     _, kwargs = load_memory.call_args
     assert kwargs.get("skip_embed") is False
     assert kwargs.get("memory_timeout") == 18.0
     assert kwargs.get("memory_attempts") == 2
+
+
+def test_casual_fast_lane_skips_relationship_edges_fetch():
+    from src.graph.npc_loop import _fetch_speak_enrichment
+
+    state = {
+        "room_id": "default",
+        "player_message": "你好",
+        "npc_id": "npc-1",
+        "player_id": "p1",
+        "speak_intent": "casual",
+    }
+    settings = Settings(game_server_url="http://127.0.0.1:2567")
+    client = MagicMock()
+
+    with patch("src.graph.npc_loop.fetch_runtime_relationship_edges") as edges:
+        with patch("src.graph.npc_loop.fetch_dual_rag_context") as dual:
+            dual.return_value = {"canon_context": ""}
+            out = _fetch_speak_enrichment(state, settings=settings, client=client, skip_dual_rag=True)
+
+    edges.assert_not_called()
+    dual.assert_not_called()
+    assert out["runtime_relationships"] == []
+    assert out["canon_context"] == ""
 
 
 def test_fetch_state_uses_stale_snapshot_after_timeout():
