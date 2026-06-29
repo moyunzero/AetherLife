@@ -45,7 +45,7 @@ async function main() {
     throw new Error("expected 3 npcs in room state");
   }
   const names = state.state.npcs.map((n) => n.name);
-  for (const expected of ["路昂", "费雪", "南宫婉"]) {
+  for (const expected of ["莫玄虚", "阿斯托利亚", "诸葛知危"]) {
     if (!names.includes(expected)) {
       throw new Error(`missing npc name ${expected}`);
     }

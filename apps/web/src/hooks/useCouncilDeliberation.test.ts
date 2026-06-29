@@ -101,6 +101,29 @@ describe("reduceDeliberationSync", () => {
     }, { speakBusy: false });
     expect(core.feedRows).toHaveLength(0);
     expect(core.phase).toBe("sealed");
+    expect(core.active).toBe(false);
+  });
+
+  it("clears active on sealed even when payload.active is true", () => {
+    const prev: DeliberationCoreState = {
+      ...IDLE,
+      active: true,
+      proposalTitle: "审议中",
+    };
+    const { core } = reduceDeliberationSync(prev, {
+      active: true,
+      voteKind: "regular",
+      phase: "sealed",
+      round: 2,
+      roundTotal: 2,
+      proposalTitle: "落槌提案",
+      clearFeed: true,
+      resultEntryId: "wh-vote-1",
+      status: "accepted",
+      yesCount: 7,
+      noCount: 4,
+    }, { speakBusy: false });
+    expect(core.active).toBe(false);
   });
 
   it("replaces linkedEdges at deliberation start", () => {

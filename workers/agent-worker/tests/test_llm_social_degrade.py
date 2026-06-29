@@ -67,7 +67,7 @@ def test_run_social_turn_llm_parse_fail_tries_next_provider_once(monkeypatch):
 def test_llm_social_turn_injects_move_without_tool_llm(monkeypatch):
     state: GraphState = {
         "room_id": "default",
-        "player_message": "费雪找你，去她旁边吧",
+        "player_message": "阿斯托利亚找你，去她旁边吧",
         "npc_id": "npc-1",
         "player_id": "p1",
         "room_snapshot": {
@@ -76,8 +76,8 @@ def test_llm_social_turn_injects_move_without_tool_llm(monkeypatch):
             "player": {"x": 3, "y": 3},
             "players": {"p1": {"x": 3, "y": 3}},
             "npcs": [
-                {"id": "npc-1", "name": "路昂", "x": 23, "y": 10},
-                {"id": "npc-2", "name": "费雪", "x": 9, "y": 21},
+                {"id": "npc-1", "name": "莫玄虚", "x": 23, "y": 10},
+                {"id": "npc-2", "name": "阿斯托利亚", "x": 9, "y": 21},
             ],
         },
         "allowed_tools": ["move", "wait", "speak", "interact", "transfer"],

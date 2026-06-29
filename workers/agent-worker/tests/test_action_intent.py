@@ -54,12 +54,12 @@ def test_resolve_npc_relative_move_cell_feixue_nearby():
         "height": 40,
         "player": {"x": 34, "y": 13},
         "npcs": [
-            {"id": "npc-1", "name": "路昂", "x": 23, "y": 10},
-            {"id": "npc-2", "name": "费雪", "x": 9, "y": 21},
+            {"id": "npc-1", "name": "莫玄虚", "x": 23, "y": 10},
+            {"id": "npc-2", "name": "阿斯托利亚", "x": 9, "y": 21},
         ],
     }
-    assert resolve_npc_relative_move_cell("去费雪附近", room) == (9, 21)
-    assert resolve_npc_snap_anchor_cell("去费雪附近", room) == (9, 21)
+    assert resolve_npc_relative_move_cell("去阿斯托利亚附近", room) == (9, 21)
+    assert resolve_npc_snap_anchor_cell("去阿斯托利亚附近", room) == (9, 21)
 
 
 def test_pronoun_resolves_npc_from_dialogue_context():
@@ -68,21 +68,21 @@ def test_pronoun_resolves_npc_from_dialogue_context():
         "height": 40,
         "player": {"x": 20, "y": 13},
         "npcs": [
-            {"id": "npc-1", "name": "路昂", "x": 23, "y": 10},
-            {"id": "npc-2", "name": "费雪", "x": 9, "y": 21},
+            {"id": "npc-1", "name": "莫玄虚", "x": 23, "y": 10},
+            {"id": "npc-2", "name": "阿斯托利亚", "x": 9, "y": 21},
         ],
     }
     ctx = build_dialogue_context(
         "她找你，你需要去她旁边",
-        [{"role": "player", "text": "费雪找你"}],
+        [{"role": "player", "text": "阿斯托利亚找你"}],
     )
     assert resolve_npc_relative_move_cell("她找你，你需要去她旁边", room, ctx) == (9, 21)
     assert resolve_npc_snap_anchor_cell("她找你，你需要去她旁边", room, ctx) == (9, 21)
 
 
 def test_player_requests_move_typo_pangbai():
-    assert player_requests_move("费雪找你，去费雪旁白吧")
-    assert player_requests_physical_action("费雪找你，去费雪旁白吧")
+    assert player_requests_move("阿斯托利亚找你，去阿斯托利亚旁白吧")
+    assert player_requests_physical_action("阿斯托利亚找你，去阿斯托利亚旁白吧")
 
 
 def test_resolve_npc_relative_move_cell_feixue_below():
@@ -91,12 +91,12 @@ def test_resolve_npc_relative_move_cell_feixue_below():
         "height": 40,
         "player": {"x": 34, "y": 13},
         "npcs": [
-            {"id": "npc-1", "name": "路昂", "x": 23, "y": 10},
-            {"id": "npc-2", "name": "费雪", "x": 9, "y": 21},
+            {"id": "npc-1", "name": "莫玄虚", "x": 23, "y": 10},
+            {"id": "npc-2", "name": "阿斯托利亚", "x": 9, "y": 21},
         ],
     }
-    assert resolve_npc_relative_move_cell("费雪找你，去她下方好吗？", room) == (9, 22)
-    assert resolve_npc_relative_move_cell("去费雪下面", room) == (9, 22)
+    assert resolve_npc_relative_move_cell("阿斯托利亚找你，去她下方好吗？", room) == (9, 22)
+    assert resolve_npc_relative_move_cell("去阿斯托利亚下面", room) == (9, 22)
     assert resolve_npc_relative_move_cell("移动到我的下方", room) is None
 
 
@@ -106,13 +106,13 @@ def test_align_move_tool_overrides_llm_one_step_to_npc_relative():
         "height": 40,
         "player": {"x": 34, "y": 13},
         "npcs": [
-            {"id": "npc-1", "name": "路昂", "x": 23, "y": 10},
-            {"id": "npc-2", "name": "费雪", "x": 9, "y": 21},
+            {"id": "npc-1", "name": "莫玄虚", "x": 23, "y": 10},
+            {"id": "npc-2", "name": "阿斯托利亚", "x": 9, "y": 21},
         ],
     }
     calls = align_move_tool_to_intended_target(
         [{"name": "move", "args": {"type": "move", "x": 24, "y": 11}}],
-        player_message="费雪找你，去她下方好吗？",
+        player_message="阿斯托利亚找你，去她下方好吗？",
         room=room,
     )
     assert calls[0]["args"]["x"] == 9
@@ -125,13 +125,13 @@ def test_inject_npc_relative_fast_path_without_llm():
         "height": 40,
         "player": {"x": 34, "y": 13},
         "npcs": [
-            {"id": "npc-1", "name": "路昂", "x": 23, "y": 10},
-            {"id": "npc-2", "name": "费雪", "x": 9, "y": 21},
+            {"id": "npc-1", "name": "莫玄虚", "x": 23, "y": 10},
+            {"id": "npc-2", "name": "阿斯托利亚", "x": 9, "y": 21},
         ],
     }
     calls = inject_relative_move_tool(
         [],
-        player_message="费雪找你，去她下方好吗？",
+        player_message="阿斯托利亚找你，去她下方好吗？",
         room=room,
     )
     assert calls[0]["name"] == "move"
@@ -141,7 +141,7 @@ def test_inject_npc_relative_fast_path_without_llm():
 
 def test_resolve_explicit_move_cell():
     room = {"width": 40, "height": 40, "player": {"x": 4, "y": 5}}
-    assert resolve_explicit_move_cell("去费雪下面 (9,20)", room) == (9, 20)
+    assert resolve_explicit_move_cell("去阿斯托利亚下面 (9,20)", room) == (9, 20)
     assert resolve_explicit_move_cell("移动到 (6,6)", room) == (6, 6)
 
 
@@ -186,7 +186,7 @@ def test_build_tool_retry_message_includes_bounds_and_door():
 
 
 def test_relay_summon_phrases_from_uat():
-    """UAT: «费雪找你有事，来这边一趟» — NPC 口头答应但未移动 (ISSUE relay summon)."""
+    """UAT: «阿斯托利亚找你有事，来这边一趟» — NPC 口头答应但未移动 (ISSUE relay summon)."""
     from src.graph.speak_intent import classify_speak_intent, SpeakIntent
 
     room = {
@@ -194,19 +194,19 @@ def test_relay_summon_phrases_from_uat():
         "height": 40,
         "player": {"x": 34, "y": 13},
         "npcs": [
-            {"id": "npc-1", "name": "路昂", "x": 23, "y": 10},
-            {"id": "npc-2", "name": "费雪", "x": 9, "y": 21},
-            {"id": "npc-3", "name": "南宫婉", "x": 15, "y": 8},
+            {"id": "npc-1", "name": "莫玄虚", "x": 23, "y": 10},
+            {"id": "npc-2", "name": "阿斯托利亚", "x": 9, "y": 21},
+            {"id": "npc-3", "name": "诸葛知危", "x": 15, "y": 8},
         ],
     }
-    for msg in ("费雪找你有事，来这边一趟", "费雪找你有事，你来不"):
+    for msg in ("阿斯托利亚找你有事，来这边一趟", "阿斯托利亚找你有事，你来不"):
         assert player_requests_move(msg), msg
         assert classify_speak_intent(msg) == SpeakIntent.PHYSICAL, msg
         calls = inject_relative_move_tool([], player_message=msg, room=room)
         assert calls and calls[0]["name"] == "move", msg
         assert calls[0]["args"]["x"] == 34 and calls[0]["args"]["y"] == 13, msg
 
-    farm_relay = "南宫婉那边有农活需要人帮忙，你去不？"
+    farm_relay = "诸葛知危那边有农活需要人帮忙，你去不？"
     assert player_requests_move(farm_relay)
     assert classify_speak_intent(farm_relay) == SpeakIntent.PHYSICAL
     farm_calls = inject_relative_move_tool([], player_message=farm_relay, room=room)
@@ -214,26 +214,26 @@ def test_relay_summon_phrases_from_uat():
 
     relay_only = inject_relative_move_tool(
         [],
-        player_message="费雪找你有事，去她那边",
+        player_message="阿斯托利亚找你有事，去她那边",
         room=room,
     )
     assert relay_only[0]["args"]["x"] == 9 and relay_only[0]["args"]["y"] == 21
 
-    uat_msg = "你可以去南宫婉那边吗？他有事情找你"
+    uat_msg = "你可以去诸葛知危那边吗？他有事情找你"
     assert player_requests_move(uat_msg), uat_msg
     assert classify_speak_intent(uat_msg) == SpeakIntent.PHYSICAL, uat_msg
     nangong_calls = inject_relative_move_tool([], player_message=uat_msg, room=room)
     assert nangong_calls[0]["name"] == "move", uat_msg
     assert nangong_calls[0]["args"]["x"] == 15 and nangong_calls[0]["args"]["y"] == 8, uat_msg
 
-    feixue_relay = "你可以去路昂那边吗？他好像有事情找你"
+    feixue_relay = "你可以去莫玄虚那边吗？他好像有事情找你"
     assert player_requests_move(feixue_relay), feixue_relay
     assert classify_speak_intent(feixue_relay) == SpeakIntent.PHYSICAL, feixue_relay
     luang_calls = inject_relative_move_tool([], player_message=feixue_relay, room=room)
     assert luang_calls[0]["name"] == "move", feixue_relay
     assert luang_calls[0]["args"]["x"] == 23 and luang_calls[0]["args"]["y"] == 10, feixue_relay
 
-    feixue_uat_short = "路昂找你，麻烦您去一下"
+    feixue_uat_short = "莫玄虚找你，麻烦您去一下"
     assert player_requests_move(feixue_uat_short), feixue_uat_short
     assert classify_speak_intent(feixue_uat_short) == SpeakIntent.PHYSICAL, feixue_uat_short
     short_calls = inject_relative_move_tool([], player_message=feixue_uat_short, room=room)

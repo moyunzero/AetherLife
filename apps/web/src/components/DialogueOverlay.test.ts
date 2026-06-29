@@ -80,7 +80,7 @@ describe("DialogueOverlay streaming partial", () => {
             role: "npc",
             text: "我记得你说过密码的事。",
             npcId: "npc-1",
-            npcName: "路昂",
+            npcName: "莫玄虚",
             memoryQuote: "玩家说过暗号是晨曦",
           },
         ],

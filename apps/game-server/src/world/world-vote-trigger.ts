@@ -11,15 +11,20 @@ import {
   chronicleGameYearFromMinute,
   type CouncilDeliberationVoteKind,
 } from "@aetherlife/shared";
-import { addWorldVoteJob, clearWorldVotePending } from "../queue/world-vote.js";
+import { addWorldVoteJob, addWorldVoteContinuationJob, clearWorldVotePending, getPendingWorldVoteJobId } from "../queue/world-vote.js";
 import {
+  getActiveDeliberation,
   getRoomVoteState,
   markVoteEnqueued,
   recordCollectiveEvent,
   recordPlayerSpeak,
   recordVoteCompleted as persistVoteCompleted,
   tickRoomVoteClock,
+  clearActiveDeliberation,
+  isDeliberationContinuationDue,
+  hasActiveDeliberation,
 } from "./world-vote-state.js";
+import { capDebateRoundsMax, resolveInstantDebate } from "./world-vote-pacing.js";
 
 export { recordCollectiveEvent, recordPlayerSpeak };
 
@@ -33,6 +38,7 @@ export function recordVoteCompleted(
   },
 ): void {
   clearWorldVotePending(roomId, input.jobId);
+  clearActiveDeliberation(roomId);
   persistVoteCompleted(roomId, input);
 }
 
@@ -55,7 +61,8 @@ export type VoteTriggerReason =
   | "epoch_due"
   | "regular_due"
   | "collective_weight"
-  | "force";
+  | "force"
+  | "deliberation_in_progress";
 
 export type EvaluateVoteTriggerInput = {
   roomId: string;
@@ -186,12 +193,16 @@ export function evaluateVoteTrigger(
       shouldEnqueue: true,
       voteKind: "regular",
       reason: "force",
-      debateRoundsMax: 2,
+      debateRoundsMax: capDebateRoundsMax(2),
     };
   }
 
   if (input.npcSpeakInFlight) {
     return { ...base, reason: "speak_in_flight" };
+  }
+
+  if (hasActiveDeliberation(input.roomId)) {
+    return { ...base, reason: "deliberation_in_progress" };
   }
 
   if (!graceSatisfied(state)) {
@@ -211,7 +222,7 @@ export function evaluateVoteTrigger(
       shouldEnqueue: true,
       voteKind: "epoch",
       reason: epoch && regular ? "epoch_due" : "epoch_due",
-      debateRoundsMax: 3,
+      debateRoundsMax: capDebateRoundsMax(3),
     };
   }
 
@@ -224,11 +235,40 @@ export function evaluateVoteTrigger(
       shouldEnqueue: true,
       voteKind: "regular",
       reason,
-      debateRoundsMax: 2,
+      debateRoundsMax: capDebateRoundsMax(2),
     };
   }
 
   return { ...base, reason: "not_due" };
+}
+
+export async function maybeEnqueueDeliberationContinuation(input: {
+  roomId: string;
+  gameMinute: number;
+}): Promise<string | null> {
+  if (getPendingWorldVoteJobId(input.roomId)) {
+    return null;
+  }
+  if (!isDeliberationContinuationDue(input.roomId)) {
+    return null;
+  }
+  const deliberation = getActiveDeliberation(input.roomId);
+  if (!deliberation) {
+    return null;
+  }
+  const nextRound = deliberation.currentRound + 1;
+  if (nextRound > deliberation.debateRoundsMax) {
+    return null;
+  }
+  return addWorldVoteContinuationJob({
+    roomId: input.roomId,
+    resumeJobId: deliberation.jobId,
+    debateRound: nextRound,
+    gameMinute: input.gameMinute,
+    voteKind: deliberation.voteKind,
+    proposerIndex: deliberation.proposerIndex,
+    debateRoundsMax: deliberation.debateRoundsMax,
+  });
 }
 
 export async function maybeEnqueueWorldVote(input: {
@@ -238,6 +278,15 @@ export async function maybeEnqueueWorldVote(input: {
   npcSpeakInFlight: boolean;
 }): Promise<string | null> {
   tickRoomVoteClock(input.roomId);
+
+  const continuationId = await maybeEnqueueDeliberationContinuation({
+    roomId: input.roomId,
+    gameMinute: input.gameMinute,
+  });
+  if (continuationId) {
+    return continuationId;
+  }
+
   const result = evaluateVoteTrigger({
     roomId: input.roomId,
     gameMinute: input.gameMinute,
@@ -253,6 +302,7 @@ export async function maybeEnqueueWorldVote(input: {
     gameMinute: input.gameMinute,
     proposerIndex: result.proposerIndex,
     debateRoundsMax: result.debateRoundsMax,
+    instant: resolveInstantDebate(),
   });
 }
 
@@ -260,11 +310,29 @@ export async function forceEnqueueWorldVote(input: {
   roomId: string;
   gameMinute: number;
   voteKind?: CouncilDeliberationVoteKind;
+  debateRoundsMax?: number;
+  instant?: boolean;
 }): Promise<string | null> {
+  if (hasActiveDeliberation(input.roomId)) {
+    console.warn(
+      `[world-vote] force blocked: room=${input.roomId} paced deliberation in progress`,
+    );
+    return null;
+  }
+  const pending = getPendingWorldVoteJobId(input.roomId);
+  if (pending) {
+    console.warn(
+      `[world-vote] force blocked: room=${input.roomId} pending=${pending}`,
+    );
+    return null;
+  }
+
   const state = getRoomVoteState(input.roomId);
   const proposerIndex = nextProposerIndex(state);
   const voteKind = input.voteKind ?? "regular";
-  const debateRoundsMax = voteKind === "epoch" ? 3 : 2;
+  const debateRoundsMax = capDebateRoundsMax(
+    input.debateRoundsMax ?? (voteKind === "epoch" ? 3 : 2),
+  );
   markVoteEnqueued(input.roomId, proposerIndex);
   return addWorldVoteJob({
     roomId: input.roomId,
@@ -272,5 +340,6 @@ export async function forceEnqueueWorldVote(input: {
     gameMinute: input.gameMinute,
     proposerIndex,
     debateRoundsMax,
+    instant: input.instant ?? resolveInstantDebate(),
   });
 }

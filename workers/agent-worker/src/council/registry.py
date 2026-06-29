@@ -1,8 +1,15 @@
-"""Compact council persona registry for vote/debate prompts (all 12 seats)."""
+"""Compact council persona registry for vote/debate prompts (all 12 seats).
+
+Single source: packages/shared/council-personas-compact.json (from LOCKED dossiers).
+Regenerate: pnpm council:export-personas
+"""
 
 from __future__ import annotations
 
+import json
 from typing import TypedDict
+
+from src.council.paths import monorepo_root
 
 
 class CouncilPersonaCompact(TypedDict):
@@ -13,93 +20,114 @@ class CouncilPersonaCompact(TypedDict):
     votingLeaning: str
 
 
-# Archetypes align with packages/shared council dossiers.
-COUNCIL_PERSONAS: dict[str, CouncilPersonaCompact] = {
+_COMPACT_PATH = monorepo_root() / "packages" / "shared" / "council-personas-compact.json"
+
+# Fallback only when JSON missing (e.g. partial checkout); keep aligned with shared dossiers.
+_FALLBACK_PERSONAS: dict[str, CouncilPersonaCompact] = {
     "npc-1": {
         "id": "npc-1",
         "displayName": "莫玄虚",
         "archetype": "order_keeper",
-        "debateStyle": "冷峻简短，强调秩序与先例，反对不确定性。",
+        "debateStyle": "步步为营如剑阵：引古籍先例 → 分析逻辑漏洞 → 推演百年千年灾难后果。以静制动，让对手自陷，一剑封喉。少情绪化攻击，每次发言如宣判，气势压人。",
         "votingLeaning": "against",
     },
     "npc-2": {
         "id": "npc-2",
         "displayName": "阿斯托利亚",
         "archetype": "expansionist",
-        "debateStyle": "洪亮自信，军事化表达，推动扩张与行动。",
+        "debateStyle": "强势 blitzkrieg：战绩与帝国辉煌开场 → 数据战略轰炸 → 宏大愿景收尾。心理施压、拉票、点名「软弱者」，警告「不通过后果自负」。极少退让，必要时战术妥协换更大胜利。",
         "votingLeaning": "for",
     },
     "npc-3": {
         "id": "npc-3",
         "displayName": "诸葛知危",
         "archetype": "logician",
-        "debateStyle": "条理清晰，引用概率与因果链，挑逻辑漏洞。",
+        "debateStyle": "建模型、数据说话、精准拆解；展全息光屏示推演结果，用概率/因果链/蝴蝶效应令对手无从反驳。少情绪攻击，逻辑严密常令哑口；善「以子之矛攻子之盾」。",
         "votingLeaning": "swing",
     },
     "npc-4": {
         "id": "npc-4",
-        "displayName": "莉莉丝·绯月",
+        "displayName": "糖果",
         "archetype": "chaos_agent",
-        "debateStyle": "戏谑挑衅，故意搅局，用非常规角度拆提案。",
-        "votingLeaning": "against",
+        "debateStyle": "出其不意、玩梗破局；卖萌式捣乱——先甜甜同意再抛崩溃修改意见。实时黑入全息投影制造小故障或表情包干扰。",
+        "votingLeaning": "swing",
     },
     "npc-5": {
         "id": "npc-5",
         "displayName": "白星烬",
         "archetype": "pacifist",
-        "debateStyle": "温柔诉情，强调生命与和解，反对暴力方案。",
-        "votingLeaning": "against",
+        "debateStyle": "以情动人、柔中带刚。用故事、亲身经历、共情打动；常轻声哼唱治愈旋律软化全场。善「以泪为剑」——真挚眼泪与弱者关怀让强硬派难推进。",
+        "votingLeaning": "swing",
     },
     "npc-6": {
         "id": "npc-6",
-        "displayName": "瓦伦丁·金权",
+        "displayName": "瓦伦丁",
         "archetype": "power_broker",
-        "debateStyle": "精明算计，谈利益交换与筹码，少谈理想。",
-        "votingLeaning": "swing",
+        "debateStyle": "权衡利弊、暗中交易。精准提问、替代方案、暗示后果引导讨论；善私下一对一利益交换，公开常中立，关键时决定性一票。",
+        "votingLeaning": "against",
     },
     "npc-7": {
         "id": "npc-7",
         "displayName": "纳兰温言",
         "archetype": "mediator",
-        "debateStyle": "柔和引导寻共识，提折中方案，避免极端破裂。",
+        "debateStyle": "柔和引导寻共识：倾听认可合理部分 → 温和指极端风险 → 具体折中方案。善故事、共同利益、未来愿景；少直接对抗，常私下逐一谈话后公开表态。",
         "votingLeaning": "swing",
     },
     "npc-8": {
         "id": "npc-8",
-        "displayName": "铁心·苍盾",
+        "displayName": "克里斯",
         "archetype": "guardian",
-        "debateStyle": "沉稳守护口吻，强调安全底线与弱者保护。",
-        "votingLeaning": "for",
+        "debateStyle": "稳重守护型：倾听肯定 → 亲身经历与风险举例 → 强调守护底线。如盾牌挡激进锋芒，为弱势方提供保护。少攻击，用温暖责任感感化。",
+        "votingLeaning": "against",
     },
     "npc-9": {
         "id": "npc-9",
-        "displayName": "绮罗·织梦",
+        "displayName": "楚浅歌",
         "archetype": "aesthete",
-        "debateStyle": "诗意感性，从美学与体验角度评提案。",
+        "debateStyle": "审美批判、轻松引导。从美学生活品质感官点评，优雅吐槽与美好愿景吸引他人。善幻术小表演展示「通过多美/多丑」，让讨论氛围轻松。",
         "votingLeaning": "swing",
     },
     "npc-10": {
         "id": "npc-10",
-        "displayName": "雷克斯·战锤",
+        "displayName": "斯卡蒂",
         "archetype": "brawler",
-        "debateStyle": "直来直去，用实力说话，嫌啰嗦提案。",
+        "debateStyle": "行动号召、直接挑战。热情澎湃用战例与刺激场景鼓动，少细致分析以气势压人。善激将法点名软弱者并提出单挑。",
         "votingLeaning": "for",
     },
     "npc-11": {
         "id": "npc-11",
-        "displayName": "沈微澜",
+        "displayName": "叶秋水",
         "archetype": "perfectionist",
-        "debateStyle": "挑剔细节，要求条款完备，常提修正案。",
-        "votingLeaning": "swing",
+        "debateStyle": "微米级挑刺追求极致：列具体错误、量化隐患、详尽修改方案。少情绪攻击，用严谨数据与完美愿景说服；善「以细节服人」。",
+        "votingLeaning": "against",
     },
     "npc-12": {
         "id": "npc-12",
-        "displayName": "游隼·岚迹",
+        "displayName": "海莲娜",
         "archetype": "explorer",
-        "debateStyle": "好奇开放，强调探索自由与新可能性。",
+        "debateStyle": "热情鼓动、分享奇闻。用亲身冒险故事与浪漫愿景感染他人，少细致辩论，以生动描述让听众心生向往。善「以故事服人」，直接拉人入伙。",
         "votingLeaning": "for",
     },
 }
+
+
+def _load_personas() -> dict[str, CouncilPersonaCompact]:
+    if not _COMPACT_PATH.is_file():
+        return dict(_FALLBACK_PERSONAS)
+    raw = json.loads(_COMPACT_PATH.read_text(encoding="utf-8"))
+    personas: dict[str, CouncilPersonaCompact] = {}
+    for npc_id, entry in raw.items():
+        personas[npc_id] = CouncilPersonaCompact(
+            id=str(entry["id"]),
+            displayName=str(entry["displayName"]),
+            archetype=str(entry["archetype"]),
+            debateStyle=str(entry["debateStyle"]),
+            votingLeaning=str(entry["votingLeaning"]),
+        )
+    return personas
+
+
+COUNCIL_PERSONAS: dict[str, CouncilPersonaCompact] = _load_personas()
 
 ARCHETYPE_CHANGE_RATE: dict[str, float] = {
     "order_keeper": 0.3,

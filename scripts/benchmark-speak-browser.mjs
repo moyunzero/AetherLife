@@ -76,7 +76,7 @@ const CASES = [
   {
     id: "B3",
     label: "物理快路径",
-    message: "去费雪旁边",
+    message: "去阿斯托利亚旁边",
     expectMove: true,
     expectIntent: "physical",
     profileTag: "move",

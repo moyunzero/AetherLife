@@ -63,13 +63,14 @@ describe("WorldHistoryMinutesModal vote", () => {
       minutes: {
         kind: "vote_minutes",
         proposalFull: "提议扩建农田。",
-        ballots: Array.from({ length: 12 }, (_, i) => ({
-          npcId: `npc-${i + 1}`,
-          displayName: `议员${i + 1}`,
-          vote: (i < 8 ? "yes" : "no") as "yes" | "no",
-          reasonZh: `理由${i + 1}`,
+        ballots: Array.from({ length: 11 }, (_, i) => ({
+          npcId: `npc-${i + 2}`,
+          displayName: `议员${i + 2}`,
+          vote: (i < 6 ? "yes" : "no") as "yes" | "no",
+          reasonZh: `理由${i + 2}`,
         })),
       },
+      proposerDisplayName: "莫玄虚",
     };
     const html = renderToStaticMarkup(
       createElement(WorldHistoryMinutesModal, {
@@ -78,10 +79,48 @@ describe("WorldHistoryMinutesModal vote", () => {
       }),
     );
     expect(html).toContain("廷议实录");
+    expect(html).toContain("提案人：莫玄虚（不计票）");
     expect(html).not.toContain("太乙志 · 史前纪");
     const ballotCards = html.match(/data-testid="world-history-ballot-card"/g);
-    expect(ballotCards).toHaveLength(12);
+    expect(ballotCards).toHaveLength(11);
     expect(html).toContain("赞成");
     expect(html).toContain("反对");
+  });
+
+  it("shows debate excerpts when present", () => {
+    const entry: WorldHistoryPublicEntry = {
+      ...genesisEntry(),
+      entryKind: "vote",
+      minutes: {
+        kind: "vote_minutes",
+        proposalFull: "提议扩建农田。",
+        ballots: Array.from({ length: 11 }, (_, i) => ({
+          npcId: `npc-${i + 2}`,
+          displayName: `议员${i + 2}`,
+          vote: (i < 6 ? "yes" : "no") as "yes" | "no",
+          reasonZh: `理由${i + 2}`,
+        })),
+        debateExcerpts: [
+          {
+            round: 1,
+            npcId: "npc-2",
+            displayName: "阿斯托利亚",
+            fullText: "完整辩论发言内容。",
+            feedQuote: "高光一句",
+          },
+        ],
+      },
+      proposerDisplayName: "莫玄虚",
+    };
+    const html = renderToStaticMarkup(
+      createElement(WorldHistoryMinutesModal, {
+        entry,
+        onClose: () => {},
+      }),
+    );
+    expect(html).toContain('data-testid="world-history-minutes-debate-excerpts"');
+    expect(html).toContain("辩论摘录");
+    expect(html).toContain("完整辩论发言内容。");
+    expect(html).toContain("现场高光：高光一句");
   });
 });

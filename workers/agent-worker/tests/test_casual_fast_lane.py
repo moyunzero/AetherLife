@@ -22,7 +22,7 @@ def test_run_casual_fast_lane_returns_reply():
     fake_response.json.return_value = {
         "state": {
             "roomId": "default",
-            "npcs": [{"id": "npc-1", "name": "路昂", "x": 1, "y": 2}],
+            "npcs": [{"id": "npc-1", "name": "莫玄虚", "x": 1, "y": 2}],
             "objects": [],
         },
     }
@@ -47,7 +47,7 @@ def test_run_casual_fast_lane_returns_reply():
 
     assert out["speak_intent"] == "casual"
     assert out["reply"] == preview.reply
-    assert out["room_snapshot"]["npcs"][0]["name"] == "路昂"
+    assert out["room_snapshot"]["npcs"][0]["name"] == "莫玄虚"
     assert out["memory_count"] == 0
 
 

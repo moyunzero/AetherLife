@@ -1,4 +1,30 @@
 import type { CouncilDeliberationVoteKind } from "@aetherlife/shared";
+import { nextRoundAtGameMinute } from "./world-vote-pacing.js";
+
+export type ActiveDeliberationPhase =
+  | "proposal"
+  | "debate"
+  | "vote"
+  | "sealed";
+
+export type ActiveDeliberation = {
+  jobId: string;
+  voteKind: CouncilDeliberationVoteKind;
+  proposerIndex: number;
+  proposalTitle: string;
+  proposalBody: string;
+  currentRound: number;
+  debateRoundsMax: number;
+  nextRoundAtGameMinute: number | null;
+  phase: ActiveDeliberationPhase;
+  /** Debate lines accumulated across paced round jobs. */
+  transcript: Array<{
+    npcId: string;
+    displayName?: string;
+    text: string;
+    round: number;
+  }>;
+};
 
 export type RoomVoteState = {
   /** Monotonic ambient tick counter (1 tick = 1 game-minute step). */
@@ -12,6 +38,8 @@ export type RoomVoteState = {
   graceStartedAbsoluteMinute: number;
   /** After offline catch-up enqueue, suppress stacking until vote completes. */
   catchUpConsumed: boolean;
+  /** Paced deliberation checkpoint (instant mode leaves null). */
+  activeDeliberation: ActiveDeliberation | null;
 };
 
 const byRoom = new Map<string, RoomVoteState>();
@@ -27,6 +55,7 @@ function createInitialState(): RoomVoteState {
     hasPlayerSpeak: false,
     graceStartedAbsoluteMinute: 0,
     catchUpConsumed: false,
+    activeDeliberation: null,
   };
 }
 
@@ -79,4 +108,46 @@ export function recordVoteCompleted(
 
 export function clearRoomVoteStateForTests(): void {
   byRoom.clear();
+}
+
+export function setActiveDeliberation(
+  roomId: string,
+  deliberation: ActiveDeliberation | null,
+): void {
+  getRoomVoteState(roomId).activeDeliberation = deliberation;
+}
+
+export function getActiveDeliberation(roomId: string): ActiveDeliberation | null {
+  return getRoomVoteState(roomId).activeDeliberation;
+}
+
+export function clearActiveDeliberation(roomId: string): void {
+  getRoomVoteState(roomId).activeDeliberation = null;
+}
+
+export function hasActiveDeliberation(roomId: string): boolean {
+  return getActiveDeliberation(roomId) !== null;
+}
+
+/** True when paced deliberation is waiting for the next game-day slice. */
+export function isDeliberationContinuationDue(roomId: string): boolean {
+  const deliberation = getActiveDeliberation(roomId);
+  if (!deliberation || deliberation.nextRoundAtGameMinute === null) {
+    return false;
+  }
+  const state = getRoomVoteState(roomId);
+  return state.absoluteGameMinute >= deliberation.nextRoundAtGameMinute;
+}
+
+export function applyDeliberationCheckpoint(
+  roomId: string,
+  input: Omit<ActiveDeliberation, "nextRoundAtGameMinute">,
+): ActiveDeliberation {
+  const state = getRoomVoteState(roomId);
+  const deliberation: ActiveDeliberation = {
+    ...input,
+    nextRoundAtGameMinute: nextRoundAtGameMinute(state.absoluteGameMinute),
+  };
+  setActiveDeliberation(roomId, deliberation);
+  return deliberation;
 }

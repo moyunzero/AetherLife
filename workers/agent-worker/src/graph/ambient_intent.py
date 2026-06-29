@@ -15,15 +15,27 @@ from src.http_json import create_http_client
 from src.graph.lore_loop import _extract_json_object, _invoke_lore_llm, _lore_provider_attempts
 from src.llm.errors import is_rate_limit_error, is_retryable_llm_error, should_try_lore_provider_fallback
 
+from src.council.paths import monorepo_root
+
 JOIN_VICINITY_DAILY_CAP = 2
 _join_vicinity_counts: dict[str, dict[str, int]] = {}
 
-# Must match packages/shared/src/npcDisplayNames.ts (MAIN_NPC_DISPLAY_NAMES).
-NPC_DISPLAY_NAMES = {
-    "npc-1": "莫玄虚",
-    "npc-2": "阿斯托利亚",
-    "npc-3": "诸葛知危",
-}
+
+def _load_npc_display_names() -> dict[str, str]:
+    """Fallback names when GameRoom payload omits npcName — sync with council-personas-compact.json."""
+    path = monorepo_root() / "packages" / "shared" / "council-personas-compact.json"
+    if path.is_file():
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        return {npc_id: str(entry["displayName"]) for npc_id, entry in raw.items()}
+    return {
+        "npc-1": "莫玄虚",
+        "npc-2": "阿斯托利亚",
+        "npc-3": "诸葛知危",
+    }
+
+
+# Must stay aligned with packages/shared council-personas-compact.json (pnpm council:export-personas).
+NPC_DISPLAY_NAMES = _load_npc_display_names()
 
 
 def _game_headers(settings: Settings) -> dict[str, str]:

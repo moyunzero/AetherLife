@@ -4,6 +4,7 @@ import httpx
 import pytest
 
 from src.graph.ambient_intent import (
+    NPC_DISPLAY_NAMES,
     clear_join_vicinity_counts_for_tests,
     generate_ambient_intent,
     post_ambient_intent,
@@ -11,6 +12,7 @@ from src.graph.ambient_intent import (
     _fallback_intent,
     _normalize_intent,
 )
+from src.council.constants import COUNCIL_NPC_IDS
 from src.config import Settings
 
 
@@ -93,9 +95,15 @@ def test_generate_mock_intent():
     assert intent["untilGameMinute"] == 720
 
 
+def test_npc_display_names_cover_all_council_seats():
+    assert set(NPC_DISPLAY_NAMES.keys()) == set(COUNCIL_NPC_IDS)
+    assert NPC_DISPLAY_NAMES["npc-1"] == "莫玄虚"
+    assert NPC_DISPLAY_NAMES["npc-4"] == "糖果"
+
+
 def test_generate_uses_payload_npc_name_over_stale_dict():
     settings = Settings(llm_mock=True)
-    payload = _payload(npcName="路昂")
+    payload = _payload(npcName="莫玄虚")
     intent = generate_ambient_intent(payload, settings)
     assert intent["zoneId"] == "home-yard"
 

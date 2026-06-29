@@ -20,16 +20,20 @@ import { clearWorldHistoryMemory } from "./world/world-history-repository.js";
 import { clearGenesisSeedCache } from "./world/world-history-seed.js";
 import * as worldHistoryBroadcast from "./world/world-history-broadcast.js";
 
+function voteBallotsEleven(yesCount = 6) {
+  return Array.from({ length: 11 }, (_, i) => ({
+    npcId: `npc-${i + 2}`,
+    displayName: `Seat ${i + 2}`,
+    vote: i < yesCount ? ("yes" as const) : ("no" as const),
+    reasonZh: "r",
+  }));
+}
+
 function voteMinutes(proposalFull: string, yesCount: number) {
   return {
     kind: "vote_minutes" as const,
     proposalFull,
-    ballots: Array.from({ length: 12 }, (_, i) => ({
-      npcId: `npc-${i + 1}`,
-      displayName: `Seat ${i + 1}`,
-      vote: i < yesCount ? ("yes" as const) : ("no" as const),
-      reasonZh: "r",
-    })),
+    ballots: voteBallotsEleven(yesCount),
   };
 }
 

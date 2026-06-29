@@ -16,6 +16,9 @@ export const COUNCIL_NPC_IDS = [
   "npc-12",
 ] as const;
 
+/** Non-proposer seats that cast ballots (12 seats − 1 proposer). */
+export const COUNCIL_VOTE_BALLOT_COUNT = 11;
+
 export type CouncilNpcId = (typeof COUNCIL_NPC_IDS)[number];
 
 /** Council-scoped memory player id — isolated from player speak memories (D-MEM-01). */

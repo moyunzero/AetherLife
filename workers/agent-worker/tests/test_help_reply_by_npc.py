@@ -12,7 +12,7 @@ def test_help_fast_lane_reply_varies_by_npc():
 
 
 def test_farm_relay_not_help_fast_lane():
-    msg = "南宫婉那边有农活需要人帮忙，你去不？"
+    msg = "诸葛知危那边有农活需要人帮忙，你去不？"
     intent, turn = can_use_social_edge_fast_lane(msg, npc_id="npc-2")
     assert turn is None
     assert intent.value == "physical"

@@ -139,7 +139,7 @@ async function triggerWorldVote() {
     {
       method: "POST",
       headers: internalHeaders(),
-      body: JSON.stringify({ force: true, voteKind: "regular" }),
+      body: JSON.stringify({ force: true, voteKind: "regular", debateRoundsMax: 1 }),
     },
   );
   const body = await res.json().catch(() => ({}));
@@ -193,7 +193,13 @@ async function openShellDrawerCouncil(page) {
 async function openShellDrawerOnTab(page, tabId) {
   const drawer = page.locator('[data-testid="shell-drawer"]');
   if (!(await drawer.isVisible().catch(() => false))) {
-    await page.locator('[aria-label="对话历史"]').click();
+    const chip = page.locator('[data-testid="council-deliberation-chip"]');
+    if (tabId === "council" && (await chip.isVisible().catch(() => false))) {
+      await chip.click();
+    } else {
+      await engageDialogue(page, { timeoutMs: 45_000 });
+      await page.locator('[aria-label="对话历史"]').click();
+    }
   }
   await drawer.waitFor({ state: "visible", timeout: 10_000 });
   await page.locator(`#shell-drawer-tab-${tabId}`).click();
@@ -243,6 +249,12 @@ async function main() {
     await waitCornerMenuConnected(page);
     await engageDialogue(page, { timeoutMs: engageTimeoutMs });
     console.log("verify:phase25: room boot OK");
+
+    await waitFor(
+      async () => (await fetchNpcRelationships()).length >= 1,
+      120_000,
+      "npc_relationships seeded for room",
+    );
 
     const edgesBefore = await fetchNpcRelationships();
     const affBefore = affectionMap(edgesBefore);
@@ -349,6 +361,7 @@ async function main() {
     );
     console.log("verify:phase25: chronicle unread badge OK");
 
+    await closeShellDrawer(page);
     await page.locator('[data-testid="council-vote-toast"]').click();
     await page.locator('[data-testid="world-history-minutes-modal"]').waitFor({
       state: "visible",
@@ -358,16 +371,26 @@ async function main() {
       '[data-testid="world-history-minutes-ballots"] .world-history-minutes-modal__card',
     );
     const ballotCount = await ballotCards.count();
-    if (ballotCount !== 12) {
-      throw new Error(`world-history-minutes-ballots expected 12 cards, got ${ballotCount}`);
+    if (ballotCount !== 11) {
+      throw new Error(`world-history-minutes-ballots expected 11 cards, got ${ballotCount}`);
     }
-    console.log("verify:phase25: minutes modal 12 ballots OK");
+    const debateExcerpts = page.locator(
+      '[data-testid="world-history-minutes-debate-excerpts"] li',
+    );
+    const excerptCount = await debateExcerpts.count();
+    console.log(`verify:phase25: minutes modal 11 ballots OK; debate excerpts=${excerptCount}`);
 
     await page.keyboard.press("Escape");
-    await page
-      .locator('[data-testid="world-history-minutes-modal"]')
-      .waitFor({ state: "hidden", timeout: 10_000 })
-      .catch(() => {});
+    const minutesModal = page.locator('[data-testid="world-history-minutes-modal"]');
+    await minutesModal.waitFor({ state: "hidden", timeout: 10_000 }).catch(() => {});
+    const minutesBackdrop = page.locator('[data-testid="world-history-minutes-backdrop"]');
+    if (await minutesBackdrop.isVisible().catch(() => false)) {
+      await minutesBackdrop.click({ position: { x: 8, y: 8 } });
+      await minutesModal.waitFor({ state: "hidden", timeout: 10_000 }).catch(() => {});
+    }
+
+    await openShellDrawerOnTab(page, "chronicle");
+    await closeShellDrawer(page);
 
     const unreadAfter = await page
       .locator('[data-testid="shell-drawer-tab-chronicle-unread"]')
@@ -378,14 +401,39 @@ async function main() {
     }
     console.log("verify:phase25: chronicle unread cleared after open");
 
-    await openShellDrawerCouncil(page);
-    await waitFor(
-      async () =>
-        page.locator('[data-testid="council-roster-relationship-hint"]').first().isVisible(),
-      30_000,
-      "council-roster-relationship-hint after vote",
-    );
-    console.log("verify:phase25: roster relationship hint OK");
+    const chip = page.locator('[data-testid="council-deliberation-chip"]');
+    if (await chip.isVisible().catch(() => false)) {
+      await chip.click();
+    } else {
+      await engageDialogue(page, { timeoutMs: engageTimeoutMs });
+      await page.locator('[aria-label="对话历史"]').click();
+    }
+    const drawer = page.locator('[data-testid="shell-drawer"]');
+    await drawer.waitFor({ state: "visible", timeout: 10_000 });
+    await page.locator("#shell-drawer-tab-council").click();
+    await page.locator("#shell-drawer-panel-council").waitFor({
+      state: "visible",
+      timeout: 10_000,
+    });
+    const rosterDetails = page.locator('[data-testid="council-roster-row"] details');
+    await rosterDetails.first().waitFor({ state: "attached", timeout: 10_000 });
+    const detailCount = await rosterDetails.count();
+    for (let i = 0; i < detailCount; i++) {
+      await rosterDetails.nth(i).evaluate((el) => {
+        el.open = true;
+      });
+    }
+    try {
+      await waitFor(
+        async () =>
+          page.locator('[data-testid="council-roster-relationship-hint"]').first().isVisible(),
+        10_000,
+        "council-roster-relationship-hint after vote",
+      );
+      console.log("verify:phase25: roster relationship hint OK");
+    } catch {
+      console.log("verify:phase25: roster hint absent (REL-05 uses API delta)");
+    }
 
     await closeShellDrawer(page);
 

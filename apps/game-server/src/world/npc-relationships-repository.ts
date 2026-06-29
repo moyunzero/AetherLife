@@ -419,10 +419,10 @@ async function applyDeltasSql(
         affection = ${row.affection},
         trust = ${row.trust},
         interaction_count = ${row.interactionCount},
-        last_interact_at = ${row.lastInteractAt},
+        last_interact_at = ${row.lastInteractAt ? row.lastInteractAt.toISOString() : null},
         current_status = ${JSON.stringify(row.currentStatus)}::jsonb,
         history_summary = ${row.historySummary},
-        updated_at = ${row.updatedAt}
+        updated_at = ${row.updatedAt.toISOString()}
       WHERE room_id = ${input.roomId}
         AND npc_a_id = ${normalized.npcAId}
         AND npc_b_id = ${normalized.npcBId}

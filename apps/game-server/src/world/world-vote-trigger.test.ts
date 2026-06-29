@@ -1,8 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { clearMockWorldVoteJobs, closeWorldVoteQueue } from "../queue/world-vote.js";
-import { clearRoomVoteStateForTests, recordPlayerSpeak, tickRoomVoteClock } from "./world-vote-state.js";
+import { clearMockWorldVoteJobs, closeWorldVoteQueue, getMockWorldVoteJob } from "../queue/world-vote.js";
+import {
+  applyDeliberationCheckpoint,
+  clearRoomVoteStateForTests,
+  recordPlayerSpeak,
+  tickRoomVoteClock,
+} from "./world-vote-state.js";
 import {
   evaluateVoteTrigger,
+  forceEnqueueWorldVote,
+  maybeEnqueueDeliberationContinuation,
   maybeEnqueueWorldVote,
   recordCollectiveEvent,
   recordVoteCompleted,
@@ -195,5 +202,76 @@ describe("world-vote-trigger", () => {
       npcSpeakInFlight: false,
     });
     expect(secondId).toBe(firstId);
+  });
+
+  it("forceEnqueueWorldVote blocks when a vote job is already pending", async () => {
+    const first = await forceEnqueueWorldVote({
+      roomId: ROOM,
+      gameMinute: 480,
+      voteKind: "regular",
+      debateRoundsMax: 1,
+    });
+    expect(first).toBeTruthy();
+
+    const second = await forceEnqueueWorldVote({
+      roomId: ROOM,
+      gameMinute: 482,
+      voteKind: "regular",
+      debateRoundsMax: 1,
+    });
+    expect(second).toBeNull();
+  });
+
+  it("blocks new vote trigger while paced deliberation checkpoint active", () => {
+    recordPlayerSpeak(ROOM);
+    process.env.VOTE_TEST_INTERVAL_MIN = "1";
+    for (let i = 0; i < GAME_DAY + 1; i++) {
+      tickRoomVoteClock(ROOM);
+    }
+    applyDeliberationCheckpoint(ROOM, {
+      jobId: "vote-room-regular-480",
+      voteKind: "regular",
+      proposerIndex: 0,
+      proposalTitle: "测试",
+      proposalBody: "正文",
+      currentRound: 1,
+      debateRoundsMax: 2,
+      phase: "debate",
+      transcript: [],
+    });
+    const result = evaluateVoteTrigger({
+      roomId: ROOM,
+      gameMinute: 480,
+      nowMs: Date.now(),
+      npcSpeakInFlight: false,
+    });
+    expect(result.shouldEnqueue).toBe(false);
+    expect(result.reason).toBe("deliberation_in_progress");
+  });
+
+  it("maybeEnqueueDeliberationContinuation enqueues slice when game-day due", async () => {
+    tickRoomVoteClock(ROOM);
+    applyDeliberationCheckpoint(ROOM, {
+      jobId: "vote-room-regular-480",
+      voteKind: "regular",
+      proposerIndex: 0,
+      proposalTitle: "测试",
+      proposalBody: "正文",
+      currentRound: 1,
+      debateRoundsMax: 2,
+      phase: "debate",
+      transcript: [],
+    });
+    for (let i = 0; i < 1440; i++) {
+      tickRoomVoteClock(ROOM);
+    }
+    const jobId = await maybeEnqueueDeliberationContinuation({
+      roomId: ROOM,
+      gameMinute: 500,
+    });
+    expect(jobId).toBe("vote-room-regular-480-r2");
+    const job = getMockWorldVoteJob(jobId!);
+    expect(job?.instant).toBe(false);
+    expect(job?.resumeJobId).toBe("vote-room-regular-480");
   });
 });

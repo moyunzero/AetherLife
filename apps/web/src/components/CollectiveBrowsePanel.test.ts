@@ -27,7 +27,7 @@ describe("CollectiveBrowsePanel", () => {
   it("renders events list with testids", () => {
     const html = renderToStaticMarkup(
       createElement(CollectiveBrowsePanel, {
-        activeNpcName: "路昂",
+        activeNpcName: "莫玄虚",
         snapshot,
         loading: false,
       }),
@@ -35,7 +35,7 @@ describe("CollectiveBrowsePanel", () => {
     expect(html).toContain('data-testid="collective-browse-panel"');
     expect(html).toContain('data-testid="collective-recent-events"');
     expect(html).toContain('data-testid="collective-event-0"');
-    expect(html).toContain("路昂 · 小镇见闻");
+    expect(html).toContain("莫玄虚 · 小镇见闻");
     expect(html).toContain("冒犯");
     expect(html).not.toContain("effectiveScore");
   });
@@ -43,7 +43,7 @@ describe("CollectiveBrowsePanel", () => {
   it("shows empty copy when no events", () => {
     const html = renderToStaticMarkup(
       createElement(CollectiveBrowsePanel, {
-        activeNpcName: "路昂",
+        activeNpcName: "莫玄虚",
         snapshot: { ...snapshot, recentEvents: [] },
       }),
     );

@@ -153,17 +153,28 @@
 73. **internal memory 身份须解析 body.playerId**：`playerIdFromRequest(req, body)` 对 object body 须读 `body.playerId` 再 `resolvePlayerId`；**禁止**把整个 JSON body 当 string 传入（worker POST 无 `X-Player-Id` 时会全落 `__legacy__`，`verify:phase3` memoryCount=0）。worker `memory/client.py` 写路径应同时发 `X-Player-Id`；write 后 `invalidateMemoryContextForPlayer`。回归：`index.test.ts`「worker path body playerId」+ `pnpm verify:phase3` + `pnpm agent:verify --e2e --base`。
 74. **并行 speak 须 per-NPC job 路由**：服务端 `npcSpeakJobs` 按 NPC 互斥、不同 NPC 可并行（C-02）；客户端 `useNpcChat` **禁止** 单槽 `pendingJobIdRef` / 全局 `thinkingNpcId` 覆盖并行 job。`onSpeakAck` / `onDone` / `onError` / `speakPartial` 经 `NpcJobRegistry`（`byNpc` + `byJob`）按 `jobId → npcId` 入库，与 **active tab 无关**。`composerBusyForActiveNpc` 仅锁当前 Tab NPC（方案 A，Guardrail #54）。Phaser 铭牌/thinking 用 `thinkingNpcIds` 数组。回归：`useNpcChat.test.ts`（registry + `isNpcSpeakInFlight`）；人工：A 思考中切 B 对话 → 两边 `done` 均出现在各自 Tab 消息列表。
 75. **relay 移动意图须覆盖「去 X 那边 / 有事情找」**：`player_requests_move` 的 `MOVE_PATTERNS` 须含 `那边|那里|那儿` 与 `有事情找|事情找`；否则 `classify_speak_intent` → NARRATIVE → `llm_social_turn` 只口播、`tool_calls=[]`（ISSUE-051）。改 `action_intent.py` 须 `test_action_intent.py::test_relay_summon_phrases_from_uat` + 含目标 NPC 名的 inject 用例。
-76. **apply_tools 物理兜底 inject**：`social_edge_fast_lane` / 非 physical 分支若 `tool_calls=[]` 但 `player_requests_physical_action`，`apply_tools` 仍须 `inject_relative_move_tool`；`main.py` 在 physical 时禁止走 social fast lane。回归：`test_tool_gate.py::test_apply_tools_injects_move_when_physical_and_tool_calls_empty` + 费雪 relay 句 inject 用例（ISSUE-052）。
+76. **apply_tools 物理兜底 inject**：`social_edge_fast_lane` / 非 physical 分支若 `tool_calls=[]` 但 `player_requests_physical_action`，`apply_tools` 仍须 `inject_relative_move_tool`；`main.py` 在 physical 时禁止走 social fast lane。回归：`test_tool_gate.py::test_apply_tools_injects_move_when_physical_and_tool_calls_empty` + 阿斯托利亚 relay 句 inject 用例（ISSUE-052）。
 77. **RECALL overlay 禁止 LLM 流式草稿抢先**：RECALL 问句 `run_social_turn_llm` 禁用 stream partial；`compose_reply` merge 后仅 `partial_emit` 最终 merged reply 一次（ISSUE-053）。回归：`test_social_stream_extract.py` · `test_tool_gate.py::test_compose_reply_recall_emits_merged_partial_for_overlay`。
 78. **apply-actions 后须刷新 worker hot snapshot**：`apply_tools` 成功路径在 `safe_response_json` 后须 `_remember_worker_snapshot(room_id, player_id, updated_snapshot)`；否则 3s 内 `fetch_state` 热缓存仍用 apply 前坐标（ISSUE-054）。回归：`test_fetch_state_and_memory.py::test_apply_tools_refreshes_hot_snapshot_cache`。
 79. **密码 recall topic 硬过滤**：问「电脑密码」时不得用「门锁/门禁密码」行格式化；`_password_topic` + `_password_topic_score` 对 mismatch 返回 `-1`，`_pick_password_memory` 在 computer/door topic 无匹配行时 return None（ISSUE-054）。回归：`test_recall_merge.py::test_pick_recall_computer_password_rejects_door_lock_only` · `pnpm verify:phase20`。
 80. **叙事问句勿误判 PHYSICAL**：standalone `那边|那里|那儿` 会误伤「那里有什么历史？」；`MOVE_PATTERNS` / `speakIntent.ts` 须用 contextual regex（去/到/往…那边、可以去…那边、那边…你去），relay UAT 句仍须 PHYSICAL。回归：`test_speak_intent.py` · `packages/shared/src/speakIntent.test.ts` · `test_action_intent.py::test_relay_summon_phrases_from_uat`。
 81. **worker httpx 须 `trust_env=False`**：访问 `127.0.0.1:2567` 一律 `create_http_client()`；macOS 系统 HTTP 代理会导致 emit/append **502**（ISSUE-055）。回归：`tests/test_http_json.py::test_create_http_client_disables_trust_env`。
 82. **player 记忆须在 emit `done` 前落库**：`process_job` 在 `done` 前 sync `append_player_memory`（`DEFAULT_IMPORTANCE`）；`persist_turn_memory` 见 `_player_line_persisted` 跳过重复写；tail 仍跑 importance/NPC 行（ISSUE-055）。回归：`pnpm verify:phase21` · `pnpm verify:phase20`。
-83. **Ambient NPC 显示名单一来源**：`npcDisplayNames.ts` / `createDefaultRoom` 为权威；`ambient_intent` prompt 用 `payload.npcName`（GameRoom 注入），禁止 worker 硬编码与 room 不一致的中文名（ISSUE-056）。回归：`test_ambient_intent.py`。
+83. **Ambient NPC 显示名单一来源**：`getPersona` / `mainNpcDisplayName` / `createDefaultRoom` 为 TS 权威；worker ambient fallback 读 `council-personas-compact.json`（`pnpm council:export-personas`）；prompt 优先 `payload.npcName`（GameRoom 注入）。禁止 worker 手写与 dossier 不一致的中文名（ISSUE-056）。回归：`test_ambient_intent.py` · `pnpm council:audit-personas`。
 84. **议会 vote LLM 路由禁止智谱**：`world_vote.py` 须走 `nvidia` / `agnes` reflect+lore 槽（`FORBIDDEN_VOTE_PROVIDERS` 含 `zhipu`）；**禁止**将 council debate/vote/proposal 接入智谱 speak 并发=1 路径。回归：`pytest tests/test_world_vote.py -q` · `pnpm verify:phase25`。
-85. **GameRoom tick 仅 LPUSH vote job**：`maybeEnqueueWorldVote` / `tickRoomVoteClock` 在 Colyseus tick 内 **仅** Redis/BullMQ enqueue + 状态机；**禁止** tick 内 LLM/HTTP/worker 同步调用（INVARIANTS MP tick 非阻塞不变）。回归：`world-vote-trigger.test.ts` · `pnpm agent:verify --e2e` GF-01。
-86. **关系 delta 仅 worker 异步写**：`applyRelationshipDeltas` 仅经 worker `world_vote` job `POST .../npc-relationships/apply-deltas`；**禁止** `onMessage("speak")` / `GameRoom` handler 内直接改 `npc_relationships`。回归：`test_world_vote.py` · `verify:phase25` affection before/after GET。
+85. **审议落槌须 `active: false`**：`writeback_sequence` sealed sync 与 web `reduceDeliberationSync` 须在 `phase=sealed` 时清 `active`（DialogueBar chip / Council banner）；禁止 sealed 仍 `active: true`。回归：`test_world_vote.py::test_writeback_sequence` · `useCouncilDeliberation.test.ts`。
+86. **Worker 票决名册对齐 shared**：`registry.py` 须读 `packages/shared/council-personas-compact.json`（`pnpm council:export-personas`）；minutes/displayName 与 Web 12 席一致。回归：`pytest tests/test_registry.py -q` · `pnpm council:audit-personas`。
+87. **Force-trigger 单 in-flight**：`forceEnqueueWorldVote` 在 room 已有 pending job 时须 **拒绝**（409）；superseded worker job writeback 前须 `GET world-vote/pending` 校验 `jobId`。回归：`world-vote-trigger.test.ts` · `test_writeback_skipped_when_job_superseded`。
+88. **议会人设镜像须从 dossier 导出**：改 `packages/shared/src/council/dossiers/*` 后须 `pnpm council:export-personas` + `pnpm council:audit-personas`（0 issues）；speak 读 `council-personas-speak.json`，**禁止**在 `persona.py` / `speak_dossiers.py` 手写段落。详见 [docs/COUNCIL-PERSONAS.md](./COUNCIL-PERSONAS.md)。回归：`pytest tests/test_speak_registry.py tests/test_registry.py tests/test_persona_prompt.py -q`。
+89. **审议 writeback 全链路 fatal**：`world_vote` job 成功须 history + complete + **11** 条 `council-vote-memories` + relationship deltas + sealed sync（含 `resultEntryId`）；**禁止** deltas/memories 静默 skip；顺序 history → complete → deltas → memories → sealed。回归：`test_world_vote.py::test_writeback_sequence` · `service.test.ts` council vote。
+90. **提案人不计票**：`vote_minutes.ballots` **必须 11 条**（非提案人）；提案人仅 entry `proposerDisplayName` + minutes 模态「不计票」标注；**禁止** `_cast_single_ballot(is_proposer=True)` 或强制 `vote=yes`。票决 reason 与 vote 矛盾时 `reconcile_ballot_vote_reason` 以理由语气校正。回归：`test_build_minutes_eleven_ballots_excludes_proposer` · `WorldHistoryMinutesModal.test.ts`。
+91. **票决 prompt 必含提案人+辩论**：`_cast_single_ballot` 须注入 `ballot_prompt_instructions(proposer_id, proposer_name)`、`format_proposer_relationship(voter, proposer, edges)`、`format_debate_transcript_summary(ctx.debate_transcript)`。回归：`test_cast_ballot_prompt_includes_proposer_and_debate`。
+92. **关系 delta 与 UI linkedEdges 分离**：`apply-deltas` 写全量 delta；`councilDeliberationSync.linkedEdges` 仅 `filter_linked_edges_for_ui(top_k=8, min_abs=8)`；提案人↔投票人边由 `_proposer_voter_deltas` 保证；voter↔voter 同阵营须 debate interaction pair。回归：`test_proposer_gets_edge_per_voter` · `test_no_same_camp_mesh_without_debate`。
+93. **辩论轮次上限与 instant 默认**：`VOTE_DEBATE_ROUNDS_MAX` 默认 5；trigger/worker `capDebateRoundsMax`；`VOTE_INSTANT_DEBATE` 默认 `1`（单 job 跑完，UAT 兼容）；paced checkpoint 字段 `activeDeliberation` 在 game-server state。回归：`world-vote-pacing.test.ts`。
+94. **feedDelta 双槽 + 防御截断**：辩论 LLM 须 `fullText`（transcript，≤180）+ `feedQuote`（feed，≤80）；`finalize_deliberation_sync_payload` 硬截断；**禁止**旅者前缀拼进 feedQuote；单条非法 feed 行 skip，**禁止**整 job 因 Zod 400 失败。详见 [25-FEED-DUAL-OUTPUT.md](../.planning/phases/25-council-vote-debate/25-FEED-DUAL-OUTPUT.md)。回归：`test_vote_prompt.py` · `uat:phase25:core-ui` 连续 2 次 pass。
+95. **E2E 前仅单 agent-worker**：`verify:phase*` / `uat:phase*` 前须 `pkill -f "python -m src.main"`（或等价）确保 **仅一个** `pnpm dev:worker` / `dev:stack` worker 消费 Redis；多进程会抢 `world-vote` job，旧代码路径导致 minutes 缺 `debateExcerpts` / feedDelta 400。回归：`uat:phase25:core-ui` T4-debate-excerpts · `pnpm verify:phase25`。
+96. **GameRoom tick 仅 LPUSH vote job**：`maybeEnqueueWorldVote` / `tickRoomVoteClock` 在 Colyseus tick 内 **仅** Redis/BullMQ enqueue + 状态机；**禁止** tick 内 LLM/HTTP/worker 同步调用（INVARIANTS MP tick 非阻塞不变）。回归：`world-vote-trigger.test.ts` · `pnpm agent:verify --e2e` GF-01。
+97. **关系 delta 仅 worker 异步写**：`applyRelationshipDeltas` 仅经 worker `world_vote` job `POST .../npc-relationships/apply-deltas`；**禁止** `onMessage("speak")` / `GameRoom` handler 内直接改 `npc_relationships`。回归：`test_world_vote.py` · `verify:phase25` affection before/after GET。
 
 ## 记录
 
@@ -251,8 +262,8 @@
 
 **复现**
 
-1. 玩家 A 对路昂说「移动到我的下方」→ 路昂位置正确。
-2. 玩家 B 对费雪说「移动到我的下方」→ 费雪出现在路昂下方纵列，而非 B 身旁。
+1. 玩家 A 对莫玄虚说「移动到我的下方」→ 莫玄虚位置正确。
+2. 玩家 B 对阿斯托利亚说「移动到我的下方」→ 阿斯托利亚出现在莫玄虚下方纵列，而非 B 身旁。
 
 **根因**
 
@@ -278,7 +289,7 @@
 
 **续发（2026-06-04）— 玩家 B 仍 400**
 
-- **现象：** A→路昂「移动到我的下方」成功；B→费雪同指令 `apply-actions` 400，费雪未动。
+- **现象：** A→莫玄虚「移动到我的下方」成功；B→阿斯托利亚同指令 `apply-actions` 400，阿斯托利亚未动。
 - **根因：** LLM 常在 `move`/`interact` 参数中带 `reason` 等额外键，或幻觉 `door-2`；服务端 `GameActionSchema` 为 `.strict()`，整批拒绝并返回 400。
 - **修复：** `workers/agent-worker/src/graph/action_sanitize.py` + `apply_tools` 清洗；无效 `interact` 跳过保留 `move`。
 - **验证：** `cd workers/agent-worker && uv run pytest tests/test_action_sanitize.py -q`
@@ -846,12 +857,12 @@
 
 **复现**
 
-1. `?collectiveDebug=1` 下切换路昂/南宫婉 tab。
+1. `?collectiveDebug=1` 下切换莫玄虚/诸葛知危 tab。
 2. chip 与 overlay 在「戒备 eff -5」与「平常 eff 15」间来回跳。
 
 **根因**
 
-- `useCollectiveAttitude` 切换 `activeNpcId` 时未 abort 进行中的 fetch；旧 NPC 的 `collective-state` 响应晚到，覆盖新 tab 的 snapshot（路昂 seed -5 与南宫婉 +15 串台）。
+- `useCollectiveAttitude` 切换 `activeNpcId` 时未 abort 进行中的 fetch；旧 NPC 的 `collective-state` 响应晚到，覆盖新 tab 的 snapshot（莫玄虚 seed -5 与诸葛知危 +15 串台）。
 
 **修复**
 
@@ -878,7 +889,7 @@
 
 **复现**
 
-1. 单人进房，对费雪说「你来打我啊，你是个变态」。
+1. 单人进房，对阿斯托利亚说「你来打我啊，你是个变态」。
 2. chip / DEV overlay 仍为「平常 eff 0」，无 `rude` event。
 
 **根因**
@@ -989,7 +1000,7 @@
 
 **复现**
 
-1. 路昂 band=敌意（eff &lt; -30）。
+1. 莫玄虚 band=敌意（eff &lt; -30）。
 2. 发送「你移动到我的下方！！！」。
 3. NPC 不移动，但 **无** `data-testid="attitude-gate-hint"` banner。
 
@@ -1024,7 +1035,7 @@
 
 **复现**
 
-1. rude speak 使路昂 band 偏离 seed。
+1. rude speak 使莫玄虚 band 偏离 seed。
 2. 点击「新游戏」→「确认开始」。
 3. 对话可能清空，但 **态度 chip / CollectiveDebugPanel 仍为 reset 前 band 与 events**。
 
@@ -1060,7 +1071,7 @@
 
 **复现**
 
-1. `pnpm dev:stack`，对路昂说「你好丑啊，活该被打」。
+1. `pnpm dev:stack`，对莫玄虚说「你好丑啊，活该被打」。
 2. NPC 回复明显敌意（握钥匙、阴郁），但 overlay 仍为「戒备 eff -5 · rep -5」，recent events 无 `source=worker` rude。
 
 **根因**
@@ -1077,7 +1088,7 @@
 **验证**
 
 - `cd workers/agent-worker && uv run pytest tests/test_collective_repository_db.py tests/test_social_turn.py tests/test_npc_social_order.py -q`
-- 重启 `pnpm dev:stack` → insult 费雪 → `[worker]` 见 `social applied … collectiveUpdated=True` → overlay eff/rep 变化 + recent event
+- 重启 `pnpm dev:stack` → insult 阿斯托利亚 → `[worker]` 见 `social applied … collectiveUpdated=True` → overlay eff/rep 变化 + recent event
 
 **防复发**
 
@@ -1189,7 +1200,7 @@
 
 **验证**
 
-- 重启 dev:stack → 刷新页面 → 地图显示路昂/费雪/南宫婉 + NPC Tab。
+- 重启 dev:stack → 刷新页面 → 地图显示莫玄虚/阿斯托利亚/诸葛知危 + NPC Tab。
 
 **防复发**
 
@@ -1424,7 +1435,7 @@ Worker 主循环仅在 npc-turn 队列 **连续 5s 为空** 时才 `BLPOP` chunk
 **复现**
 
 1. 对 NPC 发送「你在干什么？」，进入思考
-2. 思考中再发「你怎么喜欢南宫婉啊」
+2. 思考中再发「你怎么喜欢诸葛知危啊」
 3. 第一条有回复，第二条无回复；顶部无排队提示（或显示「其他玩家」）
 
 **根因**
@@ -1516,7 +1527,7 @@ Worker 主循环仅在 npc-turn 队列 **连续 5s 为空** 时才 `BLPOP` chunk
 ### ISSUE-039 — home 土路围栏 decor 盖住玩家/NPC
 
 - **状态:** fixed
-- **发现:** 2026-06-08（Phase 13.2 UAT 实机：路昂/费雪等站在 y=6 土路时石墙画在角色上方，仅露脚）
+- **发现:** 2026-06-08（Phase 13.2 UAT 实机：莫玄虚/阿斯托利亚等站在 y=6 土路时石墙画在角色上方，仅露脚）
 - **阶段/范围:** `DecorRenderer.ts` · `entityLayout.ts` · Phase 13.2 homeLayout
 - **严重性:** major
 
@@ -1701,13 +1712,13 @@ Worker 主循环仅在 npc-turn 队列 **连续 5s 为空** 时才 `BLPOP` chunk
 ### ISSUE-044 — speak 后 NPC 只动一格、ambient tick 客户端不更新
 
 - **状态:** fixed
-- **发现:** 2026-06-10（Phase 16 UAT Test 11；对话指路昂移动后仅一格，12:00 仍静止）
+- **发现:** 2026-06-10（Phase 16 UAT Test 11；对话指莫玄虚移动后仅一格，12:00 仍静止）
 - **阶段/范围:** `apps/web/src/hooks/useColyseusRoom.ts` · `ChatPage.tsx` · `apps/game-server/src/colyseus/GameRoom.ts`
 - **严重性:** major（World Alive 观感阻塞 UAT #11）
 
 **复现**
 
-1. `pnpm dev:stack` → 与路昂 speak 让其移动
+1. `pnpm dev:stack` → 与莫玄虚 speak 让其移动
 2. NPC tween 一格后停住；游戏时间推进至 12:00+ 仍无 ambient wander
 3. 服务端 ambient tick 仍在跑（schema `npc1X/Y` 在变），Phaser 不跟
 
@@ -1858,7 +1869,7 @@ Worker 主循环仅在 npc-turn 队列 **连续 5s 为空** 时才 `BLPOP` chunk
 
 **复现**
 
-1. `pnpm dev:stack`，对 NPC A（如 npc-1 路昂）发送消息，进入「思考中」。
+1. `pnpm dev:stack`，对 NPC A（如 npc-1 莫玄虚）发送消息，进入「思考中」。
 2. **不等待** A 完成，切到 NPC B Tab 并对 B speak。
 3. 等待 B 的 `done`；切回 A Tab。
 4. **期望：** A、B 的 assistant 回复均在各自消息列表。**实际（修复前）：** 仅 B 有回复，A 的 `done` 被丢弃。
@@ -1963,7 +1974,7 @@ Worker 主循环仅在 npc-turn 队列 **连续 5s 为空** 时才 `BLPOP` chunk
 
 - `cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_recall_merge.py tests/test_fetch_state_and_memory.py tests/test_memory_quote.py -q` → 27 passed
 - `pnpm agent:verify` → OK（worker 222 passed）
-- 手动 UAT Test 2（南宫婉 seed + reload + 密码召回）→ 用户确认 pass（2026-06-16）
+- 手动 UAT Test 2（诸葛知危 seed + reload + 密码召回）→ 用户确认 pass（2026-06-16）
 - `pnpm verify:phase20` → 待人工/UAT 确认（latency smoke 可能仍 >8s，与 recall 逻辑独立）
 
 **防复发**
@@ -1972,7 +1983,7 @@ Worker 主循环仅在 npc-turn 队列 **连续 5s 为空** 时才 `BLPOP` chunk
 
 ---
 
-### ISSUE-051 — 「去南宫婉那边」口头答应但 NPC 不移动
+### ISSUE-051 — 「去诸葛知危那边」口头答应但 NPC 不移动
 
 - **状态:** fixed
 - **发现:** 2026-06-16
@@ -1982,19 +1993,19 @@ Worker 主循环仅在 npc-turn 队列 **连续 5s 为空** 时才 `BLPOP` chunk
 **复现**
 
 1. `pnpm dev:stack` + 真实 LLM
-2. 对路昂说：「你可以去南宫婉那边吗？他有事情找你」
-3. **期望：** 路昂口播答应并 pathfind 至南宫婉格。**实际：** 仅口播「好，我会去南宫婉那里…」，地图上仍「在漫步」、坐标不变
+2. 对莫玄虚说：「你可以去诸葛知危那边吗？他有事情找你」
+3. **期望：** 莫玄虚口播答应并 pathfind 至诸葛知危格。**实际：** 仅口播「好，我会去诸葛知危那里…」，地图上仍「在漫步」、坐标不变
 
 **根因**
 
 - `player_requests_move` 的 `MOVE_PATTERNS` 未含 `那边|那里|那儿` 与 `有事情找|事情找`
-- 用户句「你可以去南宫婉那边吗？他有事情找你」→ `player_requests_move=False` → `SpeakIntent.NARRATIVE`
+- 用户句「你可以去诸葛知危那边吗？他有事情找你」→ `player_requests_move=False` → `SpeakIntent.NARRATIVE`
 - `llm_social_turn` 非 physical 分支固定 `tool_calls=[]`，无 `inject_relative_move_tool`
 
 **修复**
 
 - `action_intent.py`：`MOVE_PATTERNS` 增补 `那边|那里|那儿` 与 `有事情找|事情找`
-- `test_action_intent.py`：UAT 句「你可以去南宫婉那边吗？他有事情找你」断言 PHYSICAL + inject 至 (15,8)
+- `test_action_intent.py`：UAT 句「你可以去诸葛知危那边吗？他有事情找你」断言 PHYSICAL + inject 至 (15,8)
 
 **验证**
 
@@ -2007,7 +2018,7 @@ Worker 主循环仅在 npc-turn 队列 **连续 5s 为空** 时才 `BLPOP` chunk
 
 ---
 
-### ISSUE-052 — 费雪 relay「去路昂那边」口播移动但 sprite 不动
+### ISSUE-052 — 阿斯托利亚 relay「去莫玄虚那边」口播移动但 sprite 不动
 
 - **状态:** fixed
 - **发现:** 2026-06-16
@@ -2016,13 +2027,13 @@ Worker 主循环仅在 npc-turn 队列 **连续 5s 为空** 时才 `BLPOP` chunk
 
 **复现**
 
-1. `pnpm dev:stack` + 真实 LLM；路昂 relay 至南宫婉已可移动（ISSUE-051 后）
-2. 对费雪说：「你可以去路昂那边吗？他好像有事情找你」
-3. **期望：** 费雪口播答应并移动至路昂格。**实际：** 口播「好的，我就去找路昂…」，地图上仍「在漫步」、坐标不变
+1. `pnpm dev:stack` + 真实 LLM；莫玄虚 relay 至诸葛知危已可移动（ISSUE-051 后）
+2. 对阿斯托利亚说：「你可以去莫玄虚那边吗？他好像有事情找你」
+3. **期望：** 阿斯托利亚口播答应并移动至莫玄虚格。**实际：** 口播「好的，我就去找莫玄虚…」，地图上仍「在漫步」、坐标不变
 
 **根因**
 
-- 隔离测试下 intent/inject 对费雪 relay 句正常（PHYSICAL + move→路昂坐标）
+- 隔离测试下 intent/inject 对阿斯托利亚 relay 句正常（PHYSICAL + move→莫玄虚坐标）
 - 运行时若走 `social_edge_fast_lane` 或 `llm_social_turn` 非 physical 分支，固定 `tool_calls=[]` 且 **apply_tools 不再 inject**，导致只口播不 apply-actions
 - 终端可见 worker-state/memory-context fetch 但缺少完整 job 日志时，亦需排查 duplicate worker（旧代码进程）
 
@@ -2031,7 +2042,7 @@ Worker 主循环仅在 npc-turn 队列 **连续 5s 为空** 时才 `BLPOP` chunk
 - `apply_tools`：在 filter 前对 `player_requests_physical_action` 调用 `inject_relative_move_tool`（兜底）
 - `main.py`：`player_requests_physical_action` 时跳过 social edge fast lane；`job received` 日志带 `npcId`
 - `packages/shared/src/speakIntent.ts`：MOVE_PATTERNS 与 Python 同步（`那边|有事情找`）
-- 测试：费雪 relay 句 inject + `test_apply_tools_injects_move_when_physical_and_tool_calls_empty`
+- 测试：阿斯托利亚 relay 句 inject + `test_apply_tools_injects_move_when_physical_and_tool_calls_empty`
 
 **验证**
 
@@ -2153,30 +2164,264 @@ Worker 主循环仅在 npc-turn 队列 **连续 5s 为空** 时才 `BLPOP` chunk
 
 ---
 
-### ISSUE-056 — ambient intent LLM 使用错误 NPC 中文名（林小满 vs 路昂）
+### ISSUE-056 — ambient intent LLM 使用错误 NPC 中文名（林小满 vs 莫玄虚）
 
 - **状态:** fixed
 - **发现:** 2026-06-24（优化路线图审计）
 - **阶段/范围:** `workers/agent-worker/src/graph/ambient_intent.py` · `GameRoom.enqueueAmbientIntentIfIdle`
-- **严重性:** major（沉浸感 / 与 room.ts 权威名分裂）
+- **严重性:** major（沉浸感 / 与 dossier 权威名分裂）
 
 **根因**
 
-`NPC_DISPLAY_NAMES` 硬编码旧名（林小满/陈叔/阿禾），未与 `packages/shared/src/room.ts`（路昂/费雪/南宫婉）同步。
+`NPC_DISPLAY_NAMES` 硬编码旧名（林小满/陈叔/阿禾），未与 `getPersona` / room snapshot 同步。
 
 **修复**
 
-- 更正 `NPC_DISPLAY_NAMES` 为权威名；prompt 优先 `payload.npcName`（game-server 从 room snapshot 注入）
-- 新增 `packages/shared/src/npcDisplayNames.ts` 作为 TS 侧单一来源
+- `NPC_DISPLAY_NAMES` 从 `council-personas-compact.json` 加载（12 席）；prompt 优先 `payload.npcName`（game-server 从 room snapshot 注入）
+- `packages/shared/src/npcDisplayNames.ts`：`MAIN_NPC_DISPLAY_NAMES` 由 dossier 派生
 
 **验证**
 
-- `cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_ambient_intent.py -q` → 8 passed
-- `pnpm agent:verify` → exit 0
+- `cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_ambient_intent.py -q`
+- `pnpm council:audit-personas` → 0 issues
 
 **防复发**
 
 - Guardrails #83
+
+---
+
+### ISSUE-057 — Phase 25 审议 UI 僵尸态 + 票决名册漂移 + 重复 trigger 双写编年史
+
+- **状态:** fixed
+- **发现:** 2026-06-25（Phase 25 UAT）
+- **阶段/范围:** `world_vote.py` · `registry.py` · `useCouncilDeliberation.ts` · `world-vote-trigger.ts`
+- **严重性:** major
+
+**复现**
+
+1. Force-trigger 审议落槌后编年史已有「已采纳」，DialogueBar 仍显示「议会审议中」
+2. Council 名册显示「糖果」，廷议实录显示「莉莉丝·绯月」（同 npc-4）
+3. 连续两次 force-trigger → 编年史两条近似提案
+
+**根因**
+
+- `writeback_sequence` sealed sync 发送 `active: true`，chip 永不消失
+- Worker `registry.py` 与 `packages/shared` LOCKED dossiers 人名/倾向不一致
+- `addWorldVoteJob` replace pending 不取消 worker 内旧 job，两 job 均 writeback
+
+**修复**
+
+- sealed sync 改 `active: false`；client `reduceDeliberationSync` 在 `phase=sealed` 强制清 active
+- 新增 `council-personas-compact.json` + `council-personas-speak.json`，worker registry / speak 从 shared 加载；维护见 [COUNCIL-PERSONAS.md](./COUNCIL-PERSONAS.md)
+- `forceEnqueueWorldVote` pending 时拒绝；worker writeback 前校验 `GET world-vote/pending`
+- vote JSON 增加 prose 恢复 + 按 `votingLeaning` 的 fallback 表决
+
+**验证**
+
+- `cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_world_vote.py tests/test_registry.py -q`
+- `pnpm --filter @aetherlife/game-server test`
+- `pnpm --filter @aetherlife/web test -- useCouncilDeliberation`
+
+**防复发**
+
+- Guardrails #85–#87
+
+---
+
+### ISSUE-058 — 审议 writeback 半吊子：编年史成功但 job failed（memories 500 / deltas skip）
+
+- **状态:** fixed
+- **发现:** 2026-06-25（Phase 25 UAT 完整体验验收）
+- **阶段/范围:** `world_vote.py` · `internal-memories.ts` · `MemoryService` · `MemoryRepository`
+- **严重性:** major
+
+**复现**
+
+1. Force-trigger 审议落槌 → 编年史 + minutes 正常
+2. Worker log：`memories 500` 或 relationship deltas timeout → job failed
+3. DB `__council__` 廷议记忆 0 条；UI 像成功但 SOCIETY RAG / 关系 hint 缺失
+
+**根因**
+
+- Writeback 顺序：sealed sync 在前，12 条 memory 串行 POST（每条 embed + DB）易超时
+- `apply_relationship_deltas` 异常被 swallow → 关系边未写
+- Job 成功标准过宽：history 写入即 UI 像完成，tail 失败仍标 failed
+
+**修复**
+
+- Writeback 顺序：`world_history` → `post_vote_complete` → `apply_relationship_deltas`（3 次 retry，fatal）→ `append_council_memories` bulk → sealed sync（含 `resultEntryId` + `linkedEdges`）
+- **`council-vote-memories` 写 11 条**（非提案人表决记忆）
+- `voteEpoch` 含 `jobId`，避免同 `gameMinute` 重跑 UNIQUE 冲突
+- `buildCouncilMemoryContext` 合并最近 `廷议表决` 记忆（skipEmbed 路径仍可 RAG）
+
+**验证**
+
+- `cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_world_vote.py -q`
+- `pnpm --filter @aetherlife/game-server test -- service.test`
+- UAT：一轮 force-trigger 后 DB 12 条 `__council__` + worker job 无 failed
+
+**防复发**
+
+- Guardrail #90
+
+---
+
+### ISSUE-059 — 提案人误出现在票决记录且 vote/reason 矛盾
+
+- **状态:** fixed
+- **发现:** 2026-06-25（Phase 25 UAT）
+- **阶段/范围:** `world_vote.py` · `vote_prompt.py` · `worldHistory.ts` · `WorldHistoryMinutesModal.tsx`
+- **严重性:** major
+
+**复现**
+
+1. 莫玄虚为提案人，minutes 仍显示其「赞成」卡片
+2. 理由文案像反对（「此议过激…不宜通过」）但 vote 强制为 yes
+
+**根因**
+
+- `build_minutes`  prepend 提案人 pseudo-ballot；`_cast_single_ballot(is_proposer=True)` 强制 `vote=yes` 但 LLM reason 自由发挥
+- Phase 25 契约应为 **11 人表决**，提案人不计票
+
+**修复**
+
+- minutes / schema 改为 **11 条 ballots**（排除 proposer）；UI 标注「提案人：XXX（不计票）」
+- 删除提案人表决 LLM 调用；非提案人票决增加 `reconcile_ballot_vote_reason`（reason 反对语气 → vote=no）
+- 读库 legacy 12 条 minutes 按 `proposerNpcId` 自动 strip 提案人
+
+**验证**
+
+- `pytest tests/test_world_vote.py tests/test_vote_prompt.py -q`
+- `pnpm --filter @aetherlife/shared test` · `WorldHistoryMinutesModal.test.ts`
+
+**防复发**
+
+- Guardrail #90
+
+---
+
+### ISSUE-060 — 11 席票决 LLM 上下文不足：人设/提案人关系/辩论未充分注入
+
+- **状态:** fixed
+- **发现:** 2026-06-25（Phase 25 UAT 票决质量分析）
+- **阶段/范围:** `world_vote.py` · `vote_prompt.py` · `persona.py` · `relationship_prompt.py` · Phase 25 REL-04 / D-VOTE-UX-03
+- **严重性:** major（体验/叙事一致性，非 blocker crash）
+
+**现象**
+
+1. 票决 reason 有时像某席口吻，但 **vote 与 persona `votingLeaning` / `votingLogic` 绑定弱**（如保守派席对激进提案仍大量 yes）
+2. reason 可点名提案人（如阿斯托利亚批莫玄虚），但 **不保证**来自 runtime 关系或辩论，更像 LLM 从提案摘要猜的
+3. 辩论 feed 与 minutes 票决 **可能脱节**（辩论里 oppose，票决 prompt 无辩论 transcript）
+
+**根因（代码审计 `_cast_single_ballot`）**
+
+| 维度 | 现状 | 缺口 |
+|------|------|------|
+| 身份/性格 | `build_persona_block` 注入职业、性格、口吻、`votingLogic`（**截断 ~120 字**） | 无硬约束；`votingLeaning` 仅「参考」；JSON parse 失败走 `_leaning_default_vote` + 泛化 fallback |
+| 与提案人关系 | `format_relationship_block_for_npc` top5（\|affection\|） | **票决 prompt 未标明提案人 id/名**；关系块**不优先**提案人边，可能不在 top5 |
+| 辩论立场 | `debate_transcript` 写入 ctx | **`cast_ballots` 不读 transcript**；票决仅 title + proposal 前 400 字 |
+| RAG | speak 路径有 dual RAG | **world_vote 票决 job 无** council/world_history RAG |
+| 校验 | `reconcile_ballot_vote_reason` | 只修 vote/reason **语气矛盾**，不校验 persona leaning |
+
+**后续修改建议（按优先级）**
+
+- **P0** 票决 prompt 增加 `提案人：{displayName}({npcId})` + **`format_proposer_relationship(voter, proposer, edges)`** 专段
+- **P0** 票决注入本轮 **debate transcript**（或每席 stance 摘要），对齐 D-VOTE-UX-03「feed 与 minutes 一致」
+- **P1** `votingLogic` 结构化/放宽截断；JSON fallback 用 leaning + **对提案人 registry/runtime 关系** 定票（swing 禁止纯 hash）
+- **P1** 可选：票决前拉轻量 council RAG（1–2 bullet，skipEmbed 可接受）
+- **P2** 指标/日志：leaning=against 席对激进提案 yes 率异常时告警（不硬改票）
+
+**涉及文件**
+
+- `workers/agent-worker/src/graph/world_vote.py` — `_cast_single_ballot` · `cast_ballots`
+- `workers/agent-worker/src/council/vote_prompt.py` — `ballot_prompt_instructions`
+- `workers/agent-worker/src/council/relationship_prompt.py` — 新增 proposer 专段 helper
+- `workers/agent-worker/tests/test_world_vote.py` — prompt 含 proposer + transcript 断言
+
+**验证（修复后）**
+
+- unit：`test_cast_ballot_includes_proposer_and_debate_context`
+- UAT：同一议案辩论 oppose 席 minutes 票型与 feed stance 一致率 ↑；莫玄虚提案时 npc-2/4 反对倾向可感知
+
+**防复发（修复 closed 时补）**
+
+- Guardrail #91
+
+**验证（已跑）**
+
+- `cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_world_vote.py -q -k ballot`
+- `cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_vote_prompt.py -q -k proposer`
+
+---
+
+### ISSUE-061 — 关系引擎排除提案人：零 linkedEdges + O(n²) 同票抱团
+
+- **状态:** fixed
+- **发现:** 2026-06-26（Phase 25 UAT Test 6 + 用户叙事分析）
+- **阶段/范围:** `relationship_deltas.py` · `world_vote.py` · REL-03
+- **严重性:** major（叙事不合理）
+
+**现象**
+
+- 莫玄虚提案被否决，名册 hint 上莫玄虚无「近期有变」，其余 11 席几乎全有
+- 10 人投反对仍两两 +affection（同阵营全连接）
+
+**根因**
+
+- `_vote_deltas` 仅用 non_proposer ballots；提案人不在任何边
+- 辩论 transcript 不含提案人
+- 同阵营 O(n²) 无交锋门槛
+
+**修复计划**
+
+- `.planning/phases/25-council-vote-debate/25-08-PLAN.md` Wave 8 — **已实施** `_proposer_voter_deltas` + debate-pair gated voter mesh + `filter_linked_edges_for_ui`
+
+**验证（已跑）**
+
+- `cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_relationship_deltas.py -q`
+
+**防复发**
+
+- Guardrail #92
+
+---
+
+### ISSUE-094 — feedDelta 超 80 字导致 council-deliberation-sync 400、vote job 失败
+
+- **状态:** fixed
+- **发现:** 2026-06-29
+- **阶段/范围:** Phase 25 · `world_vote.py` · `vote_prompt.py` · `worldHistory.ts` · UAT `uat:phase25:core-ui`
+- **严重性:** major（间歇性整局廷议失败）
+
+**复现**
+
+1. `pnpm dev:stack` + `pnpm uat:phase25:core-ui`
+2. Worker 日志：`council-deliberation-sync 400` · `feedDelta String must contain at most 80 character(s)`
+3. `world-vote job failed`；Council Tab feed 停更
+
+**根因**
+
+- 辩论 prompt 要求 `text(≤120字)`，transcript 允许 200 字；feed 从同一字段硬切 80
+- 旅者前缀 `据近期旅者言行，` 拼在 text 上进一步挤占 feed 预算
+- `finalize_deliberation_sync_payload` 有截断但路径/LLM 爆长仍偶发漏网；400 直接 `raise_for_status` 终止 job
+
+**修复**
+
+- 双输出槽 `fullText`（≤180，transcript/minutes）+ `feedQuote`（≤80，feed）
+- `clamp_feed_quote` / `finalize_deliberation_sync_payload` 硬封顶；旅者引用仅 `travelerRef` + UI 前缀
+- `voteMinutesSchema.debateExcerpts` + `WorldHistoryMinutesModal` 辩论摘录区块
+- 设计文档：[25-FEED-DUAL-OUTPUT.md](../.planning/phases/25-council-vote-debate/25-FEED-DUAL-OUTPUT.md)
+
+**验证**
+
+- `cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_vote_prompt.py tests/test_world_vote.py -q` → 29 passed
+- `pnpm --filter @aetherlife/shared test -- worldHistory` → 11 passed
+- `pnpm --filter @aetherlife/web test -- WorldHistoryMinutesModal` → 3 passed
+
+**防复发**
+
+- Guardrail #94
 
 ---
 

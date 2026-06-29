@@ -1,11 +1,9 @@
-import { getPersona, isCouncilNpcId } from "./council/constants.js";
+import { COUNCIL_NPC_IDS, getPersona, isCouncilNpcId } from "./council/constants.js";
 
-/** @deprecated Use getPersona(id).displayName — kept for legacy imports. */
-export const MAIN_NPC_DISPLAY_NAMES: Record<string, string> = {
-  "npc-1": "莫玄虚",
-  "npc-2": "阿斯托利亚",
-  "npc-3": "诸葛知危",
-};
+/** @deprecated Use getPersona(id).displayName — derived from LOCKED dossiers for legacy imports. */
+export const MAIN_NPC_DISPLAY_NAMES: Record<string, string> = Object.fromEntries(
+  COUNCIL_NPC_IDS.map((id) => [id, getPersona(id).displayName]),
+);
 
 export function mainNpcDisplayName(npcId: string): string {
   if (isCouncilNpcId(npcId)) {

@@ -43,6 +43,28 @@ export class MemoryRepository {
     return rows[0]!.id;
   }
 
+  async appendMemoryBatch(inputs: AppendMemoryInput[]): Promise<string[]> {
+    if (inputs.length === 0) return [];
+    const rows = await this.db
+      .insert(npcMemories)
+      .values(
+        inputs.map((input) => ({
+          roomId: input.roomId,
+          playerId: input.playerId,
+          npcId: input.npcId ?? DEFAULT_NPC_ID,
+          text: input.text,
+          importance: input.importance,
+          embedding: input.embedding,
+        })),
+      )
+      .returning({ id: npcMemories.id });
+    return rows.map((row) => row.id);
+  }
+
+  async updateMemoryEmbedding(id: string, embedding: number[]): Promise<void> {
+    await this.db.update(npcMemories).set({ embedding }).where(eq(npcMemories.id, id));
+  }
+
   async searchSimilar(input: {
     roomId: string;
     playerId: string;

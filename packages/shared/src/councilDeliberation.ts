@@ -19,6 +19,7 @@ const quoteFeedRowSchema = z
     kind: z.literal("quote"),
     npcId: z.string().min(1),
     displayName: z.string().min(1).max(40),
+    /** Live Council feed soundbite (= worker feedQuote); max 80 per D-VOTE-UX-01 */
     text: z.string().min(1).max(80),
     travelerRef: z.boolean().optional(),
   })

@@ -17,6 +17,7 @@ from src.graph.npc_loop import run_npc_memory_tail, run_npc_turn_interactive
 from src.graph.nodes.llm_social_turn import preview_casual_stub
 from src.graph.action_intent import player_requests_physical_action
 from src.graph.speak_intent import can_use_casual_fast_lane, can_use_social_edge_fast_lane
+from src.graph.social_edge_fast_lane import run_social_edge_fast_lane
 from src.graph.world_vote import process_world_vote_job
 from src.graph.job_context import reset_job_context, set_job_context
 from src.llm.call_budget import (
@@ -456,6 +457,7 @@ def run_worker() -> None:
                 continue
 
             if not item or not queue:
+                drain_one_world_vote_job(r, client, settings)
                 continue
             _, raw = item
             payload = _parse_bridge_payload(raw, queue=queue)

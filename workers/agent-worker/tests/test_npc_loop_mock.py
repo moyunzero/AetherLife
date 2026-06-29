@@ -32,7 +32,7 @@ def test_mock_turn_returns_move_tool_call(monkeypatch):
                     "roomId": "default",
                     "width": 8,
                     "height": 8,
-                    "npcs": [{"id": "npc-1", "name": "路昂", "x": 2, "y": 2, "inventory": []}],
+                    "npcs": [{"id": "npc-1", "name": "莫玄虚", "x": 2, "y": 2, "inventory": []}],
                     "objects": [{"id": "door-1", "state": "closed"}],
                 }
             }
@@ -91,7 +91,7 @@ def test_mock_turn_returns_move_tool_call(monkeypatch):
             npcs = [
                 {
                     "id": acting,
-                    "name": "路昂",
+                    "name": "莫玄虚",
                     "x": 2,
                     "y": 2,
                     "inventory": [],

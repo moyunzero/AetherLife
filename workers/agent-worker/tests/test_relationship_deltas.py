@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from src.council.constants import RELATIONSHIP_DELTA_ABS_MAX
-from src.council.relationship_deltas import compute_relationship_deltas, linked_edges_from_deltas
+from src.council.relationship_deltas import (
+    compute_relationship_deltas,
+    filter_linked_edges_for_ui,
+    linked_edges_from_deltas,
+)
 
 
 def test_delta_clamp():
@@ -33,12 +37,11 @@ def test_linked_edges_on_opposing_votes():
 
 def test_history_append_on_significant_delta():
     ballots = [
-        {"npcId": "npc-2", "vote": "yes", "reasonZh": "赞成"},
-        {"npcId": "npc-3", "vote": "no", "reasonZh": "强烈反对"},
-    ] + [{"npcId": f"npc-{i}", "vote": "no" if i % 2 else "yes", "reasonZh": "x"} for i in range(4, 13)]
+        {"npcId": "npc-2", "vote": "no", "reasonZh": "强烈反对"},
+    ] + [{"npcId": f"npc-{i}", "vote": "no", "reasonZh": "反对"} for i in range(3, 13)]
     deltas = compute_relationship_deltas([], ballots, "npc-1", seed=7)
     significant = [d for d in deltas if d.get("historyAppend")]
-    assert any(abs(d["affectionDelta"]) >= 8 for d in significant) or len(deltas) == 0
+    assert any(abs(d["affectionDelta"]) >= 8 for d in significant)
 
 
 def test_prompt_builder_includes_npc7_sample():
@@ -65,3 +68,40 @@ def test_prompt_builder_includes_npc7_sample():
     block = format_relationship_block_for_npc("npc-7", edges)
     assert "npc-7" in block or "纳兰温言" in block
     assert "npc-4" in block or "npc-1" in block
+
+
+def test_proposer_gets_edge_per_voter():
+    """Proposer npc-1 must receive one edge per non-proposer ballot."""
+    ballots = [{"npcId": f"npc-{i}", "vote": "no", "reasonZh": "反对"} for i in range(2, 12)]
+    ballots.append({"npcId": "npc-12", "vote": "yes", "reasonZh": "赞成"})
+    deltas = compute_relationship_deltas([], ballots, "npc-1", seed=42)
+    proposer_edges = [
+        d for d in deltas if d["npcAId"] == "npc-1" or d["npcBId"] == "npc-1"
+    ]
+    assert len(proposer_edges) == 11
+
+
+def test_no_same_camp_mesh_without_debate():
+    """10 no / 1 yes with empty transcript → no voter-voter same-side mesh."""
+    ballots = [{"npcId": f"npc-{i}", "vote": "no", "reasonZh": "反对"} for i in range(2, 12)]
+    ballots.append({"npcId": "npc-12", "vote": "yes", "reasonZh": "赞成"})
+    deltas = compute_relationship_deltas([], ballots, "npc-1", seed=99)
+    voter_voter = [
+        d
+        for d in deltas
+        if d["npcAId"] != "npc-1"
+        and d["npcBId"] != "npc-1"
+        and d["npcAId"] != d["npcBId"]
+    ]
+    assert len(voter_voter) == 0
+
+
+def test_filter_linked_edges_for_ui_top_k_and_threshold():
+    deltas = [
+        {"npcAId": "npc-1", "npcBId": "npc-2", "affectionDelta": 12},
+        {"npcAId": "npc-1", "npcBId": "npc-3", "affectionDelta": -5},
+        {"npcAId": "npc-2", "npcBId": "npc-4", "affectionDelta": -10},
+    ]
+    ui = filter_linked_edges_for_ui(deltas, top_k=8, min_abs=8)
+    assert len(ui) == 2
+    assert {"npcAId": "npc-1", "npcBId": "npc-2"} in ui

@@ -84,11 +84,46 @@ export function WorldHistoryMinutesModal({ entry, onClose }: Props) {
               </p>
             </section>
           ) : (
-            <section
-              className="world-history-minutes-modal__ballots"
-              data-testid="world-history-minutes-ballots"
-            >
+            <>
+              {minutes.debateExcerpts && minutes.debateExcerpts.length > 0 ? (
+                <section
+                  className="world-history-minutes-modal__debate"
+                  data-testid="world-history-minutes-debate-excerpts"
+                >
+                  <h3 className="world-history-minutes-modal__section-title">辩论摘录</h3>
+                  <ul className="world-history-minutes-modal__debate-list">
+                    {minutes.debateExcerpts.map((excerpt) => (
+                      <li
+                        key={`${excerpt.round}-${excerpt.npcId}`}
+                        className="world-history-minutes-modal__debate-excerpt"
+                      >
+                        <p className="world-history-minutes-modal__debate-meta">
+                          第 {excerpt.round} 轮 · {excerpt.displayName}
+                        </p>
+                        <p className="world-history-minutes-modal__debate-full">
+                          {excerpt.fullText}
+                        </p>
+                        {excerpt.feedQuote && excerpt.feedQuote !== excerpt.fullText ? (
+                          <p className="world-history-minutes-modal__debate-feed-quote">
+                            现场高光：{excerpt.feedQuote}
+                          </p>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ) : null}
+              <section
+                className="world-history-minutes-modal__ballots"
+                data-testid="world-history-minutes-ballots"
+              >
               <h3 className="world-history-minutes-modal__section-title">票决记录</h3>
+              <p
+                className="world-history-minutes-modal__proposer-note"
+                data-testid="world-history-minutes-proposer"
+              >
+                提案人：{entry.proposerDisplayName}（不计票）
+              </p>
               <ul className="world-history-minutes-modal__grid">
                 {minutes.ballots.map((ballot) => (
                   <li
@@ -107,6 +142,7 @@ export function WorldHistoryMinutesModal({ entry, onClose }: Props) {
                 ))}
               </ul>
             </section>
+            </>
           )}
         </div>
       </div>

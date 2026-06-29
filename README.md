@@ -162,6 +162,7 @@ Action schema: [packages/game-actions/README.md](./packages/game-actions/README.
 | [docs/MOVEMENT-ARCHITECTURE.md](./docs/MOVEMENT-ARCHITECTURE.md) | Phaser movement + Colyseus sync |
 | [docs/E2E-POLICY.md](./docs/E2E-POLICY.md) | E2E / UAT policy + Golden Flows |
 | [docs/PHASE-EVOLUTION.md](./docs/PHASE-EVOLUTION.md) | Phase evolution + cross-layer guardrails |
+| [docs/COUNCIL-PERSONAS.md](./docs/COUNCIL-PERSONAS.md) | 12-seat council persona SSOT + export/audit |
 
 ## Contributing
 

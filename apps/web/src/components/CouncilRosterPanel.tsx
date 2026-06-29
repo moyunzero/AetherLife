@@ -78,7 +78,13 @@ export function CouncilRosterPanel({ biographyEntries, linkedEdges = [] }: Props
                   <section className="council-roster-panel__section">
                     <h4 className="council-roster-panel__section-title">关系</h4>
                     <ul className="council-roster-panel__relationships">
-                      {persona.relationships.map((rel) => {
+                      {[...persona.relationships]
+                        .sort((a, b) => {
+                          const aChanged = isLinkedRelationship(npcId, a.targetId, linkedEdges);
+                          const bChanged = isLinkedRelationship(npcId, b.targetId, linkedEdges);
+                          return Number(bChanged) - Number(aChanged);
+                        })
+                        .map((rel) => {
                         const changed = isLinkedRelationship(npcId, rel.targetId, linkedEdges);
                         return (
                         <li
@@ -87,24 +93,26 @@ export function CouncilRosterPanel({ biographyEntries, linkedEdges = [] }: Props
                             changed ? " council-roster-panel__relationship--changed" : ""
                           }`}
                         >
-                          <span className="council-roster-panel__relationship-name">
-                            {getPersona(rel.targetId).displayName}
-                          </span>
-                          <span className="council-roster-panel__relationship-kind">
-                            {relationshipKindLabelZh(rel.kind)}
-                          </span>
-                          {changed ? (
-                            <span
-                              className="council-roster-panel__relationship-hint"
-                              data-testid="council-roster-relationship-hint"
-                            >
-                              <span className="council-roster-panel__relationship-hint-dot" aria-hidden />
-                              近期有变
+                          <div className="council-roster-panel__relationship-head">
+                            <span className="council-roster-panel__relationship-name">
+                              {getPersona(rel.targetId).displayName}
                             </span>
-                          ) : null}
-                          <span className="council-roster-panel__relationship-summary">
+                            <span className="council-roster-panel__relationship-kind">
+                              {relationshipKindLabelZh(rel.kind)}
+                            </span>
+                            {changed ? (
+                              <span
+                                className="council-roster-panel__relationship-hint"
+                                data-testid="council-roster-relationship-hint"
+                              >
+                                <span className="council-roster-panel__relationship-hint-dot" aria-hidden />
+                                近期有变
+                              </span>
+                            ) : null}
+                          </div>
+                          <p className="council-roster-panel__relationship-summary">
                             {rel.summary}
-                          </span>
+                          </p>
                         </li>
                         );
                       })}

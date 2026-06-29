@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   chronicleGameYearFromMinute,
   formatChronicleYearLabel,
+  normalizeVoteMinutesInput,
   toWorldHistoryListEntry,
   genesisMinutesSchema,
   parseWorldHistoryStatusFilter,
+  parseWorldHistoryMinutes,
   validateWorldHistoryStrings,
   voteMinutesSchema,
 } from "./worldHistory.js";
@@ -23,11 +25,11 @@ const validGenesisMinutes = {
   footnote: "此条为奠基文献，非本届廷议表决。" as const,
 };
 
-const voteBallots = Array.from({ length: 12 }, (_, i) => ({
-  npcId: `npc-${i + 1}`,
-  displayName: `议员${i + 1}`,
-  vote: (i < 8 ? "yes" : "no") as "yes" | "no",
-  reasonZh: `理由${i + 1}`,
+const voteBallots = Array.from({ length: 11 }, (_, i) => ({
+  npcId: `npc-${i + 2}`,
+  displayName: `议员${i + 2}`,
+  vote: (i < 6 ? "yes" : "no") as "yes" | "no",
+  reasonZh: `理由${i + 2}`,
 }));
 
 const validVoteMinutes = {
@@ -60,12 +62,12 @@ describe("worldHistory minutes schemas", () => {
     ).toBe(false);
   });
 
-  it("voteMinutesSchema requires kind vote_minutes, 12 ballots with yes|no", () => {
+  it("voteMinutesSchema requires kind vote_minutes, 11 ballots with yes|no", () => {
     expect(voteMinutesSchema.parse(validVoteMinutes)).toEqual(validVoteMinutes);
     expect(
       voteMinutesSchema.safeParse({
         ...validVoteMinutes,
-        ballots: voteBallots.slice(0, 11),
+        ballots: voteBallots.slice(0, 10),
       }).success,
     ).toBe(false);
     expect(
@@ -74,6 +76,51 @@ describe("worldHistory minutes schemas", () => {
         ballots: voteBallots.map((b, i) => (i === 0 ? { ...b, vote: "abstain" } : b)),
       }).success,
     ).toBe(false);
+  });
+
+  it("voteMinutesSchema accepts optional debateExcerpts", () => {
+    const withExcerpts = {
+      ...validVoteMinutes,
+      debateExcerpts: [
+        {
+          round: 1,
+          npcId: "npc-2",
+          displayName: "阿斯托利亚",
+          fullText: "完整辩论摘录",
+          feedQuote: "高光",
+        },
+      ],
+    };
+    expect(voteMinutesSchema.parse(withExcerpts)).toEqual(withExcerpts);
+    expect(
+      voteMinutesSchema.safeParse({
+        ...withExcerpts,
+        debateExcerpts: [
+          {
+            round: 1,
+            npcId: "npc-2",
+            displayName: "阿斯托利亚",
+            fullText: "x".repeat(181),
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("normalizeVoteMinutesInput strips legacy proposer ballot", () => {
+    const legacy = {
+      kind: "vote_minutes" as const,
+      proposalFull: "提案",
+      ballots: [
+        { npcId: "npc-1", displayName: "莫玄虚", vote: "yes" as const, reasonZh: "附议" },
+        ...voteBallots,
+      ],
+    };
+    const normalized = normalizeVoteMinutesInput(legacy, { proposerNpcId: "npc-1" });
+    expect(parseWorldHistoryMinutes(normalized).ballots).toHaveLength(11);
+    expect(parseWorldHistoryMinutes(normalized).ballots.some((b) => b.npcId === "npc-1")).toBe(
+      false,
+    );
   });
 });
 

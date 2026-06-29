@@ -142,10 +142,10 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 | **公开读** | `GET /rooms/:roomId/world-history?…` 返回 `WorldHistoryListEntry[]`（**无** `minutes`）；`GET /rooms/:roomId/world-history/:entryId` 返回完整 `WorldHistoryPublicEntry`；`X-Player-Id` + `assertScopedPlayerRequest`；**无** embedding / 内部字段 |
 | **查询** | `status` = `accepted` \| `rejected` \| `all`（默认 `accepted`）；`pageSize` clamp 5–8（默认 6） |
 | **内部写** | `POST /internal/rooms/:roomId/world-history`；`requireWorkerAuth` + Bearer `INTERNAL_WORKER_TOKEN`；body Zod + `checkPlayerMessageContent` / `validateWorldHistoryStrings` |
-| **写回字段** | `entryKind` genesis \| vote；vote 行 **必须** `voteEpoch`；`gameYear` 由 `chronicleGameYearFromMinute(gameMinuteSnapshot)` 派生；vote 行 `minutes.kind=vote_minutes` **必须** 含 12 条 `ballots[]`（`yes` \| `no` + 可选 `reasonZh`） |
+| **写回字段** | `entryKind` genesis \| vote；vote 行 **必须** `voteEpoch`；`gameYear` 由 `chronicleGameYearFromMinute(gameMinuteSnapshot)` 派生；vote 行 `minutes.kind=vote_minutes` **必须** 含 **11** 条 `ballots[]`（非提案人；`yes` \| `no` + `reasonZh`）；提案人见 entry `proposerDisplayName`；**可选** `debateExcerpts[]`（`fullText` ≤180、`feedQuote` ≤80，辩论完整摘录 — ISSUE-094 / [25-FEED-DUAL-OUTPUT.md](../.planning/phases/25-council-vote-debate/25-FEED-DUAL-OUTPUT.md)） |
 | **Reset** | `POST /rooms/:id/reset` **不得**删除 `world_history`（room-shared append-only chronicle；跨 session / per-player reset 存活，与 C-06 `__council__` seed 同类 room-wide 保留） |
 | **Colyseus** | `worldHistorySync` payload `{ entry: WorldHistoryPublicEntry }`；`broadcastWorldHistorySync`；客户端 `onMessage` + `off()` |
-| **Phase 25** | Worker 写 `entry_kind=vote`；通过后 `status=accepted`；debate minutes `kind=vote_minutes`（提案全文上 / 12 票决下，与 genesis `genesis_signatories` 布局对称）；`verify:phase25` 断言 `world-history-minutes-ballots` 12 卡 |
+| **Phase 25** | Worker 写 `entry_kind=vote`；通过后 `status=accepted`；debate minutes `kind=vote_minutes`（提案全文上 / **11** 票决下，提案人单独标注不计票）；`verify:phase25` 断言 `world-history-minutes-ballots` **11** 卡 |
 | **隔离** | 编年史与 C-07 `__council__` memory 读模型分离；禁止 council 种子混入 chronicle GET |
 
 **验证：** `pnpm --filter @aetherlife/game-server test -- index.test.ts world-history` · `pnpm agent:verify`
@@ -163,6 +163,7 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 | **Registry 映射** | 种子读 registry 时用 `councilIndexEdgeIds`（席位序 npc-1…12）；**存储**仍用 `normalizeEdgeIds`（字符串序，满足 CHECK） |
 | **Worker 读** | `GET /internal/rooms/:roomId/npc-relationships`；`requireWorkerAuth`；可选 `?npcId=` + `limit` 返回 top-N by `|affection|` |
 | **Worker 写** | `POST /internal/rooms/:roomId/npc-relationships/apply-deltas`；body `{ deltas: RelationshipDeltaInput[], voteEpoch? }` → `{ linkedEdges }`；单次 `|affectionDelta| ≤ 15`；server clamp affection/trust；**仅** worker `world_vote` job 异步调用 — **禁止** Colyseus `onMessage` |
+| **UI linkedEdges** | Worker **全量** apply-deltas 后，`councilDeliberationSync.linkedEdges` 仅广播 `filter_linked_edges_for_ui(top_k=8, min_abs=8)` 子集；名册 hint 用 broadcast 子集，**非** apply 响应全边 |
 | **Reset** | `POST /rooms/:id/reset` **不得**删除 `npc_relationships`（room-shared，与 `world_history` / `__council__` 同类保留） |
 | **UI** | 客户端 **无**公开 REST；`linkedEdges` 仅经 `councilDeliberationSync` 广播；名册 `council-roster-relationship-hint`（`linkedEdges` 上次 vote job）subtle hint only |
 | **C-07 辩论记忆** | Phase 25 `world_vote.py` debate/vote 理由同步 append `__council__`（见 C-07 Council 写）；关系 delta 与 council memory 同 job 串行 |
@@ -170,6 +171,22 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 **验证：** `pnpm --filter @aetherlife/shared test -- councilDeliberation` · `pnpm --filter @aetherlife/game-server test -- npc-relationships councilRelationshipSeed world-vote` · `cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_world_vote.py -q` · `pnpm verify:phase25`（REL-05 affection delta）
 
 **锚点文件：** `world/npc-relationships-repository.ts`, `memory/councilRelationshipSeed.ts`, `routes/internal-npc-relationships.ts`, `room/store.ts`, `packages/shared/src/councilRelationships.ts`, `packages/shared/src/councilDeliberation.ts`, `packages/npc-memory/migrations/0009_npc_relationships.sql`.
+
+---
+
+## C-10 — Deliberation pacing & job payload [Phase 25 plan 09]
+
+| 层 | 契约 |
+|----|------|
+| **Env** | `VOTE_DEBATE_ROUNDS_MAX` 默认 **5**；`VOTE_INSTANT_DEBATE` 默认 **1**（单 worker job 跑 proposal+全部 debate+ballot）；`VOTE_DEBATE_ROUND_GAME_DAYS` 默认 **1**（paced 模式每轮间隔游戏日，1440 gameMinute） |
+| **Trigger** | `evaluateVoteTrigger` / `forceEnqueueWorldVote` 对 `debateRoundsMax` 调用 `capDebateRoundsMax`；enqueue payload 含 `instant: boolean` |
+| **Checkpoint** | `RoomVoteState.activeDeliberation` 存 paced 中间态（`jobId`, `proposalTitle`, `proposalBody`, `currentRound`, `transcript[]`, `nextRoundAtGameMinute`）；`POST .../world-vote/checkpoint` 写入并 **clear pending**；instant job 完成后 `activeDeliberation=null` |
+| **Continuation** | `maybeEnqueueWorldVote` tick 内优先 `maybeEnqueueDeliberationContinuation`；jobId `${baseJobId}-r{N}`；payload `resumeJobId` + `instant:false` |
+| **Worker** | `instant=true`：单 job 全流程；`instant=false`：slice 0 = proposal+round1 → checkpoint；slice N = round N+1 → checkpoint 或 final ballot+writeback |
+
+**验证：** `pnpm --filter @aetherlife/game-server test -- world-vote-pacing world-vote-trigger` · `cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_world_vote.py -q`
+
+**锚点文件：** `world/world-vote-pacing.ts`, `world/world-vote-state.ts`, `world/world-vote-trigger.ts`, `queue/world-vote.ts`, `workers/agent-worker/src/graph/world_vote.py`.
 
 ---
 

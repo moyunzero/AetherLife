@@ -114,7 +114,7 @@ export function reduceDeliberationSync(
   }
 
   const core: DeliberationCoreState = {
-    active: payload.active,
+    active: payload.phase === "sealed" ? false : payload.active,
     voteKind: payload.voteKind,
     phase: payload.phase,
     round: payload.round,

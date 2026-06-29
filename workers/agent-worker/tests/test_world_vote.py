@@ -65,11 +65,18 @@ class FakeClient:
         self.posts: list[dict] = []
         self.gets: list[str] = []
         self._responses = responses or {}
+        self._active_deliberation: dict | None = None
 
     def get(self, url, *args, **kwargs):
         self.gets.append(url)
         if "world-vote/context" in url:
-            return FakeResponse(data=self._responses.get("context", {"collectiveSummaries": [], "speakSummaries": [], "worldHistoryTail": []}))
+            base = self._responses.get("context", {"collectiveSummaries": [], "speakSummaries": [], "worldHistoryTail": []})
+            if self._active_deliberation:
+                base = {**base, "activeDeliberation": self._active_deliberation}
+            return FakeResponse(data=base)
+        if "world-vote/pending" in url:
+            pending = self._responses.get("pendingJobId", "vote-test-room-regular-480")
+            return FakeResponse(data={"ok": True, "jobId": pending})
         if "npc-relationships" in url:
             edges = self._responses.get("edges", [])
             return FakeResponse(data={"ok": True, "edges": edges})
@@ -77,10 +84,34 @@ class FakeClient:
 
     def post(self, url, *args, **kwargs):
         self.posts.append({"url": url, "json": kwargs.get("json")})
+        if "world-vote/checkpoint" in url:
+            body = kwargs.get("json") or {}
+            self._active_deliberation = {
+                "jobId": body.get("jobId"),
+                "voteKind": body.get("voteKind"),
+                "proposerIndex": body.get("proposerIndex"),
+                "proposalTitle": body.get("proposalTitle"),
+                "proposalBody": body.get("proposalBody"),
+                "currentRound": body.get("currentRound"),
+                "debateRoundsMax": body.get("debateRoundsMax"),
+                "phase": body.get("phase", "debate"),
+                "transcript": body.get("transcript") or [],
+                "nextRoundAtGameMinute": 99999,
+            }
+            return FakeResponse(
+                data={
+                    "ok": True,
+                    "nextRoundAtGameMinute": 99999,
+                    "activeDeliberation": self._active_deliberation,
+                }
+            )
         if "world-history" in url:
             return FakeResponse(data={"ok": True, "entry": {"id": "entry-1"}})
         if "apply-deltas" in url:
             return FakeResponse(data={"ok": True, "linkedEdges": kwargs.get("json", {}).get("deltas", [])})
+        if "council-vote-memories" in url:
+            ballots = kwargs.get("json", {}).get("ballots") or []
+            return FakeResponse(data={"ok": True, "count": len(ballots)})
         return FakeResponse()
 
 
@@ -119,7 +150,7 @@ def test_debate_round_count_regular():
     settings = Settings(llm_mock=True)
     run_one_debate_round(ctx, 1, "测试提案", "提案全文", settings)
     run_one_debate_round(ctx, 2, "测试提案", "提案全文", settings)
-    assert len(ctx.debate_transcript) == 22  # 11 seats × 2 rounds
+    assert len(ctx.debate_transcript) == 24  # 11 voters + proposer × 2 rounds
 
 
 def test_debate_round_count_epoch():
@@ -127,19 +158,72 @@ def test_debate_round_count_epoch():
     settings = Settings(llm_mock=True)
     for r in range(1, 4):
         run_one_debate_round(ctx, r, "纪元提案", "提案", settings)
-    assert len(ctx.debate_transcript) == 33
+    assert len(ctx.debate_transcript) == 36
 
 
-def test_build_minutes_twelve_ballots():
+def test_build_minutes_eleven_ballots_excludes_proposer():
     ballots = [
         {"npcId": f"npc-{i}", "displayName": f"N{i}", "vote": "yes", "reasonZh": "赞成"}
         for i in range(2, 13)
     ]
     minutes = build_minutes("npc-1", "提案全文", ballots)
     assert minutes["kind"] == "vote_minutes"
-    assert len(minutes["ballots"]) == 12
-    assert minutes["ballots"][0]["npcId"] == "npc-1"
-    assert minutes["ballots"][0]["vote"] == "yes"
+    assert len(minutes["ballots"]) == 11
+    assert all(b["npcId"] != "npc-1" for b in minutes["ballots"])
+
+
+def test_build_minutes_includes_debate_excerpts():
+    transcript = [
+        {
+            "npcId": "npc-2",
+            "displayName": "阿斯托利亚",
+            "text": "完整辩论发言" * 5,
+            "feedQuote": "高光一句",
+            "round": 1,
+        },
+        {
+            "npcId": "npc-1",
+            "displayName": "莫玄虚",
+            "text": "提案人发言",
+            "round": 1,
+        },
+    ]
+    ballots = [
+        {"npcId": f"npc-{i}", "displayName": f"N{i}", "vote": "yes", "reasonZh": "赞成"}
+        for i in range(2, 13)
+    ]
+    minutes = build_minutes("npc-1", "提案全文", ballots, transcript)
+    assert "debateExcerpts" in minutes
+    assert len(minutes["debateExcerpts"]) == 1
+    assert minutes["debateExcerpts"][0]["npcId"] == "npc-2"
+    assert minutes["debateExcerpts"][0]["feedQuote"] == "高光一句"
+
+
+def test_debate_highlights_use_feed_quote_not_full_text():
+    ctx = _ctx(debate_rounds_max=1, collective_summaries=["旅者事件"])
+    settings = Settings(llm_mock=True)
+
+    def _fake_utterance(_ctx, npc_id, round_num, title, excerpt, _settings):
+        return {
+            "npcId": npc_id,
+            "displayName": npc_id,
+            "text": "完整" * 60,
+            "feedQuote": "短高光",
+            "round": round_num,
+            "travelerRef": False,
+        }
+
+    import src.graph.world_vote as wv
+
+    original = wv._debate_utterance
+    wv._debate_utterance = _fake_utterance
+    try:
+        highlights = run_one_debate_round(ctx, 1, "标题", "提案", settings)
+    finally:
+        wv._debate_utterance = original
+
+    assert highlights[0]["text"] == "短高光"
+    assert len(highlights[0]["text"]) <= 80
 
 
 def test_all_twelve_seats_relationship_in_debate_prompt():
@@ -157,7 +241,56 @@ def test_all_twelve_seats_relationship_in_debate_prompt():
     ctx.relationship_edges = edges
     settings = Settings(llm_mock=True)
     run_one_debate_round(ctx, 1, "标题", "提案", settings)
-    assert len(ctx.debate_transcript) == 11
+    assert len(ctx.debate_transcript) == 12
+    assert any(line["npcId"] == ctx.proposer_id for line in ctx.debate_transcript)
+
+
+def test_full_job_includes_proposer_reading_in_transcript():
+    settings = Settings(
+        llm_mock=True,
+        game_server_url="http://127.0.0.1:2567",
+        internal_worker_token="test-token",
+    )
+    client = FakeClient(
+        responses={
+            "context": {"collectiveSummaries": [], "speakSummaries": [], "worldHistoryTail": []},
+            "edges": [],
+        }
+    )
+    run_world_vote_job(_payload(debateRoundsMax=1), settings=settings, client=client)
+    sync_posts = [
+        p["json"]
+        for p in client.posts
+        if "council-deliberation-sync" in p["url"] and p["json"].get("phase") == "sealed"
+    ]
+    assert sync_posts
+    linked = sync_posts[-1].get("linkedEdges")
+    assert linked is not None
+
+
+def test_cast_ballot_prompt_includes_proposer_and_debate(monkeypatch):
+    captured: list[str] = []
+
+    def fake_invoke(settings, prompt, **kwargs):
+        captured.append(prompt)
+        return {"vote": "yes", "reasonZh": "赞成"}
+
+    monkeypatch.setattr("src.graph.world_vote._invoke_vote_json", fake_invoke)
+    ctx = _ctx(debate_rounds_max=1)
+    ctx.debate_transcript = [
+        {"npcId": "npc-1", "displayName": "莫玄虚", "text": "宣读提案", "round": 0},
+        {"npcId": "npc-2", "displayName": "席二", "text": "反对操之过急", "round": 1},
+    ]
+    settings = Settings(llm_mock=False)
+    from src.graph.world_vote import _cast_single_ballot
+
+    _cast_single_ballot(ctx, "npc-3", "测试提案", "提案摘要", settings)
+    assert captured
+    prompt = captured[0]
+    assert "莫玄虚" in prompt
+    assert "npc-1" in prompt
+    assert "与提案人" in prompt or "【与提案人】" in prompt
+    assert "辩论摘要" in prompt or "第0轮" in prompt
 
 
 def test_writeback_sequence(monkeypatch):
@@ -183,21 +316,156 @@ def test_writeback_sequence(monkeypatch):
     assert any("council-deliberation-sync" in u for u in urls)
     assert any("world-history" in u for u in urls)
     assert any("world-vote/complete" in u for u in urls)
-    assert any("memories" in u for u in urls)
+    assert any("council-vote-memories" in u for u in urls)
+
+    history_idx = next(i for i, u in enumerate(urls) if "world-history" in u)
+    complete_idx = next(i for i, u in enumerate(urls) if "world-vote/complete" in u)
+    memories_idx = next(i for i, u in enumerate(urls) if "council-vote-memories" in u)
+    sealed_idx = next(
+        i
+        for i, p in enumerate(client.posts)
+        if "council-deliberation-sync" in p["url"] and p["json"].get("phase") == "sealed"
+    )
+    assert history_idx < complete_idx < memories_idx < sealed_idx
 
     history_post = next(p for p in client.posts if "world-history" in p["url"])
     assert history_post["json"]["entryKind"] == "vote"
-    assert len(history_post["json"]["minutes"]["ballots"]) == 12
+    assert len(history_post["json"]["minutes"]["ballots"]) == 11
 
     complete_post = next(p for p in client.posts if "world-vote/complete" in p["url"])
     assert complete_post["json"]["proposerIndex"] == 0
 
+    sealed_syncs = [
+        p["json"]
+        for p in client.posts
+        if "council-deliberation-sync" in p["url"] and p["json"].get("phase") == "sealed"
+    ]
+    assert sealed_syncs, "expected sealed deliberation sync"
+    assert sealed_syncs[-1]["active"] is False
 
-def test_load_context_fetches_relationships():
+
+def test_paced_world_vote_pauses_after_first_round():
+    settings = Settings(
+        llm_mock=True,
+        game_server_url="http://127.0.0.1:2567",
+        internal_worker_token="test-token",
+    )
+    client = FakeClient(
+        responses={
+            "context": {"collectiveSummaries": [], "speakSummaries": [], "worldHistoryTail": []},
+            "edges": [],
+            "pendingJobId": "vote-test-room-regular-480",
+        }
+    )
+    result = run_world_vote_job(
+        _payload(debateRoundsMax=2, instant=False),
+        settings=settings,
+        client=client,
+    )
+    assert result["status"] == "paused"
+    assert result["currentRound"] == 1
+    assert any("world-vote/checkpoint" in p["url"] for p in client.posts)
+    assert not any("world-vote/complete" in p["url"] for p in client.posts)
+
+
+def test_paced_world_vote_resumes_and_finalizes():
+    settings = Settings(
+        llm_mock=True,
+        game_server_url="http://127.0.0.1:2567",
+        internal_worker_token="test-token",
+    )
+    client = FakeClient(
+        responses={
+            "context": {"collectiveSummaries": [], "speakSummaries": [], "worldHistoryTail": []},
+            "edges": [],
+            "pendingJobId": "vote-test-room-regular-480-r2",
+        }
+    )
+    client._active_deliberation = {
+        "jobId": "vote-test-room-regular-480",
+        "voteKind": "regular",
+        "proposerIndex": 0,
+        "proposalTitle": "测试提案",
+        "proposalBody": "提案全文",
+        "currentRound": 1,
+        "debateRoundsMax": 2,
+        "phase": "debate",
+        "transcript": [{"npcId": "npc-1", "displayName": "莫玄虚", "text": "宣读", "round": 0}],
+    }
+    result = run_world_vote_job(
+        {
+            **_payload(debateRoundsMax=2, instant=False),
+            "jobId": "vote-test-room-regular-480-r2",
+            "resumeJobId": "vote-test-room-regular-480",
+        },
+        settings=settings,
+        client=client,
+    )
+    assert result["status"] in ("accepted", "rejected")
+    assert any("world-vote/complete" in p["url"] for p in client.posts)
+
+
+def test_vote_epoch_base_job_id_strips_continuation_suffix_only():
+    ctx = _ctx()
+    ctx.job_id = "vote-default-regular-360-r2"
+    ctx.resume_job_id = None
+    assert ctx.vote_epoch_base_job_id == "vote-default-regular-360"
+
+    ctx2 = _ctx()
+    ctx2.job_id = "vote-default-regular-360"
+    assert ctx2.vote_epoch_base_job_id == "vote-default-regular-360"
+
+
+def test_writeback_skipped_when_job_superseded(monkeypatch):
+    settings = Settings(
+        llm_mock=True,
+        game_server_url="http://127.0.0.1:2567",
+        internal_worker_token="test-token",
+    )
+
+    class StaleCheckClient(FakeClient):
+        def get(self, url, *args, **kwargs):
+            self.gets.append(url)
+            if "world-vote/pending" in url:
+                return FakeResponse(data={"ok": True, "jobId": "other-job"})
+            return super().get(url, *args, **kwargs)
+
+    client = StaleCheckClient(
+        responses={
+            "context": {"collectiveSummaries": [], "speakSummaries": [], "worldHistoryTail": []},
+            "edges": [],
+        }
+    )
+    result = run_world_vote_job(_payload(jobId="vote-test-room-regular-480"), settings=settings, client=client)
+    assert result["status"] == "superseded"
+    assert not any("world-history" in p["url"] for p in client.posts)
+
+
+def test_recover_ballot_from_prose():
+    from src.graph.world_vote import _recover_json_from_prose
+
+    raw = '本席认为应当通过。{"vote":"yes","reasonZh":"秩序优先"}'
+    data = _recover_json_from_prose(raw, kind="ballot", npc_id="npc-1", seed="s")
+    assert data is not None
+    assert data["vote"] == "yes"
+    assert "秩序" in data["reasonZh"]
     settings = Settings(llm_mock=True, game_server_url="http://127.0.0.1:2567")
     client = FakeClient(responses={"edges": [{"npcAId": "npc-1", "npcBId": "npc-7", "affection": 10, "baseTag": "ally", "currentStatus": [], "historySummary": ""}]})
     ctx = load_context(client, settings, _payload())
     assert len(ctx.relationship_edges) == 1
+
+
+def test_reconcile_ballot_flips_yes_when_reason_opposes():
+    from src.council.vote_prompt import reconcile_ballot_vote_reason
+
+    ballot = {
+        "npcId": "npc-1",
+        "displayName": "莫玄虚",
+        "vote": "yes",
+        "reasonZh": "此议过激，恐乱始源平衡，不宜通过。",
+    }
+    out = reconcile_ballot_vote_reason(ballot)
+    assert out["vote"] == "no"
 
 
 def test_vote_llm_never_zhipu():

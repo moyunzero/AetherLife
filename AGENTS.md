@@ -76,6 +76,8 @@ Run from **repository root** unless noted.
 | **Agent verify (diff → tests)** | `pnpm agent:verify` — fast L2; `pnpm agent:verify --e2e` — golden flows (needs `dev:stack`) |
 | **Scope audit** | `AGENT_SCOPE="path/*" pnpm agent:verify:scope` |
 | **Git pre-push hook** | `pnpm hooks:install` once → runs `agent:verify --base` on push |
+| **Council persona export** | `pnpm council:export-personas` — dossiers → compact + speak JSON |
+| **Council persona audit** | `pnpm council:audit-personas` — 0 issues before merge（见 [COUNCIL-PERSONAS.md](./docs/COUNCIL-PERSONAS.md)） |
 
 Secrets: root `.env` from `.env.example` — **never commit** `.env` or API keys.
 
@@ -173,6 +175,7 @@ Ledger: [docs/ISSUE-LOG.md](./docs/ISSUE-LOG.md) — open → fixed + verificati
 | [CLAUDE.md](./CLAUDE.md) | GSD project brief, stack versions, workflow |
 | [docs/ISSUE-LOG.md](./docs/ISSUE-LOG.md) | Bug ledger + guardrails |
 | [docs/PHASE-EVOLUTION.md](./docs/PHASE-EVOLUTION.md) | 阶段演进防债务 + GSD skill 映射 |
+| [docs/COUNCIL-PERSONAS.md](./docs/COUNCIL-PERSONAS.md) | 12 席议会人设 SSOT + export/audit |
 | [docs/CONTRACTS.md](./docs/CONTRACTS.md) | 跨层契约 C-01…05 |
 | [docs/INVARIANTS-MULTIPLAYER.md](./docs/INVARIANTS-MULTIPLAYER.md) | MP-01…10 多人空间/NL 硬约束 |
 | [docs/MOVEMENT-ARCHITECTURE.md](./docs/MOVEMENT-ARCHITECTURE.md) | Phaser-first 移动/同步（Phase 10.5，Steam 向） |

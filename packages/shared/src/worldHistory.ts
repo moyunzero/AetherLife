@@ -1,5 +1,8 @@
 import { z } from "zod";
+import { COUNCIL_VOTE_BALLOT_COUNT } from "./council/constants.js";
 import { checkPlayerMessageContent } from "./contentGuard.js";
+
+export { COUNCIL_VOTE_BALLOT_COUNT };
 
 export const genesisSignatorySchema = z.object({
   npcId: z.string(),
@@ -22,11 +25,41 @@ export const voteBallotSchema = z.object({
   reasonZh: z.string(),
 });
 
+export const debateExcerptSchema = z.object({
+  round: z.number().int().min(0),
+  npcId: z.string().min(1),
+  displayName: z.string().min(1),
+  fullText: z.string().min(1).max(180),
+  feedQuote: z.string().max(80).optional(),
+});
+
 export const voteMinutesSchema = z.object({
   kind: z.literal("vote_minutes"),
   proposalFull: z.string(),
-  ballots: z.array(voteBallotSchema).length(12),
+  /** 11 non-proposer seats; proposer is recorded on the entry, not in ballots. */
+  ballots: z.array(voteBallotSchema).length(COUNCIL_VOTE_BALLOT_COUNT),
+  /** Optional debate archive from worker transcript (Phase 25 dual-output). */
+  debateExcerpts: z.array(debateExcerptSchema).max(24).optional(),
 });
+
+/** Legacy rows stored 12 ballots including proposer; strip proposer before zod parse. */
+export function normalizeVoteMinutesInput(
+  input: unknown,
+  options?: { proposerNpcId?: string | null },
+): unknown {
+  if (!input || typeof input !== "object") return input;
+  const obj = input as { kind?: string; ballots?: Array<{ npcId?: string }> };
+  if (obj.kind !== "vote_minutes" || !Array.isArray(obj.ballots)) return input;
+  if (obj.ballots.length === COUNCIL_VOTE_BALLOT_COUNT) return input;
+  const proposer = options?.proposerNpcId;
+  if (obj.ballots.length === 12 && proposer) {
+    return {
+      ...obj,
+      ballots: obj.ballots.filter((b) => b?.npcId !== proposer),
+    };
+  }
+  return input;
+}
 
 export const worldHistoryMinutesSchema = z.discriminatedUnion("kind", [
   genesisMinutesSchema,
@@ -36,6 +69,7 @@ export const worldHistoryMinutesSchema = z.discriminatedUnion("kind", [
 export type GenesisSignatory = z.infer<typeof genesisSignatorySchema>;
 export type GenesisMinutes = z.infer<typeof genesisMinutesSchema>;
 export type VoteBallot = z.infer<typeof voteBallotSchema>;
+export type DebateExcerpt = z.infer<typeof debateExcerptSchema>;
 export type VoteMinutes = z.infer<typeof voteMinutesSchema>;
 export type WorldHistoryMinutes = z.infer<typeof worldHistoryMinutesSchema>;
 
@@ -86,12 +120,18 @@ export function parseWorldHistoryStatusFilter(
   return "accepted";
 }
 
-export function parseWorldHistoryMinutes(input: unknown): WorldHistoryMinutes {
-  return worldHistoryMinutesSchema.parse(input);
+export function parseWorldHistoryMinutes(
+  input: unknown,
+  options?: { proposerNpcId?: string | null },
+): WorldHistoryMinutes {
+  return worldHistoryMinutesSchema.parse(normalizeVoteMinutesInput(input, options));
 }
 
-export function safeParseWorldHistoryMinutes(input: unknown) {
-  return worldHistoryMinutesSchema.safeParse(input);
+export function safeParseWorldHistoryMinutes(
+  input: unknown,
+  options?: { proposerNpcId?: string | null },
+) {
+  return worldHistoryMinutesSchema.safeParse(normalizeVoteMinutesInput(input, options));
 }
 
 /** Returns first blocklist failure reason, or null if title and proposal pass. */

@@ -5,6 +5,7 @@ import {
   clearWorldVotePending,
   closeWorldVoteQueue,
   getMockWorldVoteJob,
+  getPendingWorldVoteJobId,
   worldVoteJobId,
 } from "./world-vote.js";
 
@@ -109,5 +110,36 @@ describe("world-vote queue", () => {
       proposerIndex: 1,
     });
     expect(next).not.toBe(id);
+  });
+
+  it("getPendingWorldVoteJobId tracks in-flight job", async () => {
+    expect(getPendingWorldVoteJobId("room-1")).toBeUndefined();
+    const id = await addWorldVoteJob({
+      roomId: "room-1",
+      voteKind: "regular",
+      gameMinute: 480,
+      debateRoundsMax: 2,
+      proposerIndex: 0,
+    });
+    expect(getPendingWorldVoteJobId("room-1")).toBe(id);
+    clearWorldVotePending("room-1", id ?? undefined);
+    expect(getPendingWorldVoteJobId("room-1")).toBeUndefined();
+  });
+
+  it("addWorldVoteContinuationJob sets resumeJobId and instant=false", async () => {
+    const { addWorldVoteContinuationJob } = await import("./world-vote.js");
+    const id = await addWorldVoteContinuationJob({
+      roomId: "room-1",
+      resumeJobId: "vote-room-1-regular-480",
+      debateRound: 2,
+      gameMinute: 480,
+      voteKind: "regular",
+      proposerIndex: 0,
+      debateRoundsMax: 2,
+    });
+    expect(id).toBe("vote-room-1-regular-480-r2");
+    const job = getMockWorldVoteJob(id!);
+    expect(job?.resumeJobId).toBe("vote-room-1-regular-480");
+    expect(job?.instant).toBe(false);
   });
 });

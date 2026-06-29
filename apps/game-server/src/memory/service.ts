@@ -10,6 +10,37 @@ import { scoreImportance } from "./importance.js";
 import type { CollectiveContext } from "../collective/service.js";
 import { CollectiveService } from "../collective/service.js";
 
+const COUNCIL_VOTE_MEMORY_MARKER = "廷议表决";
+
+function councilRecentAsRetrieved(
+  rows: Array<{ text: string }>,
+  importance = 0.6,
+): SimilarMemory[] {
+  return rows
+    .filter((row) => row.text.includes(COUNCIL_VOTE_MEMORY_MARKER))
+    .map((row) => ({
+      text: row.text,
+      score: 0.55 * (0.5 + importance / 20),
+      importance,
+    }));
+}
+
+function mergeRetrievedMemories(
+  vectorResults: SimilarMemory[],
+  recentResults: SimilarMemory[],
+  k = 5,
+): SimilarMemory[] {
+  const seen = new Set<string>();
+  const merged: SimilarMemory[] = [];
+  for (const item of [...vectorResults, ...recentResults]) {
+    if (seen.has(item.text)) continue;
+    seen.add(item.text);
+    merged.push(item);
+    if (merged.length >= k) break;
+  }
+  return merged.sort((a, b) => b.score - a.score);
+}
+
 export type MemoryContext = {
   memoryCount: number;
   retrieved: SimilarMemory[];
@@ -80,6 +111,28 @@ class TestMemoryBackend {
       createdAt: new Date(),
     });
     return id;
+  }
+
+  async updateMemoryEmbedding(id: string, embedding: number[]) {
+    const row = this.memories.find((m) => m.id === id);
+    if (row) row.embedding = embedding;
+  }
+
+  async appendMemoryBatch(
+    inputs: Array<{
+      roomId: string;
+      playerId: string;
+      npcId: string;
+      text: string;
+      importance: number;
+      embedding?: number[];
+    }>,
+  ) {
+    const ids: string[] = [];
+    for (const input of inputs) {
+      ids.push(await this.appendMemory(input));
+    }
+    return ids;
   }
 
   async searchSimilar(input: {
@@ -288,11 +341,75 @@ export class MemoryService {
     npcId: string,
     playerId: string,
     importance?: number,
+    options?: { skipEmbed?: boolean },
   ): Promise<void> {
     const line = text.startsWith("npc:") ? text : `npc: ${text}`;
     const score = importance ?? (await scoreImportance(line));
-    const embedding = await embedText(line);
+    const embedding = options?.skipEmbed === true ? undefined : await embedText(line);
     await this.append({ roomId, playerId, npcId, text: line, importance: score, embedding });
+  }
+
+  /** Bulk council vote tail: fast insert then parallel embed (Phase 25 writeback). */
+  async appendCouncilVoteMemories(
+    roomId: string,
+    ballots: Array<{ npcId: string; vote: string; reasonZh: string }>,
+  ): Promise<{ count: number }> {
+    const playerId = COUNCIL_MEMORY_PLAYER_ID;
+    const rows = ballots.map((ballot) => ({
+      roomId,
+      playerId,
+      npcId: ballot.npcId,
+      text: `npc: 廷议表决：${ballot.vote} — ${ballot.reasonZh}`,
+      importance: 0.6,
+    }));
+    if (rows.length === 0) {
+      return { count: 0 };
+    }
+
+    let ids: string[];
+    if (this.test) {
+      ids = await this.test.appendMemoryBatch(rows);
+    } else {
+      ids = await this.repo!.appendMemoryBatch(rows);
+    }
+
+    await this.embedMemoryRows(ids, rows.map((row) => row.text));
+    return { count: ids.length };
+  }
+
+  private async embedMemoryRows(ids: string[], texts: string[]): Promise<void> {
+    const concurrency = 3;
+    const maxAttempts = 3;
+    const failures: string[] = [];
+
+    for (let offset = 0; offset < ids.length; offset += concurrency) {
+      const chunkIds = ids.slice(offset, offset + concurrency);
+      const chunkTexts = texts.slice(offset, offset + concurrency);
+      await Promise.all(
+        chunkIds.map(async (id, index) => {
+          const text = chunkTexts[index]!;
+          let lastError: unknown;
+          for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+            try {
+              const embedding = await embedText(text);
+              if (this.test) {
+                await this.test.updateMemoryEmbedding(id, embedding);
+              } else {
+                await this.repo!.updateMemoryEmbedding(id, embedding);
+              }
+              return;
+            } catch (err) {
+              lastError = err;
+            }
+          }
+          failures.push(`${id}: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
+        }),
+      );
+    }
+
+    if (failures.length > 0) {
+      throw new Error(`council vote memory embed failed (${failures.length}): ${failures[0]}`);
+    }
   }
 
   private async append(input: {
@@ -301,7 +418,7 @@ export class MemoryService {
     npcId: string;
     text: string;
     importance: number;
-    embedding: number[];
+    embedding?: number[];
   }) {
     if (this.test) {
       await this.test.appendMemory(input);
@@ -358,6 +475,20 @@ export class MemoryService {
     return this.fetchMemoryContext(roomId, query, npcId, COUNCIL_MEMORY_PLAYER_ID, options);
   }
 
+  private async fetchCouncilRecentRetrieved(
+    roomId: string,
+    playerId: string,
+    npcId: string,
+    limit = 5,
+  ): Promise<SimilarMemory[]> {
+    if (this.test) {
+      const recent = await this.test.recentBatch(roomId, playerId, npcId, limit);
+      return councilRecentAsRetrieved(recent);
+    }
+    const recent = await this.repo!.getRecentUnsummarized({ roomId, playerId, npcId, limit });
+    return councilRecentAsRetrieved(recent);
+  }
+
   private async fetchMemoryContext(
     roomId: string,
     playerMessage: string,
@@ -368,18 +499,23 @@ export class MemoryService {
     const start = Date.now();
     const skipEmbed = options?.skipEmbed === true;
     const embedPriority = options?.embedPriority === true;
+    const isCouncilScope = playerId === COUNCIL_MEMORY_PLAYER_ID;
     const collectivePromise = CollectiveService.getInstance().getCollectiveContext(
       roomId,
       npcId,
       playerId,
     );
+    const recentCouncilPromise = isCouncilScope
+      ? this.fetchCouncilRecentRetrieved(roomId, playerId, npcId)
+      : Promise.resolve([] as SimilarMemory[]);
 
     if (this.test) {
       const collective = await collectivePromise;
+      const recentCouncil = await recentCouncilPromise;
       if (skipEmbed) {
         return {
           memoryCount: await this.test.countRaw(roomId, playerId, npcId),
-          retrieved: [],
+          retrieved: isCouncilScope ? recentCouncil : [],
           latestBulkSummary: this.test.latestSummary(roomId, playerId, npcId, "bulk"),
           latestReflection: this.test.latestSummary(roomId, playerId, npcId, "reflection"),
           timingMs: Date.now() - start,
@@ -396,7 +532,7 @@ export class MemoryService {
       });
       return {
         memoryCount: await this.test.countRaw(roomId, playerId, npcId),
-        retrieved,
+        retrieved: isCouncilScope ? mergeRetrievedMemories(retrieved, recentCouncil) : retrieved,
         latestBulkSummary: this.test.latestSummary(roomId, playerId, npcId, "bulk"),
         latestReflection: this.test.latestSummary(roomId, playerId, npcId, "reflection"),
         timingMs: Date.now() - start,
@@ -406,16 +542,17 @@ export class MemoryService {
 
     const repo = this.repo!;
     if (skipEmbed) {
-      const [memoryCount, latestBulkSummary, latestReflection, collective] =
+      const [memoryCount, latestBulkSummary, latestReflection, collective, recentCouncil] =
         await Promise.all([
           repo.countRaw({ roomId, playerId, npcId, unsummarizedOnly: true }),
           repo.getLatestSummaryByKind({ roomId, playerId, npcId, kind: "bulk" }),
           repo.getLatestSummaryByKind({ roomId, playerId, npcId, kind: "reflection" }),
           collectivePromise,
+          recentCouncilPromise,
         ]);
       return {
         memoryCount,
-        retrieved: [],
+        retrieved: isCouncilScope ? recentCouncil : [],
         latestBulkSummary,
         latestReflection,
         timingMs: Date.now() - start,
@@ -424,18 +561,19 @@ export class MemoryService {
     }
 
     const queryEmbedding = await embedText(playerMessage, { priority: embedPriority });
-    const [retrieved, memoryCount, latestBulkSummary, latestReflection, collective] =
+    const [retrieved, memoryCount, latestBulkSummary, latestReflection, collective, recentCouncil] =
       await Promise.all([
         repo.searchSimilar({ roomId, playerId, npcId, queryEmbedding, k: 5 }),
         repo.countRaw({ roomId, playerId, npcId, unsummarizedOnly: true }),
         repo.getLatestSummaryByKind({ roomId, playerId, npcId, kind: "bulk" }),
         repo.getLatestSummaryByKind({ roomId, playerId, npcId, kind: "reflection" }),
         collectivePromise,
+        recentCouncilPromise,
       ]);
 
     return {
       memoryCount,
-      retrieved,
+      retrieved: isCouncilScope ? mergeRetrievedMemories(retrieved, recentCouncil) : retrieved,
       latestBulkSummary,
       latestReflection,
       timingMs: Date.now() - start,

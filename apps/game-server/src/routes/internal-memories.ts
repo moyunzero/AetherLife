@@ -34,6 +34,7 @@ export function createInternalMemoriesRouter(): Router {
     const importance =
       typeof req.body?.importance === "number" ? req.body.importance : undefined;
     const role = req.body?.role === "player" ? "player" : "npc";
+    const skipEmbed = req.body?.skipEmbed === true;
 
     if (!text) {
       res.status(400).json({ ok: false, error: "text required" });
@@ -49,12 +50,46 @@ export function createInternalMemoriesRouter(): Router {
       if (role === "player") {
         await service.appendPlayerMemory(roomId, text, npcId, playerId, importance);
       } else {
-        await service.appendNpcMemory(roomId, text, npcId, playerId, importance);
+        await service.appendNpcMemory(roomId, text, npcId, playerId, importance, { skipEmbed });
       }
       invalidateMemoryContextForPlayer(roomId, playerId, npcId);
       res.json({ ok: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : "append failed";
+      res.status(500).json({ ok: false, error: message });
+    }
+  });
+
+  router.post("/:roomId/council-vote-memories", async (req: Request, res: Response) => {
+    const { roomId } = req.params;
+    const ballots = Array.isArray(req.body?.ballots) ? req.body.ballots : [];
+
+    const parsed = ballots
+      .map((ballot: unknown) => {
+        if (!ballot || typeof ballot !== "object") return null;
+        const row = ballot as Record<string, unknown>;
+        const npcId = typeof row.npcId === "string" ? row.npcId : "";
+        const vote = typeof row.vote === "string" ? row.vote : "";
+        const reasonZh = typeof row.reasonZh === "string" ? row.reasonZh.trim() : "";
+        if (!npcId || !vote || !reasonZh) return null;
+        return { npcId, vote, reasonZh };
+      })
+      .filter((row): row is { npcId: string; vote: string; reasonZh: string } => row !== null);
+
+    if (parsed.length === 0) {
+      res.status(400).json({ ok: false, error: "ballots required" });
+      return;
+    }
+
+    try {
+      const service = MemoryService.getInstance();
+      const result = await service.appendCouncilVoteMemories(roomId, parsed);
+      for (const ballot of parsed) {
+        invalidateMemoryContextForPlayer(roomId, COUNCIL_MEMORY_PLAYER_ID, ballot.npcId);
+      }
+      res.json({ ok: true, count: result.count });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "council vote memories failed";
       res.status(500).json({ ok: false, error: message });
     }
   });

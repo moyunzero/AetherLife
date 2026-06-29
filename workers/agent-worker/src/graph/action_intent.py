@@ -167,7 +167,7 @@ def resolve_npc_relative_move_cell(
     room: dict[str, Any],
     dialogue_context: str = "",
 ) -> tuple[int, int] | None:
-    """Resolve move target relative to another NPC named in the message (e.g. 费雪下方)."""
+    """Resolve move target relative to another NPC named in the message (e.g. 阿斯托利亚下方)."""
     text = (message or "").strip()
     if not text or not player_requests_move(text):
         return None

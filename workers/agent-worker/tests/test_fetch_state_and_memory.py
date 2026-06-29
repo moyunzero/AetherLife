@@ -19,7 +19,7 @@ def _clear_worker_snapshot_cache():
 def test_physical_action_skips_full_memory_but_loads_collective_gate():
     state = {
         "room_id": "default",
-        "player_message": "费雪找你，去她下方好吗？",
+        "player_message": "阿斯托利亚找你，去她下方好吗？",
         "npc_id": "npc-1",
         "player_id": "p1",
     }
@@ -31,8 +31,8 @@ def test_physical_action_skips_full_memory_but_loads_collective_gate():
         "state": {
             "roomId": "default",
             "npcs": [
-                {"id": "npc-1", "name": "路昂", "x": 23, "y": 10},
-                {"id": "npc-2", "name": "费雪", "x": 9, "y": 21},
+                {"id": "npc-1", "name": "莫玄虚", "x": 23, "y": 10},
+                {"id": "npc-2", "name": "阿斯托利亚", "x": 9, "y": 21},
             ],
             "objects": [],
         },

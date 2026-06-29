@@ -113,7 +113,7 @@
     },
     {
       "id": "zh-mixed-1",
-      "message": "路昂走到 4,4",
+      "message": "莫玄虚走到 4,4",
       "expected": { "type": "move", "x": 4, "y": 4 }
     },
     {

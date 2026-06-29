@@ -55,8 +55,8 @@ function voteEntry(overrides: Partial<WorldHistoryPublicEntry> = {}): WorldHisto
     minutes: {
       kind: "vote_minutes",
       proposalFull: "提议扩建始源区农田。",
-      ballots: Array.from({ length: 12 }, (_, i) => ({
-        npcId: `npc-${i + 1}`,
+      ballots: Array.from({ length: 11 }, (_, i) => ({
+        npcId: `npc-${i + 2}`,
         displayName: `议员${i + 1}`,
         vote: (i < 8 ? "yes" : "no") as "yes" | "no",
         reasonZh: `理由${i + 1}`,

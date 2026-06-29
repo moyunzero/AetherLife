@@ -13,7 +13,7 @@ from src.graph.speak_intent import (
 def test_physical_intent():
     assert classify_speak_intent("向右走一步") == SpeakIntent.PHYSICAL
     assert classify_speak_intent("打开门") == SpeakIntent.PHYSICAL
-    assert classify_speak_intent("去费雪旁边") == SpeakIntent.PHYSICAL
+    assert classify_speak_intent("去阿斯托利亚旁边") == SpeakIntent.PHYSICAL
     assert classify_speak_intent("move to (3,4)") == SpeakIntent.PHYSICAL
     assert classify_speak_intent("请帮我走到左侧") == SpeakIntent.PHYSICAL
 

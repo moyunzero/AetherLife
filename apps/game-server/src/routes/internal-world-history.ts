@@ -115,7 +115,9 @@ export function createInternalWorldHistoryRouter(): Router {
 
     let minutes;
     try {
-      minutes = parseWorldHistoryMinutes(data.minutes);
+      minutes = parseWorldHistoryMinutes(data.minutes, {
+        proposerNpcId: data.proposerNpcId ?? null,
+      });
     } catch {
       res.status(400).json({ ok: false, error: "invalid minutes schema" });
       return;

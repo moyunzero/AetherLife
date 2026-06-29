@@ -6,6 +6,66 @@ from typing import Any
 
 from src.council.constants import COUNCIL_NPC_IDS
 from src.council.registry import get_persona
+from src.council.speak_registry import get_speak_persona
+
+
+def _registry_relationship_summary(voter_id: str, proposer_id: str) -> str:
+    speak = get_speak_persona(voter_id)
+    if not speak:
+        return ""
+    for rel in speak.get("relationships") or []:
+        if rel.get("targetId") == proposer_id:
+            kind = rel.get("kind") or "peer"
+            summary = (rel.get("summary") or "").strip()
+            return f"[{kind}] {summary[:100]}" if summary else f"[{kind}]"
+    return ""
+
+
+def _find_runtime_edge(
+    voter_id: str,
+    proposer_id: str,
+    edges: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    for edge in edges:
+        a, b = edge.get("npcAId"), edge.get("npcBId")
+        if (a == voter_id and b == proposer_id) or (a == proposer_id and b == voter_id):
+            return edge
+    return None
+
+
+def format_proposer_relationship(
+    voter_id: str,
+    proposer_id: str,
+    edges: list[dict[str, Any]],
+) -> str:
+    """Dedicated proposer edge block for ballot prompts (ISSUE-060)."""
+    proposer_name = display_name_for_edge(proposer_id)
+    header = f"【与提案人】{proposer_name}（{proposer_id}）"
+    runtime = _find_runtime_edge(voter_id, proposer_id, edges)
+    if runtime:
+        return f"{header}\n{format_edge_line(runtime, voter_id)}"
+    registry_line = _registry_relationship_summary(voter_id, proposer_id)
+    if registry_line:
+        return f"{header}\n·{proposer_name} {registry_line}"
+    return f"{header}\n·请结合本席 persona 与议会立场判断对此提案态度。"
+
+
+def format_debate_transcript_summary(
+    transcript: list[dict[str, Any]],
+    *,
+    max_chars: int = 2000,
+) -> str:
+    """Compact debate context for ballot prompts."""
+    if not transcript:
+        return "（本轮无辩论记录）"
+    lines: list[str] = []
+    for row in transcript:
+        name = row.get("displayName") or display_name_for_edge(str(row.get("npcId") or ""))
+        round_num = row.get("round", 0)
+        text = str(row.get("text") or "")[:120]
+        lines.append(f"第{round_num}轮 {name}：{text}")
+    body = "\n".join(lines)
+    return body[:max_chars]
 
 
 def _registry_fallback_summary(npc_id: str, other_id: str) -> str:
