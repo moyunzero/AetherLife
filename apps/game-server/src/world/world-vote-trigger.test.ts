@@ -1,8 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearMockWorldVoteJobs, closeWorldVoteQueue, getMockWorldVoteJob } from "../queue/world-vote.js";
+import * as npcTurn from "../queue/npc-turn.js";
+import { startNpcChatTurn } from "../colyseus/npc-chat.js";
 import {
   applyDeliberationCheckpoint,
   clearRoomVoteStateForTests,
+  getRoomVoteState,
   recordPlayerSpeak,
   tickRoomVoteClock,
 } from "./world-vote-state.js";
@@ -273,5 +276,25 @@ describe("world-vote-trigger", () => {
     const job = getMockWorldVoteJob(jobId!);
     expect(job?.instant).toBe(false);
     expect(job?.resumeJobId).toBe("vote-room-regular-480");
+  });
+
+  it("GameRoom speak contract: recordPlayerSpeak only after successful enqueue", async () => {
+    const roomId = "speak-order-room";
+    const enqueueSpy = vi.spyOn(npcTurn, "addNpcTurnJob");
+
+    async function speakAfterEnqueue() {
+      await startNpcChatTurn(roomId, "你好", "npc-1", "player-alpha01", "job-speak-order");
+      recordPlayerSpeak(roomId);
+    }
+
+    enqueueSpy.mockRejectedValueOnce(new Error("redis unavailable"));
+    await expect(speakAfterEnqueue()).rejects.toThrow("redis unavailable");
+    expect(getRoomVoteState(roomId).hasPlayerSpeak).toBe(false);
+
+    enqueueSpy.mockResolvedValueOnce("job-speak-order");
+    await speakAfterEnqueue();
+    expect(getRoomVoteState(roomId).hasPlayerSpeak).toBe(true);
+
+    enqueueSpy.mockRestore();
   });
 });

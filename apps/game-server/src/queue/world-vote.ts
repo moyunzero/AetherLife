@@ -93,6 +93,7 @@ export async function addWorldVoteJob(input: {
       `[world-vote] replacing stale pending room=${input.roomId} ` +
         `old=${existingPending} kind=${existing?.voteKind} minute=${existing?.gameMinute}`,
     );
+    mockJobs.delete(existingPending);
     pendingByRoom.delete(input.roomId);
   }
 
@@ -157,6 +158,7 @@ export function clearWorldVotePending(roomId: string, jobId?: string): void {
   if (!pending) return;
   if (jobId && pending !== jobId) return;
   pendingByRoom.delete(roomId);
+  mockJobs.delete(pending);
 }
 
 export function getMockWorldVoteJob(jobId: string): WorldVoteJobPayload | undefined {

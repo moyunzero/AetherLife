@@ -88,7 +88,8 @@ def select_canon_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
             rejected.append(entry)
     selected = list(accepted_or_genesis)
     if rejected:
-        latest = rejected[-1]
+        # Entries from GET /world-history are newest-first (sequence DESC).
+        latest = rejected[0]
         if not any(e.get("id") == latest.get("id") for e in selected):
             selected.append(latest)
     return selected

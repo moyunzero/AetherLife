@@ -56,7 +56,7 @@ describe("world-vote queue", () => {
     expect(second).toBe(first);
   });
 
-  it("replaces stale pending when voteKind or gameMinute differs", async () => {
+  it("replaces stale pending when voteKind or gameMinute differs and drops old mock job", async () => {
     const first = await addWorldVoteJob({
       roomId: "room-1",
       voteKind: "regular",
@@ -64,6 +64,7 @@ describe("world-vote queue", () => {
       debateRoundsMax: 2,
       proposerIndex: 0,
     });
+    expect(getMockWorldVoteJob(first!)).toBeDefined();
     const second = await addWorldVoteJob({
       roomId: "room-1",
       voteKind: "epoch",
@@ -72,7 +73,8 @@ describe("world-vote queue", () => {
       proposerIndex: 1,
     });
     expect(second).not.toBe(first);
-    expect(second).toBe(worldVoteJobId("room-1", "epoch", 481));
+    expect(getMockWorldVoteJob(first!)).toBeUndefined();
+    expect(getMockWorldVoteJob(second!)).toBeDefined();
   });
 
   it("allows parallel pending jobs for different rooms", async () => {
@@ -93,7 +95,7 @@ describe("world-vote queue", () => {
     expect(roomA).not.toBe(roomB);
   });
 
-  it("clearWorldVotePending releases room slot", async () => {
+  it("clearWorldVotePending releases room slot and drops mock job payload", async () => {
     const id = await addWorldVoteJob({
       roomId: "room-1",
       voteKind: "regular",
@@ -101,7 +103,9 @@ describe("world-vote queue", () => {
       debateRoundsMax: 2,
       proposerIndex: 0,
     });
+    expect(getMockWorldVoteJob(id!)).toBeDefined();
     clearWorldVotePending("room-1");
+    expect(getMockWorldVoteJob(id!)).toBeUndefined();
     const next = await addWorldVoteJob({
       roomId: "room-1",
       voteKind: "regular",

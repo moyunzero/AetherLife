@@ -113,10 +113,15 @@ export function createInternalWorldHistoryRouter(): Router {
       return;
     }
 
+    if (data.entryKind === "vote" && !data.proposerNpcId) {
+      res.status(400).json({ ok: false, error: "proposerNpcId required for vote entries" });
+      return;
+    }
+
     let minutes;
     try {
       minutes = parseWorldHistoryMinutes(data.minutes, {
-        proposerNpcId: data.proposerNpcId ?? null,
+        proposerNpcId: data.entryKind === "vote" ? data.proposerNpcId! : null,
       });
     } catch {
       res.status(400).json({ ok: false, error: "invalid minutes schema" });

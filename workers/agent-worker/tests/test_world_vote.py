@@ -476,3 +476,87 @@ def test_vote_llm_never_zhipu():
     providers = [p for p, _ in attempts]
     assert "zhipu" not in providers
     assert "agnes" in providers or "nvidia" in providers
+
+
+def test_post_world_history_yes_count_matches_ballot_tally():
+    from src.graph.world_vote import post_world_history
+
+    ballots = [{"npcId": f"npc-{i}", "vote": "yes" if i <= 7 else "no"} for i in range(2, 13)]
+    status, yes_count, no_count = tally_ballots(ballots, "npc-1")
+    assert yes_count == 6
+    assert no_count == 5
+
+    client = FakeClient()
+    settings = Settings(llm_mock=True, game_server_url="http://127.0.0.1:2567")
+    ctx = _ctx()
+    post_world_history(
+        client,
+        settings,
+        ctx,
+        title="t",
+        proposal="p",
+        status="accepted",
+        yes_count=yes_count,
+        no_count=no_count,
+        minutes={"kind": "vote_minutes", "proposalFull": "p", "ballots": ballots},
+    )
+    history_post = next(p for p in client.posts if "world-history" in p["url"])
+    assert history_post["json"]["yesCount"] == 6
+    assert history_post["json"]["noCount"] == 5
+    assert history_post["json"]["yesCount"] + history_post["json"]["noCount"] == 11
+
+
+def test_sealed_sync_yes_count_matches_tally_not_inflated():
+    from src.graph.world_vote import writeback_sequence
+
+    ballots = [{"npcId": f"npc-{i}", "vote": "yes" if i <= 7 else "no"} for i in range(2, 13)]
+    _status, yes_count, no_count = tally_ballots(ballots, "npc-1")
+    client = FakeClient()
+    settings = Settings(llm_mock=True, game_server_url="http://127.0.0.1:2567")
+    ctx = _ctx()
+    writeback_sequence(
+        client,
+        settings,
+        ctx,
+        title="t",
+        proposal="p",
+        status="rejected",
+        yes_count=yes_count,
+        no_count=no_count,
+        linked_edges=[],
+        result_entry_id="entry-1",
+    )
+    sync_post = next(p for p in client.posts if "council-deliberation-sync" in p["url"])
+    body = sync_post["json"]
+    assert body["yesCount"] == 6
+    assert body["noCount"] == 5
+
+
+def test_env_int_tolerates_non_numeric(monkeypatch):
+    from src.graph import world_vote as wv
+
+    monkeypatch.setenv("VOTE_DEBATE_ROUNDS_MAX", "not-a-number")
+    assert wv._env_int("VOTE_DEBATE_ROUNDS_MAX", 3) == 3
+
+
+def test_leaning_default_vote_uses_stable_hash():
+    from src.graph.world_vote import _leaning_default_vote
+
+    a = _leaning_default_vote("npc-1", "seed-a")
+    b = _leaning_default_vote("npc-1", "seed-a")
+    assert a in ("yes", "no")
+    assert a == b
+
+
+def test_post_deliberation_failed_skips_when_job_superseded():
+    from src.graph.world_vote import post_deliberation_failed
+
+    client = FakeClient(responses={"pendingJobId": "other-job"})
+    settings = Settings(llm_mock=True, game_server_url="http://127.0.0.1:2567")
+    post_deliberation_failed(
+        client,
+        settings,
+        _payload(jobId="vote-test-room-regular-480"),
+    )
+    assert not any("council-deliberation-sync" in p["url"] for p in client.posts)
+    assert not any("world-vote/complete" in p["url"] for p in client.posts)

@@ -37,7 +37,9 @@ _SPEAK_PATH = monorepo_root() / "packages" / "shared" / "council-personas-speak.
 
 def _load_speak_personas() -> dict[str, SpeakPersona]:
     if not _SPEAK_PATH.is_file():
-        return {}
+        raise FileNotFoundError(
+            f"Missing speak persona mirror: {_SPEAK_PATH}. Run pnpm council:export-personas"
+        )
     raw = json.loads(_SPEAK_PATH.read_text(encoding="utf-8"))
     personas: dict[str, SpeakPersona] = {}
     for npc_id, entry in raw.items():

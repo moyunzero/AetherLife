@@ -498,6 +498,7 @@ def run_worker() -> None:
                     process_lore_job(client, settings, payload)
                 except Exception as exc:
                     print(f"lore job error jobId={payload.get('jobId')}: {exc}", file=sys.stderr)
+                drain_one_world_vote_job(r, client, settings)
                 continue
             try:
                 process_ambient_intent_job(client, settings, payload)

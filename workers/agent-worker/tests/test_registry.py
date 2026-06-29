@@ -20,6 +20,7 @@ def test_registry_has_twelve_seats():
 def test_registry_matches_shared_compact_json():
     assert _COMPACT_PATH.is_file(), f"missing {_COMPACT_PATH}"
     expected = json.loads(_COMPACT_PATH.read_text(encoding="utf-8"))
+    assert len(expected) == len(COUNCIL_NPC_IDS)
     for npc_id in COUNCIL_NPC_IDS:
         assert npc_id in expected
         persona = COUNCIL_PERSONAS[npc_id]

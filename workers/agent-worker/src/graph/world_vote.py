@@ -20,11 +20,17 @@ from src.council.constants import (
     VOTE_YES_THRESHOLD,
 )
 
-DEBATE_ROUNDS_MAX = max(1, min(5, int(os.getenv("VOTE_DEBATE_ROUNDS_MAX", "5") or "5")))
-DEBATE_ROUND_GAME_MINUTES = max(
-    1,
-    int(os.getenv("VOTE_DEBATE_ROUND_GAME_DAYS", "1") or "1") * 1440,
-)
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)) or default)
+    except ValueError:
+        return default
+
+
+DEBATE_ROUNDS_MAX = max(1, min(5, _env_int("VOTE_DEBATE_ROUNDS_MAX", 5)))
+DEBATE_ROUND_GAME_MINUTES = max(1, _env_int("VOTE_DEBATE_ROUND_GAME_DAYS", 1) * 1440)
+
 from src.council.registry import display_name, get_persona
 from src.council.relationship_deltas import compute_relationship_deltas, filter_linked_edges_for_ui
 from src.council.relationship_prompt import (
@@ -48,6 +54,7 @@ from src.council.vote_prompt import (
     sanitize_council_text,
 )
 from src.graph.lore_loop import _extract_json_object, _invoke_lore_llm, _lore_provider_attempts
+from src.graph.stable_string_hash import stable_string_hash
 from src.http_json import create_http_client
 
 FORBIDDEN_VOTE_PROVIDERS = frozenset({"zhipu"})
@@ -67,7 +74,7 @@ def _leaning_default_vote(npc_id: str, seed: str) -> str:
         return "yes"
     if leaning == "against":
         return "no"
-    return "yes" if hash(f"{npc_id}:{seed}") % 2 == 0 else "no"
+    return "yes" if stable_string_hash(f"{npc_id}:{seed}") % 2 == 0 else "no"
 
 
 def _recover_json_from_prose(raw: str, *, kind: str, npc_id: str = "", seed: str = "") -> dict[str, Any] | None:
@@ -785,7 +792,7 @@ def post_world_history(
         "proposerNpcId": ctx.proposer_id,
         "minutes": minutes,
         "gameMinuteSnapshot": ctx.game_minute,
-        "yesCount": yes_count + 1,
+        "yesCount": yes_count,
         "noCount": no_count,
         "voteEpoch": ctx.vote_epoch,
         "mapRoomId": ctx.room_id,
@@ -840,7 +847,7 @@ def apply_relationship_deltas(
         debate_transcript,  # type: ignore[arg-type]
         ballots,  # type: ignore[arg-type]
         ctx.proposer_id,
-        seed=hash(ctx.job_id) % (2**31),
+        seed=stable_string_hash(ctx.job_id) % (2**31),
     )
     if not deltas:
         return []
@@ -1170,7 +1177,7 @@ def writeback_sequence(
             "proposalTitle": title,
             "linkedEdges": normalize_linked_edges(linked_edges),
             **({"resultEntryId": result_entry_id} if result_entry_id else {}),
-            "yesCount": yes_count + 1,
+            "yesCount": yes_count,
             "noCount": no_count,
             "status": status,
             "clearFeed": True,
@@ -1221,6 +1228,12 @@ def post_deliberation_failed(
     """Clear in-flight deliberation UI when a world-vote job aborts."""
     ctx = _minimal_ctx_from_payload(payload)
     try:
+        if not is_job_still_pending(client, settings, ctx):
+            print(
+                f"world-vote failure cleanup skipped for superseded jobId={ctx.job_id}",
+                file=sys.stderr,
+            )
+            return
         post_deliberation_sync(
             client,
             settings,

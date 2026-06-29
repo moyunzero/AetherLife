@@ -159,6 +159,30 @@ def test_recall_action_loads_memory_with_full_embed():
     assert kwargs.get("memory_attempts") == 2
 
 
+def test_casual_fast_lane_skips_relationship_edges_fetch():
+    from src.graph.npc_loop import _fetch_speak_enrichment
+
+    state = {
+        "room_id": "default",
+        "player_message": "你好",
+        "npc_id": "npc-1",
+        "player_id": "p1",
+        "speak_intent": "casual",
+    }
+    settings = Settings(game_server_url="http://127.0.0.1:2567")
+    client = MagicMock()
+
+    with patch("src.graph.npc_loop.fetch_runtime_relationship_edges") as edges:
+        with patch("src.graph.npc_loop.fetch_dual_rag_context") as dual:
+            dual.return_value = {"canon_context": ""}
+            out = _fetch_speak_enrichment(state, settings=settings, client=client, skip_dual_rag=True)
+
+    edges.assert_not_called()
+    dual.assert_not_called()
+    assert out["runtime_relationships"] == []
+    assert out["canon_context"] == ""
+
+
 def test_fetch_state_uses_stale_snapshot_after_timeout():
     from src.graph import npc_loop
 

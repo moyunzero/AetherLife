@@ -260,7 +260,6 @@ export class GameRoom extends Room {
         });
         // speakAck before Redis enqueue — fast-lane worker can finish before LPUSH returns otherwise.
         client.send(COLYSEUS_SERVER_MESSAGES.speakAck, { jobId, npcId });
-        recordPlayerSpeak(this.mapRoomId);
         const casualStub = previewCasualSpeakStub(text);
         if (casualStub) {
           emitJobEvent(jobId, "speakPartial", { text: casualStub, npcId });
@@ -268,6 +267,7 @@ export class GameRoom extends Room {
         await startNpcChatTurn(this.mapRoomId, text, npcId, playerId, jobId, {
           casualPreviewEmitted: Boolean(casualStub),
         });
+        recordPlayerSpeak(this.mapRoomId);
       } catch (err) {
         const held = this.npcSpeakJobs.get(npcId);
         if (held === pendingToken || held === jobId) {

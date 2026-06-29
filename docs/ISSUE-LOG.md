@@ -175,6 +175,7 @@
 95. **E2E 前仅单 agent-worker**：`verify:phase*` / `uat:phase*` 前须 `pkill -f "python -m src.main"`（或等价）确保 **仅一个** `pnpm dev:worker` / `dev:stack` worker 消费 Redis；多进程会抢 `world-vote` job，旧代码路径导致 minutes 缺 `debateExcerpts` / feedDelta 400。回归：`uat:phase25:core-ui` T4-debate-excerpts · `pnpm verify:phase25`。
 96. **GameRoom tick 仅 LPUSH vote job**：`maybeEnqueueWorldVote` / `tickRoomVoteClock` 在 Colyseus tick 内 **仅** Redis/BullMQ enqueue + 状态机；**禁止** tick 内 LLM/HTTP/worker 同步调用（INVARIANTS MP tick 非阻塞不变）。回归：`world-vote-trigger.test.ts` · `pnpm agent:verify --e2e` GF-01。
 97. **关系 delta 仅 worker 异步写**：`applyRelationshipDeltas` 仅经 worker `world_vote` job `POST .../npc-relationships/apply-deltas`；**禁止** `onMessage("speak")` / `GameRoom` handler 内直接改 `npc_relationships`。回归：`test_world_vote.py` · `verify:phase25` affection before/after GET。
+98. **编年史 yes/no 须为 11 票真实计数**：`post_world_history` / sealed `councilDeliberationSync` 的 `yesCount`/`noCount` **禁止** `+1` 或超过 11；与 `tally_ballots`（非提案人 11 席）一致；Zod `max(11)`。`recordPlayerSpeak` **仅**在 `startNpcChatTurn` 成功后调用。回归：`test_post_world_history_yes_count_matches_ballot_tally` · `councilDeliberation.test.ts` · `world-vote-trigger.test.ts` speak-order · `pnpm verify:phase25` minutes 11 ballots。
 
 ## 记录
 
@@ -2422,6 +2423,44 @@ Worker 主循环仅在 npc-turn 队列 **连续 5s 为空** 时才 `BLPOP` chunk
 **防复发**
 
 - Guardrail #94
+
+---
+
+### ISSUE-095 — PR #15 CodeRabbit CR：yesCount+1、speak 误记票、RAG 否决案顺序等
+
+- **状态:** fixed
+- **发现:** 2026-06-29
+- **阶段/范围:** Phase 25 · PR #15 CodeRabbit review · `world_vote.py` · `GameRoom.ts` · `world_history_rag.py` · `internal-memories.ts` · `internal-world-history.ts` · `main.py` · `npc_loop.py` · `councilDeliberation.ts` · `world-vote.ts`
+- **严重性:** major（编年史 tally 虚高、speak 入队失败仍触发 vote pacing、RAG 引用旧否决案）
+
+**修复摘要（P0→P2）**
+
+| 项 | 修复 |
+|----|------|
+| yesCount +1 | `post_world_history` / sealed sync 使用真实 `tally_ballots` 计数，禁止 +1 |
+| lore 饿死 vote | `main.py` lore 分支 `continue` 前 `drain_one_world_vote_job` |
+| speak 误记票 | `recordPlayerSpeak` 移到 `startNpcChatTurn` 成功之后 |
+| RAG 否决案 | `rejected[-1]` → `rejected[0]`（newest-first 与 GET 序一致） |
+| paths fallback | `parents[4]` → `parents[3]` |
+| stable hash | `hash()` → `stable_string_hash`；`_env_int` 容错 |
+| failure cleanup | `post_deliberation_failed` 检查 `is_job_still_pending` |
+| ballot 400 | 非法行整批 400 + npcId 去重 |
+| vote 行 proposerNpcId | internal world-history 强制 |
+| skip_dual_rag | casual fast-lane 跳过 relationship edges GET |
+| Zod max | `yesCount`/`noCount` max 12→11 |
+| mockJobs | replace/clear 时 `mockJobs.delete` |
+| registry | compact/speak JSON fail-fast（12 席） |
+
+**验证**
+
+- `pnpm agent:verify` → game-server 257 + shared 222 + worker 328 passed
+- `pnpm verify:phase25` OK (466s) · `minutes modal 11 ballots` · `debate excerpts=11`
+- `pnpm uat:phase25:core-ui` OK (346s) · 8 screenshots
+- Browser MCP：`browser-mcp-cr-fix` 房连接 + UAT 11 票纪要截图 → `.planning/.../browser-mcp-cr-fix/`
+
+**防复发**
+
+- Guardrail #98
 
 ---
 

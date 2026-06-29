@@ -56,8 +56,8 @@ export const councilDeliberationSyncPayloadSchema = z
     feedDelta: z.array(councilDeliberationFeedRowSchema).optional(),
     linkedEdges: z.array(linkedEdgeSchema).optional(),
     resultEntryId: z.string().min(1).optional(),
-    yesCount: z.number().int().min(0).max(12).optional(),
-    noCount: z.number().int().min(0).max(12).optional(),
+    yesCount: z.number().int().min(0).max(11).optional(),
+    noCount: z.number().int().min(0).max(11).optional(),
     status: z.enum(["accepted", "rejected"]).optional(),
     clearFeed: z.boolean().optional(),
   })

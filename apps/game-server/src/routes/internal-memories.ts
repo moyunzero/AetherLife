@@ -64,27 +64,37 @@ export function createInternalMemoriesRouter(): Router {
     const { roomId } = req.params;
     const ballots = Array.isArray(req.body?.ballots) ? req.body.ballots : [];
 
-    const parsed = ballots
-      .map((ballot: unknown) => {
-        if (!ballot || typeof ballot !== "object") return null;
-        const row = ballot as Record<string, unknown>;
-        const npcId = typeof row.npcId === "string" ? row.npcId : "";
-        const vote = typeof row.vote === "string" ? row.vote : "";
-        const reasonZh = typeof row.reasonZh === "string" ? row.reasonZh.trim() : "";
-        if (!npcId || !vote || !reasonZh) return null;
-        return { npcId, vote, reasonZh };
-      })
-      .filter((row): row is { npcId: string; vote: string; reasonZh: string } => row !== null);
+    const parsed = ballots.map((ballot: unknown) => {
+      if (!ballot || typeof ballot !== "object") return null;
+      const row = ballot as Record<string, unknown>;
+      const npcId = typeof row.npcId === "string" ? row.npcId : "";
+      const vote = typeof row.vote === "string" ? row.vote : "";
+      const reasonZh = typeof row.reasonZh === "string" ? row.reasonZh.trim() : "";
+      if (!npcId || !vote || !reasonZh) return null;
+      return { npcId, vote, reasonZh };
+    });
 
-    if (parsed.length === 0) {
+    if (parsed.some((row) => row === null)) {
+      res.status(400).json({ ok: false, error: "invalid ballot payload" });
+      return;
+    }
+
+    const normalized = parsed as { npcId: string; vote: string; reasonZh: string }[];
+    const uniqueNpcIds = new Set(normalized.map((row) => row.npcId));
+    if (uniqueNpcIds.size !== normalized.length) {
+      res.status(400).json({ ok: false, error: "duplicate ballot npcId" });
+      return;
+    }
+
+    if (normalized.length === 0) {
       res.status(400).json({ ok: false, error: "ballots required" });
       return;
     }
 
     try {
       const service = MemoryService.getInstance();
-      const result = await service.appendCouncilVoteMemories(roomId, parsed);
-      for (const ballot of parsed) {
+      const result = await service.appendCouncilVoteMemories(roomId, normalized);
+      for (const ballot of normalized) {
         invalidateMemoryContextForPlayer(roomId, COUNCIL_MEMORY_PLAYER_ID, ballot.npcId);
       }
       res.json({ ok: true, count: result.count });

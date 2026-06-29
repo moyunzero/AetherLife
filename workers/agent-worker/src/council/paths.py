@@ -11,4 +11,4 @@ def monorepo_root() -> Path:
     for parent in _COUNCIL_DIR.parents:
         if (parent / "pnpm-workspace.yaml").is_file():
             return parent
-    return _COUNCIL_DIR.parents[4]
+    return _COUNCIL_DIR.parents[3]

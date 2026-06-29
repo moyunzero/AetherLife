@@ -131,6 +131,7 @@ async function waitRoomReady(page) {
       Boolean(
         document.querySelector('[data-testid="corner-menu"] .corner-menu__status-dot--ok'),
       ),
+    undefined,
     { timeout: 90_000 },
   );
   await dismissOnboarding(page);

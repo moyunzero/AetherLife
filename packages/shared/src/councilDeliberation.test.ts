@@ -142,6 +142,20 @@ describe("councilDeliberationSyncPayloadSchema", () => {
     };
     expect(councilDeliberationSyncPayloadSchema.parse(payload)).toMatchObject(payload);
   });
+
+  it("rejects yesCount above eleven council seats", () => {
+    expect(
+      councilDeliberationSyncPayloadSchema.safeParse({
+        active: false,
+        voteKind: "regular",
+        phase: "sealed",
+        round: 2,
+        roundTotal: 2,
+        yesCount: 12,
+        noCount: 0,
+      }).success,
+    ).toBe(false);
+  });
 });
 
 describe("parseCouncilDeliberationFeedRow", () => {

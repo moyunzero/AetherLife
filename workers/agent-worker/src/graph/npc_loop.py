@@ -188,9 +188,10 @@ def _fetch_speak_enrichment(
     skip_dual_rag: bool,
 ) -> dict[str, Any]:
     npc_id = state.get("npc_id") or "npc-1"
-    edges = fetch_runtime_relationship_edges(state, settings=settings, client=client)
+    edges: list[dict[str, Any]] = []
     canon_context = ""
     if not skip_dual_rag:
+        edges = fetch_runtime_relationship_edges(state, settings=settings, client=client)
         speak_intent = state.get("speak_intent")
         if speak_intent:
             intent = SpeakIntent(speak_intent)

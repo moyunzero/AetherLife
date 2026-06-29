@@ -75,12 +75,13 @@ def settings():
 
 
 def test_select_canon_includes_accepted_genesis_and_latest_rejected():
+    # Newest-first (matches GET /world-history ORDER BY sequence DESC).
     entries = [
-        _entry(entry_id="g1", title="创世·秩序之锚", entry_kind="genesis", status="accepted"),
-        _entry(entry_id="v1", title="旧案通过", status="accepted"),
-        _entry(entry_id="v2", title="旧案否决", status="rejected"),
-        _entry(entry_id="v3", title="最新否决", status="rejected"),
         _entry(entry_id="v4", title="最新通过", status="accepted"),
+        _entry(entry_id="v3", title="最新否决", status="rejected"),
+        _entry(entry_id="v2", title="旧案否决", status="rejected"),
+        _entry(entry_id="v1", title="旧案通过", status="accepted"),
+        _entry(entry_id="g1", title="创世·秩序之锚", entry_kind="genesis", status="accepted"),
     ]
     selected = select_canon_entries(entries)
     ids = {e["id"] for e in selected}

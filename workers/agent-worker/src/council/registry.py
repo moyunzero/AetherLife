@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from typing import TypedDict
 
+from src.council.constants import COUNCIL_NPC_IDS
 from src.council.paths import monorepo_root
 
 
@@ -123,6 +124,13 @@ def _load_personas() -> dict[str, CouncilPersonaCompact]:
             archetype=str(entry["archetype"]),
             debateStyle=str(entry["debateStyle"]),
             votingLeaning=str(entry["votingLeaning"]),
+        )
+    expected = set(COUNCIL_NPC_IDS)
+    actual = set(personas)
+    if actual != expected:
+        raise ValueError(
+            "Compact council persona mirror out of sync: "
+            f"expected {sorted(expected)}, got {sorted(actual)}"
         )
     return personas
 
