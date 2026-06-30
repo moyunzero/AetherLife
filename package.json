@@ -62,6 +62,8 @@
     "verify:phase21": "node scripts/verify-phase21.mjs",
     "verify:phase22": "node scripts/verify-phase22.mjs",
     "verify:phase25": "node scripts/verify-phase25.mjs",
+    "verify:phase26": "node scripts/verify-phase26.mjs",
+    "uat:phase26": "node scripts/uat-phase26-playwright.mjs",
     "uat:phase25:core-ui": "node scripts/uat-phase25-core-ui.mjs",
     "uat:phase25:speak-defer": "node scripts/uat-phase25-speak-defer.mjs",
     "uat:phase25:traveler": "node scripts/uat-phase25-traveler.mjs",

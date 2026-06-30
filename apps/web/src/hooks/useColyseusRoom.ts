@@ -22,10 +22,11 @@ import { useChunkLore } from "./useChunkLore.js";
 import { clearLastGridPos, getOrCreatePlayerId, readLastGridPos } from "../lib/playerSession.js";
 import {
   snapshotAmbientStateFromSchema,
+  type CouncilNpcSnapshot,
   type NpcAmbientSnapshot,
 } from "../lib/colyseusAmbientSnapshot.js";
 
-export type { NpcAmbientSnapshot };
+export type { CouncilNpcSnapshot, NpcAmbientSnapshot };
 export type GameClockState = {
   minute: number;
   label: string;
@@ -163,12 +164,7 @@ export function useColyseusRoom(
   const [gameClock, setGameClock] = useState<GameClockState | null>(null);
   const [npcActivityById, setNpcActivityById] = useState<Record<string, string>>({});
   const [npcAmbientById, setNpcAmbientById] = useState<Record<string, NpcAmbientSnapshot>>({});
-  const [mainNpcGridById, setMainNpcGridById] = useState<
-    Record<string, { x: number; y: number }>
-  >({});
-  const [bgNpcGridById, setBgNpcGridById] = useState<Record<string, { x: number; y: number }>>(
-    {},
-  );
+  const [roomNpcs, setRoomNpcs] = useState<CouncilNpcSnapshot[]>([]);
   const {
     loreByChunk,
     mergeLoreSync,
@@ -257,8 +253,7 @@ export function useColyseusRoom(
       setGameClock(ambient.gameClock);
       setNpcActivityById(ambient.npcActivityById);
       setNpcAmbientById(ambient.npcAmbientById);
-      setMainNpcGridById(ambient.mainNpcGridById);
-      setBgNpcGridById(ambient.bgNpcGridById);
+      setRoomNpcs(ambient.roomNpcs);
       const sid = joined.sessionId;
       const self = snapshots.find((p) => p.sessionId === sid);
       if (!self) return;
@@ -418,8 +413,7 @@ export function useColyseusRoom(
       setGameClock(null);
       setNpcActivityById({});
       setNpcAmbientById({});
-      setMainNpcGridById({});
-      setBgNpcGridById({});
+      setRoomNpcs([]);
       setRoom(null);
       setConnected(false);
     };
@@ -464,7 +458,6 @@ export function useColyseusRoom(
     gameClock,
     npcActivityById,
     npcAmbientById,
-    mainNpcGridById,
-    bgNpcGridById,
+    roomNpcs,
   };
 }
