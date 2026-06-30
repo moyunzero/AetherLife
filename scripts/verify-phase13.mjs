@@ -6,7 +6,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { assertE2eNoMock } from "./lib/e2e-policy.mjs";
 import { gameServerHttpBase, loadRootEnv } from "./lib/env.mjs";
-import { focusExploreForKeyboard } from "./lib/uat-phase21-helpers.mjs";
+import { focusExploreForKeyboard, forceCrossChunkViaSendMoveTo } from "./lib/uat-phase21-helpers.mjs";
 
 const BOOT_WARN_MS = 5000;
 const BOOT_FAIL_MS = 8000;
@@ -127,28 +127,13 @@ async function main() {
 
     await focusExploreForKeyboard(page);
     await page.waitForTimeout(200);
+
+    // Phase 26: embassy crowds spawn — programmatic cross-chunk (sendMoveTo) when WASD blocked.
     const startChunk = (await readExploreChunk(page)) ?? { cx: 0, cy: 0 };
-
-    // South from home: seed-42 highland blocks pure east at spawn row (gx=16 walkable=false).
-    for (let i = 0; i < 48; i += 1) {
-      await page.keyboard.press("s");
-      await page.waitForTimeout(180);
-    }
-    await page.waitForFunction(
-      () => {
-        const d = window.__aetherlife_moveDebug?.();
-        return d != null && d.pending === 0 && !d.locomoting;
-      },
-      { timeout: 15_000 },
-    );
-    await page.waitForTimeout(400);
-
-    const endChunk = await readExploreChunk(page);
+    const { endChunk, chunkDist } = await forceCrossChunkViaSendMoveTo(page, "south");
     if (!endChunk) {
       throw new Error("explore-coords-strip missing chunk coords after move");
     }
-    const chunkDist =
-      Math.abs(endChunk.cx - startChunk.cx) + Math.abs(endChunk.cy - startChunk.cy);
     if (chunkDist < 2) {
       throw new Error(
         `expected ≥2 chunk travel (start=${JSON.stringify(startChunk)} end=${JSON.stringify(endChunk)} dist=${chunkDist})`,

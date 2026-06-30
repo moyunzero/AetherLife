@@ -43,11 +43,76 @@ describe("region-walkability", () => {
     expect(isTerrainWalkableInRegion(34, 13)).toBe(true);
   });
 
-  it("default bg npc spawns are walkable (sync spawns.json after bake:one-city)", () => {
-    expect(isTerrainWalkableInRegion(33, 11)).toBe(true);
-    expect(isTerrainWalkableInRegion(30, 15)).toBe(true);
-    expect(isTerrainWalkableInRegion(19, 12)).toBe(true);
-    expect(isTerrainWalkableInRegion(25, 25)).toBe(true);
+  it("all 12 council embassy spawns are walkable (sync spawns.json after bake:one-city)", () => {
+    const spawns = loadWorldRegistry(defaultBeginningFieldsBundle()).spawnsByRegion.get(
+      BEGINNING_FIELDS_ID,
+    );
+    expect(spawns?.councilSpawns).toHaveLength(12);
+    for (const slot of spawns!.councilSpawns!) {
+      expect(isTerrainWalkableInRegion(slot.x, slot.y)).toBe(true);
+    }
+  });
+
+  it("council embassy spawns do not overlap player default spawn or each other", () => {
+    const spawns = loadWorldRegistry(defaultBeginningFieldsBundle()).spawnsByRegion.get(
+      BEGINNING_FIELDS_ID,
+    );
+    const player = spawns!.defaultPlayerSpawn!;
+    const council = spawns!.councilSpawns!;
+    for (const slot of council) {
+      const onPlayerSpawn = slot.x === player.lx && slot.y === player.ly;
+      expect(onPlayerSpawn).toBe(false);
+    }
+    for (let i = 0; i < council.length; i += 1) {
+      for (let j = i + 1; j < council.length; j += 1) {
+        const a = council[i]!;
+        const b = council[j]!;
+        const sameCell = a.x === b.x && a.y === b.y;
+        expect(sameCell).toBe(false);
+      }
+    }
+    const minDistFromPlayer = Math.min(
+      ...council.map((s) => Math.max(Math.abs(s.x - player.lx), Math.abs(s.y - player.ly))),
+    );
+    expect(minDistFromPlayer).toBeGreaterThanOrEqual(3);
+  });
+
+  it("council spawns spread across full homestead (user-picked layout)", () => {
+    const spawns = loadWorldRegistry(defaultBeginningFieldsBundle()).spawnsByRegion.get(
+      BEGINNING_FIELDS_ID,
+    );
+    const council = spawns!.councilSpawns!;
+    const xs = council.map((s) => s.x);
+    const ys = council.map((s) => s.y);
+    expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThanOrEqual(20);
+    expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThanOrEqual(20);
+  });
+
+  it("council spawns stay on walkable homestead cells with min separation", () => {
+    const spawns = loadWorldRegistry(defaultBeginningFieldsBundle()).spawnsByRegion.get(
+      BEGINNING_FIELDS_ID,
+    );
+    const council = spawns!.councilSpawns!;
+    const HOMESTEAD = { minX: 5, minY: 5, maxX: 33, maxY: 31 };
+    for (const slot of council) {
+      expect(slot.x).toBeGreaterThanOrEqual(HOMESTEAD.minX);
+      expect(slot.x).toBeLessThanOrEqual(HOMESTEAD.maxX);
+      expect(slot.y).toBeGreaterThanOrEqual(HOMESTEAD.minY);
+      expect(slot.y).toBeLessThanOrEqual(HOMESTEAD.maxY);
+      expect(isTerrainWalkableInRegion(slot.x, slot.y)).toBe(true);
+    }
+    for (let i = 0; i < council.length; i += 1) {
+      for (let j = i + 1; j < council.length; j += 1) {
+        const a = council[i]!;
+        const b = council[j]!;
+        const chebyshev = Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
+        expect(chebyshev).toBeGreaterThanOrEqual(3);
+      }
+    }
+    const xs = council.map((s) => s.x);
+    const ys = council.map((s) => s.y);
+    expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThanOrEqual(20);
+    expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThanOrEqual(20);
   });
 
   it("rejects mismatched grid size at boot", () => {

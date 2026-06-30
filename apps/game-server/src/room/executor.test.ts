@@ -15,11 +15,12 @@ import { applyGameAction, ExecutorError } from "./executor.js";
 describe("applyGameAction", () => {
   it("move changes acting npc position only", () => {
     const room = createDefaultRoom();
+    const npc2Start = { x: findNpc(room, "npc-2")!.x, y: findNpc(room, "npc-2")!.y };
     const { room: next } = applyGameAction(room, { type: "move", x: 5, y: 5 }, "npc-1");
     expect(findNpc(next, "npc-1")?.x).toBe(5);
     expect(findNpc(next, "npc-1")?.y).toBe(5);
-    expect(findNpc(next, "npc-2")?.x).toBe(9);
-    expect(findNpc(next, "npc-2")?.y).toBe(21);
+    expect(findNpc(next, "npc-2")?.x).toBe(npc2Start.x);
+    expect(findNpc(next, "npc-2")?.y).toBe(npc2Start.y);
   });
 
   it("interact toggles door for acting npc context", () => {
@@ -56,7 +57,7 @@ describe("applyGameAction", () => {
     expect(() =>
       applyGameAction(
         room,
-        { type: "transfer", itemId: "key-1", toNpcId: "npc-9" },
+        { type: "transfer", itemId: "key-1", toNpcId: "npc-99" },
         "npc-1",
       ),
     ).toThrow(/unknown target npc/);
@@ -82,7 +83,7 @@ describe("applyGameAction", () => {
 
   it("rejects unknown acting npc", () => {
     const room = createDefaultRoom();
-    expect(() => applyGameAction(room, { type: "move", x: 1, y: 1 }, "npc-9")).toThrow(
+    expect(() => applyGameAction(room, { type: "move", x: 1, y: 1 }, "npc-99")).toThrow(
       ExecutorError,
     );
   });

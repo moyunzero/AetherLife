@@ -1,42 +1,17 @@
 {
   "defaultPlayerSpawn": { "lx": 34, "ly": 13 },
-  "npcSpawns": {
-    "npc-1": { "lx": 23, "ly": 10 },
-    "npc-2": { "lx": 9, "ly": 21 },
-    "npc-3": { "lx": 28, "ly": 27 }
-  },
-  "backgroundNpc": [
-    {
-      "id": "bg-villager-1",
-      "lx": 33,
-      "ly": 11,
-      "displayNameZh": "老张",
-      "wanderZoneId": "beginning-fields@v1:plaza",
-      "activityKey": "wandering"
-    },
-    {
-      "id": "bg-villager-2",
-      "lx": 30,
-      "ly": 15,
-      "displayNameZh": "小满",
-      "wanderZoneId": "beginning-fields@v1:plaza",
-      "activityKey": "wandering"
-    },
-    {
-      "id": "bg-villager-3",
-      "lx": 19,
-      "ly": 12,
-      "displayNameZh": "阿牛",
-      "wanderZoneId": "beginning-fields@v1:orchard",
-      "activityKey": "wandering"
-    },
-    {
-      "id": "bg-villager-4",
-      "lx": 25,
-      "ly": 25,
-      "displayNameZh": "巧娘",
-      "wanderZoneId": "beginning-fields@v1:pond",
-      "activityKey": "wandering"
-    }
+  "councilSpawns": [
+    { "x": 9, "y": 21, "facing": "s", "maxRadius": 0 },
+    { "x": 9, "y": 5, "facing": "s", "maxRadius": 0 },
+    { "x": 23, "y": 11, "facing": "e", "maxRadius": 0 },
+    { "x": 31, "y": 13, "facing": "w", "maxRadius": 0 },
+    { "x": 17, "y": 13, "facing": "e", "maxRadius": 0 },
+    { "x": 33, "y": 28, "facing": "n", "maxRadius": 0 },
+    { "x": 20, "y": 26, "facing": "s", "maxRadius": 0 },
+    { "x": 16, "y": 31, "facing": "n", "maxRadius": 0 },
+    { "x": 27, "y": 27, "facing": "w", "maxRadius": 0 },
+    { "x": 29, "y": 17, "facing": "s", "maxRadius": 0 },
+    { "x": 5, "y": 9, "facing": "e", "maxRadius": 0 },
+    { "x": 17, "y": 22, "facing": "s", "maxRadius": 0 }
   ]
 }

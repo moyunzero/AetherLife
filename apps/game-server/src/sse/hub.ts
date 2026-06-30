@@ -6,6 +6,7 @@ import { getJobEntry, unregisterJob } from "../colyseus/job-registry.js";
 import { appendCompletedTurn } from "../npc/dialogue-session.js";
 import { getOrCreate, setState } from "../room/store.js";
 import { applyMapAndBumpVersion } from "../colyseus/version.js";
+import { setNpcSpeakPhase } from "../colyseus/speak-schema.js";
 import type { RoomState } from "@aetherlife/shared";
 
 export type JobEventType = "thinking" | "speakPartial" | "done" | "error";
@@ -75,6 +76,13 @@ function routeColyseusEvent(jobId: string, type: JobEventType, data: unknown): v
   const { room, sessionId, roomId } = entry;
 
   if (type === "thinking") {
+    const npcId =
+      typeof data === "object" && data !== null && typeof (data as Record<string, unknown>).npcId === "string"
+        ? ((data as Record<string, unknown>).npcId as string)
+        : undefined;
+    if (npcId) {
+      setNpcSpeakPhase(roomId, npcId, "thinking");
+    }
     if (sessionId) {
       sendToClient(room, sessionId, COLYSEUS_SERVER_MESSAGES.thinking, base);
     }
@@ -82,6 +90,13 @@ function routeColyseusEvent(jobId: string, type: JobEventType, data: unknown): v
   }
 
   if (type === "speakPartial") {
+    const npcId =
+      typeof data === "object" && data !== null && typeof (data as Record<string, unknown>).npcId === "string"
+        ? ((data as Record<string, unknown>).npcId as string)
+        : undefined;
+    if (npcId) {
+      setNpcSpeakPhase(roomId, npcId, "speaking");
+    }
     if (sessionId) {
       sendToClient(room, sessionId, COLYSEUS_SERVER_MESSAGES.speakPartial, base);
     }

@@ -163,10 +163,10 @@ async function main() {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 
   try {
-    await page.goto(WEB, { waitUntil: "networkidle", timeout: 60_000 });
-    const scene = page.locator('[data-testid="room-scene"]');
-    await scene.waitFor({ state: "visible", timeout: 15_000 });
-    await scene.click({ position: { x: 200, y: 200 } });
+    await page.goto(WEB, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    const canvas = page.locator('[data-testid="phaser-parent"] canvas').first();
+    await canvas.waitFor({ state: "visible", timeout: 45_000 });
+    await canvas.click({ position: { x: 200, y: 200 } });
     await page.waitForTimeout(500);
     await waitConnected(page);
     await repositionForEastProbe(page);

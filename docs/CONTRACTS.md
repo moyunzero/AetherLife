@@ -34,6 +34,8 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 | 层 | 契约 |
 |----|------|
 | **入口** | Colyseus `onMessage("speak")` 不阻塞；`startNpcChatTurn` → Redis job |
+| **npcId** | `validateChatNpcId` 仅接受 `COUNCIL_NPC_IDS`（Phase 26：12 席）；非法 id 拒绝 |
+| **schema 可见** | speak 进行中 `NpcEntityState.isThinking` / `isSpeaking` 经 `setNpcSpeakPhase` 广播全员（D-MAP-SCHEMA-08） |
 | **内容安全** | speak 与 `POST /chat` 在入队前经 `@aetherlife/shared` `checkContentBlocked`（与 gateway blocklist 同规则）；拒绝 `{ code: "content_blocked" }`。**不**替代 gateway Moderation API |
 | **队列** | 按 `npcId` 互斥（`npcSpeakJobs`），不同 NPC 可并行 |
 | **事件** | worker → `POST /internal/jobs/:id/events` → SSE / `speakAck`（`{ jobId, npcId }`）/ `speakIdle` / `speakPartial`（流式 reply 增量，非 terminal） |
@@ -154,6 +156,26 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 
 ---
 
+---
+
+## C-08 — Colyseus council NPC MapSchema [Phase 26 — complete]
+
+| 层 | 契约 |
+|----|------|
+| **Schema** | `GameRoomState.npcs: MapSchema<NpcEntityState>` keyed by `npcId` (`npc-1`…`npc-12`)；`schemaVersion=2`（breaking；**无** flat `npc1*` / `bgNpc*` shim） |
+| **字段** | `NpcEntityState` 镜像 x/y、activityKey、intentReasonZh、joinVicinity*、**isThinking**、**isSpeaking**（多人可见铭牌/VIS-04） |
+| **Server 写** | `syncColyseusFromMap` 按 `RoomState.npcs` 增量 `set`/`delete`；权威坐标在 server `RoomState`；`GameRoom.acquireNpcSpeakJob` / speak done 写入 thinking/speaking 标志 |
+| **Web 读** | **仅** `useColyseusRoom` → `roomNpcs[]` 派生；`colyseusAmbientSnapshot` 消费派生快照；Phaser/React **禁止**直读 Colyseus `npcs` Map |
+| **Breaking** | 移除 flat `npc1*` / `bgNpc*` 槽；web 无兼容 shim；旧三槽房间在 `getOrCreate` / `setState` 时自动 `migrateRoomCouncilNpcs`（亦可用 `scripts/migrate-room-council-npcs.mjs` 离线校验） |
+| **Spawn** | `createDefaultRoom` 一次 12 席；`beginning-fields@v1/spawns.json` 的 `councilSpawns[]`（12 **分区分散**锚点，bake 可走格 + 间距断言）+ `shuffleCouncilSpawnAssignments(roomId)`；详见 [BEGINNING-FIELDS.md](./BEGINNING-FIELDS.md) §议会出生点 |
+| **不变量** | 同房所有客户端见相同 12 NPC 位置与 speak 标志 — [INVARIANTS-MULTIPLAYER.md](./INVARIANTS-MULTIPLAYER.md) **MP-11** |
+
+**验证：** `pnpm --filter @aetherlife/game-server test -- bridge.test` · `pnpm --filter @aetherlife/web test -- colyseusAmbientSnapshot` · `pnpm verify:phase26`（真实 LLM，禁止 `LLM_MOCK`）· `pnpm verify:phase13`（铭牌 VIS-04 回归）
+
+**锚点文件：** `apps/game-server/src/colyseus/schema.ts`, `apps/game-server/src/colyseus/bridge.ts`, `packages/shared/src/council/spawn.ts`, `packages/shared/src/council/migrate.ts`, `apps/game-server/src/room/council-migrate.ts`, `apps/web/src/hooks/useColyseusRoom.ts`, `apps/web/src/lib/colyseusAmbientSnapshot.ts`, `scripts/migrate-room-council-npcs.mjs`
+
+---
+
 ## C-09 — Runtime NPC relationships (`npc_relationships`) [Phase 25 — complete]
 
 | 层 | 契约 |
@@ -167,10 +189,11 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 | **Reset** | `POST /rooms/:id/reset` **不得**删除 `npc_relationships`（room-shared，与 `world_history` / `__council__` 同类保留） |
 | **UI** | 客户端 **无**公开 REST；`linkedEdges` 仅经 `councilDeliberationSync` 广播；名册 `council-roster-relationship-hint`（`linkedEdges` 上次 vote job）subtle hint only |
 | **C-07 辩论记忆** | Phase 25 `world_vote.py` debate/vote 理由同步 append `__council__`（见 C-07 Council 写）；关系 delta 与 council memory 同 job 串行 |
+| **REL-08 drift** | `npc_leaning_drift` 表（room_id + npc_id PK，drift −30…30）；**仅** worker speak memory tail `apply_speak_leaning_drift` 写入；`world_vote` 读 `effective_voting_leaning(registry + drift)`；玩家 UI **不可见** drift 数值；验证：`cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_leaning_drift.py -q` |
 
-**验证：** `pnpm --filter @aetherlife/shared test -- councilDeliberation` · `pnpm --filter @aetherlife/game-server test -- npc-relationships councilRelationshipSeed world-vote` · `cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_world_vote.py -q` · `pnpm verify:phase25`（REL-05 affection delta）
+**验证：** `pnpm --filter @aetherlife/shared test -- councilDeliberation` · `pnpm --filter @aetherlife/game-server test -- npc-relationships councilRelationshipSeed world-vote` · `cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_world_vote.py -q` · `pnpm verify:phase25`（REL-05 affection delta）· `pnpm verify:phase26`（REL-08 drift unit 子进程，非 LLM 硬断言）
 
-**锚点文件：** `world/npc-relationships-repository.ts`, `memory/councilRelationshipSeed.ts`, `routes/internal-npc-relationships.ts`, `room/store.ts`, `packages/shared/src/councilRelationships.ts`, `packages/shared/src/councilDeliberation.ts`, `packages/npc-memory/migrations/0009_npc_relationships.sql`.
+**锚点文件：** `world/npc-relationships-repository.ts`, `memory/councilRelationshipSeed.ts`, `routes/internal-npc-relationships.ts`, `room/store.ts`, `packages/shared/src/councilRelationships.ts`, `packages/shared/src/councilDeliberation.ts`, `packages/npc-memory/migrations/0009_npc_relationships.sql`, `packages/npc-memory/migrations/0010_npc_leaning_drift.sql`, `workers/agent-worker/src/council/leaning_drift.py`.
 
 ---
 

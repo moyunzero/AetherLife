@@ -108,6 +108,74 @@ def test_generate_uses_payload_npc_name_over_stale_dict():
     assert intent["zoneId"] == "home-yard"
 
 
+def test_fallback_intent_npc_8_uses_seat_voice_not_npc_1():
+    payload = _payload(
+        npcId="npc-8",
+        segment={"zoneId": "beginning-fields@v1:plaza", "activityKey": "patrol", "toMinute": 720},
+    )
+    intent = _fallback_intent(payload)
+    assert intent["reasonZh"] == "出来走走顺便照看一下"
+    assert intent["reasonZh"] != _fallback_intent(_payload(npcId="npc-1", segment=payload["segment"]))[
+        "reasonZh"
+    ]
+
+
+def test_fallback_intent_npc_11_uses_seat_voice_not_npc_1():
+    payload = _payload(
+        npcId="npc-11",
+        segment={"zoneId": "beginning-fields@v1:orchard", "activityKey": "reading", "toMinute": 720},
+    )
+    intent = _fallback_intent(payload)
+    assert intent["reasonZh"] == "细节还得再抠一抠"
+    assert intent["reasonZh"] != _fallback_intent(_payload(npcId="npc-1", segment=payload["segment"]))[
+        "reasonZh"
+    ]
+
+
+def test_run_ambient_intent_job_posts_for_npc_8():
+    settings = Settings(
+        llm_mock=True,
+        game_server_url="http://127.0.0.1:9",
+        internal_worker_token="test-token",
+    )
+    payload = _payload(npcId="npc-8", jobId="ambient-test-npc-8-segment_change-480")
+    seen_npc_ids: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/npc-intent/pending-clear"):
+            return httpx.Response(204)
+        body = json.loads(request.content.decode())
+        seen_npc_ids.append(body["npcId"])
+        assert body["npcId"] == "npc-8"
+        return httpx.Response(204)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    run_ambient_intent_job(payload, settings=settings, client=client)
+    assert seen_npc_ids == ["npc-8"]
+
+
+def test_run_ambient_intent_job_posts_for_npc_11():
+    settings = Settings(
+        llm_mock=True,
+        game_server_url="http://127.0.0.1:9",
+        internal_worker_token="test-token",
+    )
+    payload = _payload(npcId="npc-11", jobId="ambient-test-npc-11-segment_change-480")
+    seen_npc_ids: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/npc-intent/pending-clear"):
+            return httpx.Response(204)
+        body = json.loads(request.content.decode())
+        seen_npc_ids.append(body["npcId"])
+        assert body["npcId"] == "npc-11"
+        return httpx.Response(204)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    run_ambient_intent_job(payload, settings=settings, client=client)
+    assert seen_npc_ids == ["npc-11"]
+
+
 def test_run_ambient_intent_job_posts_to_game_server():
     settings = Settings(
         llm_mock=True,

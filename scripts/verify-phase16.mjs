@@ -2,6 +2,7 @@
  * Phase 16 E2E — Wave 1–2: WorldRegion + zone wander + ambient intent smoke.
  * Requires: pnpm dev:stack (no LLM_MOCK=1), real API keys in .env.
  * P16-07a: reasonZh data strict (registry). P16-07b UI intent subline — not a ship gate (session 5).
+ * Phase 26+: 12 council NPCs on map; bg-villager tier removed — P16-10/11 assert council presence + invalid speak 400.
  * Output: .planning/phases/16-intelligent-ambient-npcs/verify-screenshots/ + verify-report.json
  */
 import { mkdir, writeFile } from "node:fs/promises";
@@ -33,6 +34,9 @@ const roomId = process.env.VERIFY_PHASE16_ROOM_ID || `verify-p16-${Date.now()}`;
 const webUrl = `${webBase}${webBase.includes("?") ? "&" : "?"}room=${encodeURIComponent(roomId)}`;
 
 const CLOCK_RE = /\d{1,2}:\d{2}/;
+const COUNCIL_ID_RE = /^npc-\d+$/;
+const COUNCIL_NPC_COUNT = 12;
+const COUNCIL_NAMEPLATE_FONT = "13";
 
 const report = {
   roomId,
@@ -169,7 +173,8 @@ function npcPositionsChanged(before, after) {
 }
 
 async function nudgePlayerForProximity(page) {
-  await page.locator('[data-testid="explore-coords-strip"]').click();
+  const canvas = page.locator('[data-testid="phaser-parent"] canvas').first();
+  await canvas.click({ force: true });
   for (let i = 0; i < 20; i += 1) {
     await page.keyboard.press(["w", "d", "s", "a"][i % 4]);
     await page.waitForTimeout(200);
@@ -199,39 +204,47 @@ async function writeReport() {
   console.log(`verify:phase16: report → ${relative(root, reportPath)}`);
 }
 
-async function assertBackgroundNpcSpeakBlocked() {
+async function assertCouncilRoomAndSpeakGuards() {
   const stateRes = await fetch(`${httpBase}/rooms/${roomId}/state`);
   if (!stateRes.ok) {
     throw new Error(`GET state ${stateRes.status}`);
   }
   const stateBody = await stateRes.json();
-  const bgNpcs = (stateBody.state?.npcs ?? []).filter((n) =>
-    String(n.id).startsWith("bg-villager-"),
-  );
-  if (bgNpcs.length < 2 || bgNpcs.length > 4) {
-    throw new Error(`expected 2–4 bg npcs, got ${bgNpcs.length}`);
+  const npcs = stateBody.state?.npcs ?? [];
+  const councilNpcs = npcs.filter((n) => COUNCIL_ID_RE.test(String(n.id)));
+  const bgNpcs = npcs.filter((n) => String(n.id).startsWith("bg-villager-"));
+  if (councilNpcs.length !== COUNCIL_NPC_COUNT) {
+    throw new Error(
+      `expected ${COUNCIL_NPC_COUNT} council npcs, got ${councilNpcs.length}`,
+    );
   }
-  const chatRes = await fetch(`${httpBase}/rooms/${roomId}/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message: "你好", npcId: "bg-villager-1" }),
-  });
-  if (chatRes.status !== 400) {
-    const body = await chatRes.text();
-    throw new Error(`speak to bg npc expected 400, got ${chatRes.status}: ${body}`);
+  if (bgNpcs.length > 0) {
+    throw new Error(`expected 0 bg npcs after Phase 26, got ${bgNpcs.length}`);
   }
-  return { bgCount: bgNpcs.length, bgIds: bgNpcs.map((n) => n.id) };
+  for (const badId of ["bg-villager-1", "not-a-council-npc"]) {
+    const chatRes = await fetch(`${httpBase}/rooms/${roomId}/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "你好", npcId: badId }),
+    });
+    if (chatRes.status !== 400) {
+      const body = await chatRes.text();
+      throw new Error(`speak to ${badId} expected 400, got ${chatRes.status}: ${body}`);
+    }
+  }
+  return {
+    councilCount: councilNpcs.length,
+    councilIds: councilNpcs.map((n) => n.id),
+  };
 }
 
-async function fetchRoomBgNpcs() {
+async function fetchRoomCouncilNpcs() {
   const stateRes = await fetch(`${httpBase}/rooms/${roomId}/state`);
   if (!stateRes.ok) {
     throw new Error(`GET state ${stateRes.status}`);
   }
   const stateBody = await stateRes.json();
-  return (stateBody.state?.npcs ?? []).filter((n) =>
-    String(n.id).startsWith("bg-villager-"),
-  );
+  return (stateBody.state?.npcs ?? []).filter((n) => COUNCIL_ID_RE.test(String(n.id)));
 }
 
 async function movePlayerToGrid(page, x, y) {
@@ -247,82 +260,83 @@ async function movePlayerToGrid(page, x, y) {
   );
 }
 
-async function waitForBgNameplate(page, timeoutMs = 8000) {
+async function waitForCouncilNameplate(page, timeoutMs = 8000) {
   const deadline = Date.now() + timeoutMs;
-  let last = await readBgNpcProbe(page);
+  let last = await readCouncilNameplateProbe(page);
   while (Date.now() < deadline && !last.ok) {
     await page.waitForTimeout(400);
-    last = await readBgNpcProbe(page);
+    last = await readCouncilNameplateProbe(page);
   }
   return last;
+}
+
+function cellsNearNpc(npcX, npcY) {
+  const out = [];
+  for (let dx = -2; dx <= 2; dx += 1) {
+    for (let dy = -2; dy <= 2; dy += 1) {
+      if (dx === 0 && dy === 0) continue;
+      const x = npcX + dx;
+      const y = npcY + dy;
+      if (x < 0 || y < 0) continue;
+      if (chebyshevDistance(x, y, npcX, npcY) > 2) continue;
+      out.push({ x, y });
+    }
+  }
+  return out.sort(
+    (a, b) =>
+      chebyshevDistance(a.x, a.y, npcX, npcY) -
+      chebyshevDistance(b.x, b.y, npcX, npcY),
+  );
 }
 
 function chebyshevDistance(ax, ay, bx, by) {
   return Math.max(Math.abs(ax - bx), Math.abs(ay - by));
 }
 
-function cellsNearBg(bgX, bgY) {
-  const out = [];
-  for (let dx = -2; dx <= 2; dx += 1) {
-    for (let dy = -2; dy <= 2; dy += 1) {
-      if (dx === 0 && dy === 0) continue;
-      const x = bgX + dx;
-      const y = bgY + dy;
-      if (x < 0 || y < 0) continue;
-      if (chebyshevDistance(x, y, bgX, bgY) > 2) continue;
-      out.push({ x, y });
-    }
-  }
-  return out.sort(
-    (a, b) =>
-      chebyshevDistance(a.x, a.y, bgX, bgY) - chebyshevDistance(b.x, b.y, bgX, bgY),
-  );
-}
-
 async function readMoveDebug(page) {
   return page.evaluate(() => window.__aetherlife_moveDebug?.() ?? null);
 }
 
-async function movePlayerNearBgNpc(page, bgX, bgY) {
-  for (const cell of cellsNearBg(bgX, bgY)) {
+async function movePlayerNearCouncilNpc(page, npcX, npcY) {
+  for (const cell of cellsNearNpc(npcX, npcY)) {
     await movePlayerToGrid(page, cell.x, cell.y);
     await page.waitForTimeout(400);
     const move = await readMoveDebug(page);
     if (!move) continue;
-    const dist = chebyshevDistance(move.gridX, move.gridY, bgX, bgY);
+    const dist = chebyshevDistance(move.gridX, move.gridY, npcX, npcY);
     if (dist > 2) continue;
-    const probe = await waitForBgNameplate(page, 2500);
+    const probe = await waitForCouncilNameplate(page, 2500);
     if (probe.ok) {
       return { probe, playerCell: { x: move.gridX, y: move.gridY }, dist, targetCell: cell };
     }
   }
   const move = await readMoveDebug(page);
   return {
-    probe: await readBgNpcProbe(page),
+    probe: await readCouncilNameplateProbe(page),
     playerCell: move ? { x: move.gridX, y: move.gridY } : null,
-    dist: move ? chebyshevDistance(move.gridX, move.gridY, bgX, bgY) : null,
+    dist: move ? chebyshevDistance(move.gridX, move.gridY, npcX, npcY) : null,
     targetCell: null,
   };
 }
 
-async function readBgNpcProbe(page) {
-  return page.evaluate(() => {
-    const fn = window.__aetherlife_bgNpcDebug;
+async function readCouncilNameplateProbe(page) {
+  return page.evaluate(({ fontPrefix }) => {
+    const fn = window.__aetherlife_councilNameplateDebug;
     if (typeof fn !== "function") {
-      return { ok: false, reason: "__aetherlife_bgNpcDebug missing (dev stack required)" };
+      return {
+        ok: false,
+        reason: "__aetherlife_councilNameplateDebug missing (dev stack required)",
+      };
     }
     const probe = fn();
-    const plates = probe?.visibleBgNameplates ?? [];
+    const plates = probe?.visibleCouncilNameplates ?? [];
     return {
       ok: plates.some(
-        (p) =>
-          p.testid === "bg-npc-nameplate" &&
-          String(p.fontSize).includes("11") &&
-          p.alpha > 0.05,
+        (p) => String(p.fontSize).includes(fontPrefix) && p.alpha > 0.05,
       ),
-      visibleBgNameplates: plates,
+      visibleCouncilNameplates: plates,
     };
-  });
+  }, { fontPrefix: COUNCIL_NAMEPLATE_FONT });
 }
 
 async function main() {
@@ -331,13 +345,13 @@ async function main() {
   await healthOk();
   record("P16-00", "game-server health", true);
 
-  const bgState = await assertBackgroundNpcSpeakBlocked();
-  report.bgNpcState = bgState;
+  const councilState = await assertCouncilRoomAndSpeakGuards();
+  report.councilNpcState = councilState;
   record(
     "P16-11",
-    "background NPC speak blocked (HTTP chat 400)",
+    "12 council NPCs + invalid speak blocked (HTTP chat 400)",
     true,
-    `${bgState.bgCount} bg ids: ${bgState.bgIds.join(", ")}`,
+    `${councilState.councilCount} council ids (0 bg-villager)`,
   );
 
   const chromium = await loadPlaywright();
@@ -485,28 +499,48 @@ async function main() {
     const fallback = await page.locator('[data-testid="phaser-fallback-banner"]').count();
     record("P16-08", "no Phaser fallback banner", fallback === 0, `count=${fallback}`);
 
-    const bgNpcsLive = await fetchRoomBgNpcs();
-    if (bgNpcsLive.length === 0) {
-      throw new Error("P16-10: no bg npcs in room state");
+    const councilNpcsLive = await fetchRoomCouncilNpcs();
+    if (councilNpcsLive.length < COUNCIL_NPC_COUNT) {
+      throw new Error(`P16-10: expected ${COUNCIL_NPC_COUNT} council npcs in room state`);
     }
-    const targetBg = bgNpcsLive[0];
-    report.bgNpcProximityTarget = { bgId: targetBg.id, bgX: targetBg.x, bgY: targetBg.y };
+    const npcSnap = await readNpcSnapshot(page);
+    if ((npcSnap.npcs?.length ?? 0) < COUNCIL_NPC_COUNT) {
+      record(
+        "P16-10a",
+        "council map presence (≥12 sprites)",
+        false,
+        `npcDebug count=${npcSnap.npcs?.length ?? 0}`,
+      );
+    } else {
+      record(
+        "P16-10a",
+        "council map presence (≥12 sprites)",
+        true,
+        `count=${npcSnap.npcs?.length}`,
+      );
+    }
+    const targetCouncil = councilNpcsLive.find((n) => n.id === "npc-1") ?? councilNpcsLive[0];
+    report.councilNpcProximityTarget = {
+      npcId: targetCouncil.id,
+      x: targetCouncil.x,
+      y: targetCouncil.y,
+    };
     console.log(
-      `verify:phase16: P16-10 seek proximity to ${targetBg.id}@(${targetBg.x},${targetBg.y})`,
+      `verify:phase16: P16-10 seek proximity to ${targetCouncil.id}@(${targetCouncil.x},${targetCouncil.y})`,
     );
-    const near = await movePlayerNearBgNpc(page, targetBg.x, targetBg.y);
-    report.bgNpcProximityResult = near;
-    const bgProbe = near.probe;
-    report.bgNpcProbe = bgProbe;
-    console.log(`verify:phase16: bgNpcProbe=${JSON.stringify(bgProbe)}`);
+    const near = await movePlayerNearCouncilNpc(page, targetCouncil.x, targetCouncil.y);
+    report.councilNpcProximityResult = near;
+    const councilProbe = near.probe;
+    report.councilNameplateProbe = councilProbe;
+    console.log(`verify:phase16: councilNameplateProbe=${JSON.stringify(councilProbe)}`);
     record(
       "P16-10",
-      "background NPC muted nameplate (bg-npc-nameplate 11px)",
-      bgProbe.ok,
-      JSON.stringify(bgProbe.visibleBgNameplates),
+      "council proximity nameplate (VIS-04 13px)",
+      councilProbe.ok,
+      JSON.stringify(councilProbe.visibleCouncilNameplates),
     );
-    await shot(page, "08-bg-npc-nameplate.png");
-    await shotCanvas(page, "08-bg-npc-nameplate-canvas.png");
+    await shot(page, "08-council-nameplate.png");
+    await shotCanvas(page, "08-council-nameplate-canvas.png");
 
     await page.evaluate(() => {
       window.__aetherlife_sendMoveTo?.(48, 20);

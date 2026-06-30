@@ -4,35 +4,34 @@ import { syncColyseusFromMap } from "../colyseus/bridge.js";
 import { GameRoomState } from "../colyseus/schema.js";
 
 describe("GameRoomState ambient schema defaults", () => {
-  it("defaults gameMinute to 360 and activity keys to idle", () => {
+  it("defaults gameMinute to 360 and schemaVersion to 2", () => {
     const state = new GameRoomState();
     expect(state.gameMinute).toBe(360);
-    expect(state.npc1ActivityKey).toBe("idle");
-    expect(state.npc2ActivityKey).toBe("idle");
-    expect(state.npc3ActivityKey).toBe("idle");
+    expect(state.schemaVersion).toBe(2);
+    expect(state.npcs.size).toBe(0);
   });
 });
 
 describe("syncColyseusFromMap activity slots", () => {
-  it("writes npc1ActivityKey from map.npcs activityKey", () => {
+  it("writes npc-1 activityKey from map.npcs activityKey", () => {
     const map = createDefaultRoom("default");
-    map.npcs[0]!.activityKey = "reading";
+    map.npcs.find((n) => n.id === "npc-1")!.activityKey = "reading";
 
     const colyseus = new GameRoomState();
     syncColyseusFromMap(colyseus, map);
 
-    expect(colyseus.npc1ActivityKey).toBe("reading");
-    expect(colyseus.npc2ActivityKey).toBe("idle");
-    expect(colyseus.npc3ActivityKey).toBe("idle");
+    expect(colyseus.npcs.get("npc-1")!.activityKey).toBe("reading");
+    expect(colyseus.npcs.get("npc-2")!.activityKey).toBe("idle");
+    expect(colyseus.npcs.get("npc-3")!.activityKey).toBe("idle");
   });
 
   it("defaults missing activityKey to idle", () => {
     const map = createDefaultRoom("default");
-    delete map.npcs[1]!.activityKey;
+    delete map.npcs.find((n) => n.id === "npc-2")!.activityKey;
 
     const colyseus = new GameRoomState();
     syncColyseusFromMap(colyseus, map);
 
-    expect(colyseus.npc2ActivityKey).toBe("idle");
+    expect(colyseus.npcs.get("npc-2")!.activityKey).toBe("idle");
   });
 });

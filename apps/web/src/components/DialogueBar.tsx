@@ -160,15 +160,13 @@ export function DialogueBar({
             onOpenCouncil={() => onOpenDrawer("council")}
           />
         ) : null}
-        {composerBusyForActiveNpc ? (
+        {composerSpeakBusyOtherPlayer ? (
           <p
             className="composer__speak-status"
             data-testid="composer-speak-status"
             role="status"
           >
-            {composerSpeakBusyOtherPlayer
-              ? "该 NPC 正在响应其他玩家的指令，请稍候再试。"
-              : `${activeNpcName} 正在思考…`}
+            该 NPC 正在响应其他玩家的指令，请稍候再试。
           </p>
         ) : null}
         <div className="composer__shell dialogue-bar__shell">

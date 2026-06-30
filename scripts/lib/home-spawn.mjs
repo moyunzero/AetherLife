@@ -1,6 +1,9 @@
 /**
  * Beginning Fields spawn constants for Node verify scripts.
  * Keep in sync with `packages/shared/src/homeMap.ts`.
+ *
+ * Phase 26+: council room NPC homes come from `councilSpawns` shuffle —
+ * use `councilNpcHome(roomId, npcId)` in `scripts/lib/council-spawn.mjs`, not HOME_NPC_SPAWNS.
  */
 export const HOME_MAP_TILE_W = 40;
 export const HOME_MAP_TILE_H = 40;

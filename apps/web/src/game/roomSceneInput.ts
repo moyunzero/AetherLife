@@ -1,10 +1,17 @@
 import * as Phaser from "phaser";
 import type { ChunkView, RoomState } from "@aetherlife/shared";
+import {
+  getCouncilSpawnSlots,
+  HOME_MAP_TILE_H,
+  HOME_MAP_TILE_W,
+} from "@aetherlife/shared";
 import { clientFindPath } from "../lib/chunkWalkability.js";
 import { isGlobalFloorBlocked } from "./floorBlocked.js";
 import { CELL_PX, gridToWorld, worldToGrid } from "./gridLayout.js";
 import { attachGridMovementKeys, GRID_STEP_MS, type GridMovementKeyHandle } from "./gridMovement.js";
 import type { MovementSyncController } from "./MovementSyncController.js";
+import { regionWalkabilityAt } from "./regionCollision.js";
+import { YSORT_OVERHEAD_DEPTH } from "./entityLayout.js";
 import { pickNpcAtWorldPoint } from "./roomSceneViewport.js";
 import { refreshNpcChatBubbles } from "./entitySprites.js";
 import type { EntitySprite, PlayerSnap } from "./roomSceneTypes.js";
@@ -32,6 +39,147 @@ export type RoomSceneInputCtx = {
   setPinchState: (startDist: number, startZoom: number) => void;
   setKeyHandle: (handle: GridMovementKeyHandle | undefined) => void;
 };
+
+function isGridDebugEnabled(): boolean {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).get("gridDebug") === "1";
+}
+
+/** Above all Y-sorted map sprites + Tiled overhead (screen-fixed HUD). */
+const GRID_DEBUG_HUD_DEPTH = YSORT_OVERHEAD_DEPTH + 2_000;
+
+function gridDebugHudText(
+  x: number,
+  y: number,
+  pickCount: number,
+): string {
+  const walk = regionWalkabilityAt(x, y);
+  const walkLabel = walk === true ? "可走" : walk === false ? "阻挡" : "区外";
+  return `gridDebug · 格 (${x}, ${y}) · ${walkLabel}\n已选 ${pickCount}/12 · Shift+点击记录出生点`;
+}
+
+/** Dev: ?gridDebug=1 — grid overlay, hover cell, Shift+click records spawn candidates. */
+function setupGridDebugPicker(ctx: RoomSceneInputCtx): void {
+  if (!isGridDebugEnabled()) return;
+
+  const w = window as Window & {
+    __aetherlife_gridPicks?: Array<{ x: number; y: number }>;
+    __aetherlife_clearGridPicks?: () => void;
+    __aetherlife_spawnCellInfo?: (x: number, y: number) => {
+      x: number;
+      y: number;
+      walkable: boolean | undefined;
+    };
+  };
+  w.__aetherlife_gridPicks = w.__aetherlife_gridPicks ?? [];
+
+  const overlayGfx = ctx.scene.add.graphics().setDepth(YSORT_OVERHEAD_DEPTH - 200);
+  const hoverGfx = ctx.scene.add.graphics().setDepth(YSORT_OVERHEAD_DEPTH - 150);
+  const markerGfx = ctx.scene.add.graphics().setDepth(YSORT_OVERHEAD_DEPTH - 100);
+
+  const drawGridOverlay = () => {
+    overlayGfx.clear();
+    overlayGfx.lineStyle(1, 0xffffff, 0.18);
+    for (let x = 0; x <= HOME_MAP_TILE_W; x += 1) {
+      const px = x * CELL_PX;
+      overlayGfx.lineBetween(px, 0, px, HOME_MAP_TILE_H * CELL_PX);
+    }
+    for (let y = 0; y <= HOME_MAP_TILE_H; y += 1) {
+      const py = y * CELL_PX;
+      overlayGfx.lineBetween(0, py, HOME_MAP_TILE_W * CELL_PX, py);
+    }
+    overlayGfx.lineStyle(2, 0x66ff88, 0.75);
+    try {
+      for (const slot of getCouncilSpawnSlots()) {
+        overlayGfx.strokeRect(
+          slot.x * CELL_PX + 2,
+          slot.y * CELL_PX + 2,
+          CELL_PX - 4,
+          CELL_PX - 4,
+        );
+      }
+    } catch {
+      // registry not ready — grid lines still useful
+    }
+  };
+
+  const drawHoverCell = (x: number, y: number) => {
+    hoverGfx.clear();
+    const walk = regionWalkabilityAt(x, y);
+    const color = walk === true ? 0x66ff88 : walk === false ? 0xff6666 : 0xffe566;
+    hoverGfx.fillStyle(color, 0.32);
+    hoverGfx.fillRect(x * CELL_PX, y * CELL_PX, CELL_PX, CELL_PX);
+    hoverGfx.lineStyle(2, color, 0.95);
+    hoverGfx.strokeRect(x * CELL_PX + 1, y * CELL_PX + 1, CELL_PX - 2, CELL_PX - 2);
+  };
+
+  const drawPickMarkers = () => {
+    markerGfx.clear();
+    markerGfx.lineStyle(3, 0xffe566, 0.95);
+    for (const p of w.__aetherlife_gridPicks ?? []) {
+      markerGfx.strokeRect(p.x * CELL_PX + 2, p.y * CELL_PX + 2, CELL_PX - 4, CELL_PX - 4);
+    }
+  };
+
+  w.__aetherlife_clearGridPicks = () => {
+    w.__aetherlife_gridPicks = [];
+    drawPickMarkers();
+  };
+  w.__aetherlife_spawnCellInfo = (x, y) => ({
+    x,
+    y,
+    walkable: regionWalkabilityAt(x, y),
+  });
+
+  const hud = ctx.scene.add
+    .text(0, 0, "", {
+      fontSize: "20px",
+      fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+      color: "#ffe566",
+      backgroundColor: "#000000e6",
+      padding: { x: 14, y: 10 },
+      stroke: "#000000",
+      strokeThickness: 4,
+    })
+    .setDepth(GRID_DEBUG_HUD_DEPTH)
+    .setScrollFactor(0)
+    .setOrigin(0.5, 0);
+
+  const layoutHud = () => {
+    const cam = ctx.cameras.main;
+    hud.setPosition(cam.width / 2, 52);
+  };
+  layoutHud();
+  ctx.scene.scale.on("resize", layoutHud);
+
+  const worldFromPointer = (pointer: Phaser.Input.Pointer) =>
+    pointer.positionToCamera(ctx.cameras.main) as Phaser.Math.Vector2;
+
+  const updateHover = (pointer: Phaser.Input.Pointer) => {
+    const world = worldFromPointer(pointer);
+    const { x, y } = worldToGrid(world.x, world.y);
+    hud.setText(gridDebugHudText(x, y, w.__aetherlife_gridPicks?.length ?? 0));
+    drawHoverCell(x, y);
+  };
+
+  ctx.input.on("pointermove", updateHover);
+
+  ctx.input.on("pointerup", (pointer: Phaser.Input.Pointer) => {
+    if (!pointer.event.shiftKey) return;
+    const world = worldFromPointer(pointer);
+    const { x, y } = worldToGrid(world.x, world.y);
+    const picks = w.__aetherlife_gridPicks!;
+    picks.push({ x, y });
+    drawPickMarkers();
+    const info = w.__aetherlife_spawnCellInfo!(x, y);
+    console.log(`[gridDebug] pick #${picks.length}: (${x}, ${y})`, info, picks);
+    hud.setText(gridDebugHudText(x, y, picks.length));
+  });
+
+  drawGridOverlay();
+  drawPickMarkers();
+  updateHover(ctx.input.activePointer);
+}
 
 export function flashBlockedCell(ctx: RoomSceneInputCtx, x: number, y: number): Phaser.Tweens.Tween | null {
   ctx.flashGfx.clear();
@@ -224,6 +372,10 @@ export function setupRoomSceneInput(ctx: RoomSceneInputCtx): void {
       return;
     }
 
+    if (isGridDebugEnabled() && pointer.event.shiftKey) {
+      return;
+    }
+
     if (ctx.movementDisabled()) {
       return;
     }
@@ -252,4 +404,6 @@ export function setupRoomSceneInput(ctx: RoomSceneInputCtx): void {
     },
   });
   ctx.setKeyHandle(handle);
+
+  setupGridDebugPicker(ctx);
 }

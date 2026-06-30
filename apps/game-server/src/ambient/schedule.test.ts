@@ -98,14 +98,6 @@ describe("validateNpcSchedulesAgainstRegistry (T-16-01)", () => {
       zones: Array<{ id: string }>;
     };
     zones.zones = zones.zones.filter((z) => z.id !== "orchard");
-    const spawns = bundle.spawnsByRegionId[BEGINNING_FIELDS_ID] as {
-      backgroundNpc?: Array<{ wanderZoneId: string }>;
-    };
-    for (const bg of spawns.backgroundNpc ?? []) {
-      if (bg.wanderZoneId === "beginning-fields@v1:orchard") {
-        bg.wanderZoneId = "beginning-fields@v1:plaza";
-      }
-    }
     const registry = loadWorldRegistry(bundle);
     expect(() => validateNpcSchedulesAgainstRegistry(registry)).toThrow(
       /unknown zoneId beginning-fields@v1:orchard/,

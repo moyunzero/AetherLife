@@ -1,5 +1,5 @@
 import type { GridCell, NpcState, RoomState } from "@aetherlife/shared";
-import { isBackgroundNpc, isTargetIntent, isZoneIntent } from "@aetherlife/shared";
+import { COUNCIL_NPC_IDS, isCouncilNpcId, isTargetIntent, isZoneIntent } from "@aetherlife/shared";
 import { collectPlayerCells, findPlayerCellByPlayerId } from "../colyseus/bridge.js";
 import { buildMoveGrid, findNearestWalkableCell } from "../colyseus/move-handler.js";
 import type { GameRoomState } from "../colyseus/schema.js";
@@ -10,71 +10,24 @@ import { buildOtherNpcCells, stepNpcTowardTarget } from "./move.js";
 import { resolveScheduleSegment, shouldSkipMovement, type ScheduleSegment } from "./schedule.js";
 import { pickZoneTarget } from "./zone-wander.js";
 
-export const MAIN_AMBIENT_NPC_IDS = ["npc-1", "npc-2", "npc-3"] as const;
+export const MAIN_AMBIENT_NPC_IDS = COUNCIL_NPC_IDS;
 
-function isMainAmbientNpcId(npcId: string): npcId is (typeof MAIN_AMBIENT_NPC_IDS)[number] {
-  return (MAIN_AMBIENT_NPC_IDS as readonly string[]).includes(npcId);
-}
+const AMBIENT_BUCKET_COUNT = 12;
 
-function backgroundWanderSegment(npc: NpcState): ScheduleSegment | null {
-  const zoneId = npc.backgroundWanderZoneId?.trim();
-  if (!zoneId) return null;
-  return {
-    zoneId,
-    activityKey: npc.activityKey ?? "wandering",
-    mobility: "wander",
-    fromMinute: 0,
-    toMinute: 1440,
-  };
-}
-
-function runBackgroundNpcTick(
-  npc: NpcState,
-  ctx: Pick<AmbientTickContext, "gameState" | "map" | "loader" | "recentNpcCells">,
-  playerCells: GridCell[],
-): void {
-  const segment = backgroundWanderSegment(npc);
-  if (!segment) {
-    npc.activityKey = "idle";
-    return;
+/** Stable 0..11 bucket per council seat — one NPC moves per bucket per tick (D-MAP-AMB-03). */
+export function hashNpcBucket(npcId: string): number {
+  const match = /^npc-(\d+)$/.exec(npcId);
+  if (match) {
+    const seat = Number.parseInt(match[1]!, 10);
+    if (seat >= 1 && seat <= AMBIENT_BUCKET_COUNT) {
+      return (seat - 1) % AMBIENT_BUCKET_COUNT;
+    }
   }
-
-  npc.activityKey = segment.activityKey;
-  npc.intentReasonZh = "";
-
-  if (shouldSkipMovement(segment)) {
-    return;
+  let hash = 0;
+  for (let i = 0; i < npcId.length; i += 1) {
+    hash = (hash * 31 + npcId.charCodeAt(i)) | 0;
   }
-
-  const { gameState, map, loader, recentNpcCells } = ctx;
-  const grid = buildMoveGrid(map, gameState, "", loader, { excludeNpcId: npc.id });
-  const otherNpcCells = buildOtherNpcCells(map, npc.id);
-  const recent = recentNpcCells.get(npc.id) ?? [];
-
-  const picked = pickZoneTarget({
-    npc,
-    segment,
-    grid,
-    playerCells,
-    recentCells: recent,
-    gameMinute: gameState.gameMinute,
-  });
-  recentNpcCells.set(npc.id, picked.nextRecent);
-
-  const step = stepNpcTowardTarget({
-    npcX: npc.x,
-    npcY: npc.y,
-    targetGx: picked.targetGx,
-    targetGy: picked.targetGy,
-    grid,
-    playerCells,
-    otherNpcCells,
-  });
-
-  if (step.moved) {
-    npc.x = step.x;
-    npc.y = step.y;
-  }
+  return Math.abs(hash) % AMBIENT_BUCKET_COUNT;
 }
 
 export type AmbientTickContext = {
@@ -89,6 +42,26 @@ export type AmbientTickContext = {
 
 function chebyshev(ax: number, ay: number, bx: number, by: number): number {
   return Math.max(Math.abs(ax - bx), Math.abs(ay - by));
+}
+
+function npcHomeCell(npc: NpcState): GridCell {
+  return { x: npc.homeX ?? npc.x, y: npc.homeY ?? npc.y };
+}
+
+export function applySoftLeashTarget(
+  npc: NpcState,
+  targetGx: number,
+  targetGy: number,
+): { targetGx: number; targetGy: number } {
+  const home = npcHomeCell(npc);
+  const maxRadius = npc.maxRadius;
+  if (maxRadius == null || maxRadius <= 0) {
+    return { targetGx, targetGy };
+  }
+  if (chebyshev(npc.x, npc.y, home.x, home.y) > maxRadius) {
+    return { targetGx: home.x, targetGy: home.y };
+  }
+  return { targetGx, targetGy };
 }
 
 function clearJoinVicinityIfDone(npc: NpcState, playerCells: GridCell[]): void {
@@ -237,17 +210,10 @@ export function runAmbientTick(ctx: AmbientTickContext): {
   const playerCells = collectPlayerCells(roomId, map);
 
   for (const npc of map.npcs) {
-    const isMain = isMainAmbientNpcId(npc.id);
-    const isBg = isBackgroundNpc(npc);
-    if (!isMain && !isBg) {
+    if (!isCouncilNpcId(npc.id)) {
       continue;
     }
     if (npcSpeakJobs.has(npc.id)) {
-      continue;
-    }
-
-    if (isBg) {
-      runBackgroundNpcTick(npc, ctx, playerCells);
       continue;
     }
 
@@ -266,11 +232,19 @@ export function runAmbientTick(ctx: AmbientTickContext): {
       continue;
     }
 
+    if (npc.maxRadius === 0) {
+      continue;
+    }
+
+    if (gameState.gameMinute % AMBIENT_BUCKET_COUNT !== hashNpcBucket(npc.id)) {
+      continue;
+    }
+
     const grid = buildMoveGrid(map, gameState, "", loader, { excludeNpcId: npc.id });
     const otherNpcCells = buildOtherNpcCells(map, npc.id);
     const recent = recentNpcCells.get(npc.id) ?? [];
 
-    const { targetGx, targetGy, nextRecent } = resolveMovementTarget(
+    const resolved = resolveMovementTarget(
       npc,
       segment,
       roomId,
@@ -279,13 +253,15 @@ export function runAmbientTick(ctx: AmbientTickContext): {
       playerCells,
       recent,
     );
-    recentNpcCells.set(npc.id, nextRecent);
+    recentNpcCells.set(npc.id, resolved.nextRecent);
+
+    const leashed = applySoftLeashTarget(npc, resolved.targetGx, resolved.targetGy);
 
     const step = stepNpcTowardTarget({
       npcX: npc.x,
       npcY: npc.y,
-      targetGx,
-      targetGy,
+      targetGx: leashed.targetGx,
+      targetGy: leashed.targetGy,
       grid,
       playerCells,
       otherNpcCells,

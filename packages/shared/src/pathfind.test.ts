@@ -21,12 +21,22 @@ function roomWithDoor(state: RoomState["objects"][number]["state"] = "closed"): 
   return map;
 }
 
+/** Walkable offset from default player spawn (12 council NPCs may block +2 east). */
+function walkableOffset(map: RoomState, dx: number, dy: number): { x: number; y: number } {
+  const cell = { x: map.player.x + dx, y: map.player.y + dy };
+  const blocked = map.npcs.some((n) => n.x === cell.x && n.y === cell.y);
+  if (blocked) {
+    throw new Error(`test setup: (${cell.x},${cell.y}) occupied by council NPC`);
+  }
+  return cell;
+}
+
 describe("findGridPath", () => {
   it("finds straight path", () => {
     const map = createDefaultRoom();
     const grid = buildMoveGrid(map, []);
     const from = map.player;
-    const to = { x: from.x + 2, y: from.y };
+    const to = walkableOffset(map, 0, 2);
     expect(findGridPath(from.x, from.y, to.x, to.y, grid)?.at(-1)).toEqual(to);
   });
 
@@ -70,7 +80,8 @@ describe("findGridPath", () => {
     const withDoor = roomWithDoor("closed");
     expect(canStepTo(withDoor, 3, 3, [])).toBe(false);
     expect(canStepTo(map, npc2.x, npc2.y, [])).toBe(false);
-    expect(canStepTo(map, map.player.x + 2, map.player.y, [])).toBe(true);
+    const freeCell = walkableOffset(map, 0, 2);
+    expect(canStepTo(map, freeCell.x, freeCell.y, [])).toBe(true);
     expect(canStepTo(map, map.player.x, map.player.y, [{ x: map.player.x, y: map.player.y }])).toBe(
       false,
     );

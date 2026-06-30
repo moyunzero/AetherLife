@@ -18,7 +18,7 @@ import {
   assertE2eRealLlm,
   e2eSpeakTimeoutMs,
 } from "./lib/e2e-policy.mjs";
-import { engageDialogue } from "./lib/dialogue-engage.mjs";
+import { engageNpcDialogue } from "./lib/dialogue-engage.mjs";
 import { closeShellDrawer, sendSpeakOverlay } from "./lib/e2e-memory-helpers.mjs";
 import { gameServerHttpBase, loadRootEnv } from "./lib/env.mjs";
 import { healthOk, loadPlaywright } from "./lib/speak-browser-stack.mjs";
@@ -160,7 +160,7 @@ async function testProximitySpeak() {
         (await page.evaluate(() => window.__aetherlife_activeNpcDebug?.() ?? null));
 
       await closeShellDrawer(page);
-      await engageDialogue(page, { timeoutMs: engageTimeoutMs });
+      await engageNpcDialogue(page, npcId, { timeoutMs: engageTimeoutMs });
       const reply = await sendSpeakOverlay(page, `你好 ${npcId}，UAT 测试。`, {
         speakTimeoutMs,
         engageTimeoutMs,
@@ -180,43 +180,54 @@ async function main() {
   await healthOk();
   log(`web=${webBase} gs=${httpBase}`);
 
+  const only = process.env.UAT_ONLY ? Number.parseInt(process.env.UAT_ONLY, 10) : 0;
+  const run = (n) => only === 0 || only === n;
+
   const test1Dir = resolve(OUT_BASE, "test-01-verify-phase26");
   await mkdir(test1Dir, { recursive: true });
 
   // Test 1: verify:phase26
-  try {
-    await runCmd("verify:phase26", "pnpm", ["verify:phase26"], {
-      VERIFY_PHASE26_SCREENSHOT_DIR: test1Dir,
-      WEB_URL: webBase,
-    });
-    await record(1, "verify:phase26 ship gate", true, "exit 0", [`${test1Dir.replace(`${root}/`, "")}/`]);
-  } catch (err) {
-    await record(1, "verify:phase26 ship gate", false, err.message);
-    throw err;
+  if (run(1)) {
+    try {
+      await runCmd("verify:phase26", "pnpm", ["verify:phase26"], {
+        VERIFY_PHASE26_SCREENSHOT_DIR: test1Dir,
+        WEB_URL: webBase,
+      });
+      await record(1, "verify:phase26 ship gate", true, "exit 0", [`${test1Dir.replace(`${root}/`, "")}/`]);
+    } catch (err) {
+      await record(1, "verify:phase26 ship gate", false, err.message);
+      throw err;
+    }
   }
 
   // Test 2: verify:phase13
-  const test2Dir = resolve(OUT_BASE, "test-02-verify-phase13");
-  await mkdir(test2Dir, { recursive: true });
-  try {
-    await runCmd("verify:phase13", "pnpm", ["verify:phase13"], { WEB_URL: webBase });
-    await record(2, "verify:phase13 nameplate regression", true, "exit 0");
-  } catch (err) {
-    await record(2, "verify:phase13 nameplate regression", false, err.message);
-    throw err;
+  if (run(2)) {
+    const test2Dir = resolve(OUT_BASE, "test-02-verify-phase13");
+    await mkdir(test2Dir, { recursive: true });
+    try {
+      await runCmd("verify:phase13", "pnpm", ["verify:phase13"], { WEB_URL: webBase });
+      await record(2, "verify:phase13 nameplate regression", true, "exit 0");
+    } catch (err) {
+      await record(2, "verify:phase13 nameplate regression", false, err.message);
+      throw err;
+    }
   }
 
   // Test 3: golden flows (subset via agent verify e2e scripts if available)
-  try {
-    await runCmd("verify:phase6:move-only", "pnpm", ["verify:phase6:move-only"], { WEB_URL: webBase });
-    await record(3, "Golden flow GF-02 (move-only)", true, "exit 0");
-  } catch (err) {
-    await record(3, "Golden flow GF-02 (move-only)", false, err.message);
-    // non-fatal — continue to proximity test
+  if (run(3)) {
+    try {
+      await runCmd("verify:phase6:move-only", "pnpm", ["verify:phase6:move-only"], { WEB_URL: webBase });
+      await record(3, "Golden flow GF-02 (move-only)", true, "exit 0");
+    } catch (err) {
+      await record(3, "Golden flow GF-02 (move-only)", false, err.message);
+      // non-fatal — continue to proximity test
+    }
   }
 
   // Test 4: proximity speak
-  await testProximitySpeak();
+  if (run(4)) {
+    await testProximitySpeak();
+  }
 
   report.pass = report.tests.every((t) => t.pass);
   report.finishedAt = new Date().toISOString();

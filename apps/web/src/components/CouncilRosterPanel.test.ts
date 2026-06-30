@@ -7,6 +7,8 @@ describe("CouncilRosterPanel", () => {
   it("renders 12-seat read-only council roster", () => {
     const html = renderToStaticMarkup(createElement(CouncilRosterPanel, {}));
     expect(html).toContain('data-testid="council-roster-panel"');
+    expect(html).toContain('data-testid="council-roster-nav-hint"');
+    expect(html).toContain("村内土径");
     expect(html).toContain("莫玄虚");
     expect(html).toContain("海莲娜");
     expect(html).toContain("始源区");

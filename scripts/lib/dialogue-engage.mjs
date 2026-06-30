@@ -61,3 +61,45 @@ export async function engageDialogue(page, { timeoutMs = 45_000 } = {}) {
 
   throw new Error(`engageDialogue: dialogue-bar not visible within ${timeoutMs}ms`);
 }
+
+/**
+ * Engage dialogue with a specific council NPC (corner-menu avatar chip).
+ * @param {import('playwright').Page} page
+ * @param {string} npcId e.g. "npc-4"
+ */
+export async function engageNpcDialogue(page, npcId, { timeoutMs = 45_000 } = {}) {
+  const dialogueBar = page.locator('[data-testid="dialogue-bar"]');
+  if (await dialogueBar.isVisible().catch(() => false)) {
+    return;
+  }
+
+  const cornerMenu = page.locator('[data-testid="corner-menu"]');
+  await cornerMenu.waitFor({ state: "visible", timeout: 30_000 });
+  await page.waitForFunction(
+    () =>
+      Boolean(
+        document.querySelector('[data-testid="corner-menu"] .corner-menu__status-dot--ok'),
+      ),
+    { timeout: 45_000 },
+  );
+
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await dialogueBar.isVisible().catch(() => false)) {
+      return;
+    }
+    await cornerMenu.locator(".corner-menu__trigger").click();
+    const chip = page.locator(`#npc-avatar-${npcId}`);
+    try {
+      await chip.waitFor({ state: "visible", timeout: 12_000 });
+      await chip.click();
+      await dialogueBar.waitFor({ state: "visible", timeout: 8_000 });
+      return;
+    } catch {
+      await cornerMenu.locator(".corner-menu__trigger").click();
+      await page.waitForTimeout(400);
+    }
+  }
+
+  throw new Error(`engageNpcDialogue: dialogue-bar not visible for ${npcId} within ${timeoutMs}ms`);
+}

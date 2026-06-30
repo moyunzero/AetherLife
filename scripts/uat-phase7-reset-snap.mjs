@@ -1,11 +1,14 @@
 /**
  * Phase 7 UAT Test 5 — 新游戏后 NPC 必须 snap 到默认格，不得走回动画。
  * Requires: web (5173) + game-server (2567). Phaser room (not ?phaserFallback=1).
+ *
+ * Phase 26+: npc home = `createDefaultRoom` council embassy slot (per roomId shuffle),
+ * not legacy `HOME_NPC_SPAWNS`.
  */
 import { mkdir } from "node:fs/promises";
 import { assertE2eNoMock } from "./lib/e2e-policy.mjs";
+import { councilNpcHome } from "./lib/council-spawn.mjs";
 import { loadRootEnv } from "./lib/env.mjs";
-import { HOME_NPC_SPAWNS } from "./lib/home-spawn.mjs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -13,13 +16,15 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 loadRootEnv(root);
 const WEB = process.env.WEB_URL || "http://localhost:5173";
 const GS = process.env.GAME_SERVER_URL || "http://127.0.0.1:2567";
-const ROOM = "default";
+const ROOM = process.env.UAT_RESET_SNAP_ROOM_ID || "default";
 const NPC_ID = "npc-1";
-/** Beginning Fields default slot — keep in sync with `packages/shared/src/homeMap.ts`. */
-const DEFAULT = { ...HOME_NPC_SPAWNS[NPC_ID] };
-/** Walkable cell far from DEFAULT (verified via internal apply-actions). */
+/** Walkable cell far from council home (verified via internal apply-actions). */
 const FAR = { x: 15, y: 10 };
 const outDir = resolve(root, ".planning/phases/07-2-5d-renderer/uat-screenshots");
+
+function resolveDefaultHome() {
+  return councilNpcHome(ROOM, NPC_ID);
+}
 
 async function loadPlaywright() {
   const entry = resolve(root, "scripts/.pw-deps/node_modules/playwright/index.js");
@@ -76,7 +81,7 @@ async function waitNpcAt(page, x, y, timeoutMs = 15_000) {
 }
 
 /** After reset, NPC must not step-tween from far cell back to default (Stardew snap). */
-async function assertNoResetWalkBack(page) {
+async function assertNoResetWalkBack(page, defaultHome) {
   let walkBackSamples = 0;
   for (let i = 0; i < 30; i++) {
     const bad = await page.evaluate(
@@ -91,7 +96,7 @@ async function assertNoResetWalkBack(page) {
           Math.abs(sprite.gridX - dx) + Math.abs(sprite.gridY - dy) > 1;
         return atDefault && spriteFar;
       },
-      { dx: DEFAULT.x, dy: DEFAULT.y, id: NPC_ID },
+      { dx: defaultHome.x, dy: defaultHome.y, id: NPC_ID },
     );
     if (bad) walkBackSamples += 1;
     await page.waitForTimeout(50);
@@ -107,6 +112,12 @@ async function main() {
   assertE2eNoMock("uat:phase7:reset-snap");
   await health(GS, "game-server");
   await health(WEB, "web", "/");
+
+  const DEFAULT = resolveDefaultHome();
+  console.log(
+    `uat:phase7:reset-snap → room=${ROOM} npc-1 home=(${DEFAULT.x},${DEFAULT.y}) (council shuffle)`,
+  );
+
   await mkdir(outDir, { recursive: true });
 
   const initial = await gs(`/rooms/${ROOM}/state`);
@@ -171,10 +182,10 @@ async function main() {
       return Boolean(s && s.gridX === dx && s.gridY === dy);
     },
     { dx: DEFAULT.x, dy: DEFAULT.y, id: NPC_ID },
-    { timeout: 10_000 },
+    { timeout: 20_000 },
   );
 
-  await assertNoResetWalkBack(page);
+  await assertNoResetWalkBack(page, DEFAULT);
 
   await page.screenshot({
     path: resolve(outDir, "reset-snap-after.png"),
@@ -184,7 +195,7 @@ async function main() {
   const state = await gs(`/rooms/${ROOM}/state`);
   const after = state.state?.npcs?.find((n) => n.id === NPC_ID);
   if (after?.x !== DEFAULT.x || after?.y !== DEFAULT.y) {
-    fail(`服务端 npc-1 未回到默认格: (${after?.x}, ${after?.y})`);
+    fail(`服务端 npc-1 未回到默认格: (${after?.x}, ${after?.y}) 期望 (${DEFAULT.x}, ${DEFAULT.y})`);
   }
 
   await browser.close();

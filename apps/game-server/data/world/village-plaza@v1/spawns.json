@@ -1,4 +1,3 @@
 {
-  "defaultPlayerSpawn": { "lx": 10, "ly": 20 },
-  "npcSpawns": {}
+  "defaultPlayerSpawn": { "lx": 10, "ly": 20 }
 }

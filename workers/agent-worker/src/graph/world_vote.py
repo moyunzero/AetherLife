@@ -31,6 +31,7 @@ def _env_int(name: str, default: int) -> int:
 DEBATE_ROUNDS_MAX = max(1, min(5, _env_int("VOTE_DEBATE_ROUNDS_MAX", 5)))
 DEBATE_ROUND_GAME_MINUTES = max(1, _env_int("VOTE_DEBATE_ROUND_GAME_DAYS", 1) * 1440)
 
+from src.council.leaning_drift import effective_voting_leaning, get_leaning_drift
 from src.council.registry import display_name, get_persona
 from src.council.relationship_deltas import compute_relationship_deltas, filter_linked_edges_for_ui
 from src.council.relationship_prompt import (
@@ -65,11 +66,12 @@ _VOTE_JSON_SUFFIX = (
 )
 
 
-def _leaning_default_vote(npc_id: str, seed: str) -> str:
+def _leaning_default_vote(npc_id: str, seed: str, *, room_id: str | None = None) -> str:
     persona = get_persona(npc_id)
     if not persona:
         return "no"
-    leaning = persona.get("votingLeaning", "swing")
+    drift = get_leaning_drift(room_id, npc_id) if room_id else 0
+    leaning = effective_voting_leaning(npc_id, drift)
     if leaning == "for":
         return "yes"
     if leaning == "against":
@@ -77,7 +79,14 @@ def _leaning_default_vote(npc_id: str, seed: str) -> str:
     return "yes" if stable_string_hash(f"{npc_id}:{seed}") % 2 == 0 else "no"
 
 
-def _recover_json_from_prose(raw: str, *, kind: str, npc_id: str = "", seed: str = "") -> dict[str, Any] | None:
+def _recover_json_from_prose(
+    raw: str,
+    *,
+    kind: str,
+    npc_id: str = "",
+    seed: str = "",
+    room_id: str | None = None,
+) -> dict[str, Any] | None:
     text = (raw or "").strip()
     if not text:
         return None
@@ -91,7 +100,7 @@ def _recover_json_from_prose(raw: str, *, kind: str, npc_id: str = "", seed: str
             elif re.search(r"反对|否决|不宜通过", text):
                 vote = "no"
         if not vote and npc_id:
-            vote = _leaning_default_vote(npc_id, seed)
+            vote = _leaning_default_vote(npc_id, seed, room_id=room_id)
         if not vote:
             return None
         reason = reason_match.group(1).strip() if reason_match else "依本席判断。"
@@ -223,6 +232,7 @@ def _invoke_vote_json(
     recover_kind: str = "",
     recover_npc_id: str = "",
     recover_seed: str = "",
+    recover_room_id: str | None = None,
 ) -> dict[str, Any]:
     """Call vote LLM and parse JSON; retry once with a stricter suffix on parse failure."""
     if settings.llm_mock or os.getenv("LLM_MOCK") == "1":
@@ -248,6 +258,7 @@ def _invoke_vote_json(
                 kind=recover_kind,
                 npc_id=recover_npc_id,
                 seed=recover_seed,
+                room_id=recover_room_id,
             )
             if recovered:
                 print("vote JSON parse recovered fields from prose", file=sys.stderr)
@@ -604,7 +615,7 @@ def _cast_single_ballot(
         "输出 JSON：vote(yes|no), reasonZh(≤80字)。"
         f'{_VOTE_JSON_SUFFIX}'
     )
-    default_vote = _leaning_default_vote(npc_id, ctx.job_id)
+    default_vote = _leaning_default_vote(npc_id, ctx.job_id, room_id=ctx.room_id)
     default_reason = _persona_fallback_ballot_reason(npc_id, default_vote)
     data = _invoke_vote_json(
         settings,
@@ -613,6 +624,7 @@ def _cast_single_ballot(
         recover_kind="ballot",
         recover_npc_id=npc_id,
         recover_seed=ctx.job_id,
+        recover_room_id=ctx.room_id,
     )
     vote = str(data.get("vote") or default_vote).lower()
     if vote not in ("yes", "no"):

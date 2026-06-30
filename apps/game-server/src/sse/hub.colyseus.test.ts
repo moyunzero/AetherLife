@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { COLYSEUS_SERVER_MESSAGES } from "@aetherlife/shared";
 import { clearJobRegistry, registerJob } from "../colyseus/job-registry.js";
-import { GameRoomState } from "../colyseus/schema.js";
+import { GameRoomState, NpcEntityState } from "../colyseus/schema.js";
 import {
   clearDialogueSessions,
   getRecentTurns,
 } from "../npc/dialogue-session.js";
+import { registerColyseusRoom, clearColyseusRoomRegistry } from "../colyseus/room-registry.js";
+import { setNpcSpeakPhase } from "../colyseus/speak-schema.js";
+import { getOrCreate } from "../room/store.js";
 import { clearJobSubscribers, emitJobEvent } from "./hub.js";
 
 describe("hub colyseus routing", () => {
@@ -13,6 +16,7 @@ describe("hub colyseus routing", () => {
     clearJobSubscribers();
     clearJobRegistry();
     clearDialogueSessions();
+    clearColyseusRoomRegistry();
   });
 
   it("sends speakPartial only to initiator", () => {
@@ -69,6 +73,75 @@ describe("hub colyseus routing", () => {
 
     expect(broadcasts.some((b) => b.type === COLYSEUS_SERVER_MESSAGES.thinking)).toBe(false);
     expect(sends.get("a")?.some((s) => (s as { type: string }).type === COLYSEUS_SERVER_MESSAGES.thinking)).toBe(true);
+  });
+
+  it("sets isThinking on Colyseus npc schema for peer visibility", () => {
+    const roomId = "hub-thinking-schema";
+    getOrCreate(roomId);
+    const state = new GameRoomState();
+    state.npcs.set("npc-7", new NpcEntityState());
+
+    const mockRoom = {
+      broadcast: vi.fn(),
+      clients: [
+        { sessionId: "a", send: vi.fn() },
+        { sessionId: "b", send: vi.fn() },
+      ],
+      state,
+      mapRoomId: roomId,
+      clearSpeakInFlight: vi.fn(),
+    };
+    registerColyseusRoom(roomId, mockRoom as never);
+
+    registerJob("job-think-schema", mockRoom as never, roomId, "a");
+    emitJobEvent("job-think-schema", "thinking", { npcId: "npc-7" });
+
+    expect(state.npcs.get("npc-7")?.isThinking).toBe(true);
+    expect(state.npcs.get("npc-7")?.isSpeaking).toBe(false);
+  });
+
+  it("sets isSpeaking on schema when speakPartial streams", () => {
+    const roomId = "hub-speaking-schema";
+    getOrCreate(roomId);
+    const state = new GameRoomState();
+    state.npcs.set("npc-12", new NpcEntityState());
+
+    const mockRoom = {
+      broadcast: vi.fn(),
+      clients: [{ sessionId: "a", send: vi.fn() }],
+      state,
+      mapRoomId: roomId,
+      clearSpeakInFlight: vi.fn(),
+    };
+    registerColyseusRoom(roomId, mockRoom as never);
+
+    registerJob("job-speak-schema", mockRoom as never, roomId, "a");
+    emitJobEvent("job-speak-schema", "speakPartial", { text: "嗯", npcId: "npc-12" });
+
+    expect(state.npcs.get("npc-12")?.isSpeaking).toBe(true);
+    expect(state.npcs.get("npc-12")?.isThinking).toBe(false);
+  });
+
+  it("clears isThinking and isSpeaking when speak phase returns idle", () => {
+    const roomId = "hub-idle-schema";
+    getOrCreate(roomId);
+    const state = new GameRoomState();
+    state.npcs.set("npc-4", new NpcEntityState());
+
+    const mockRoom = {
+      broadcast: vi.fn(),
+      clients: [{ sessionId: "a", send: vi.fn() }],
+      state,
+      mapRoomId: roomId,
+      clearSpeakInFlight: vi.fn(),
+    };
+    registerColyseusRoom(roomId, mockRoom as never);
+
+    setNpcSpeakPhase(roomId, "npc-4", "thinking");
+    expect(state.npcs.get("npc-4")?.isThinking).toBe(true);
+    setNpcSpeakPhase(roomId, "npc-4", "idle");
+    expect(state.npcs.get("npc-4")?.isThinking).toBe(false);
+    expect(state.npcs.get("npc-4")?.isSpeaking).toBe(false);
   });
 
   it("sends done only to initiator and patch to room", () => {

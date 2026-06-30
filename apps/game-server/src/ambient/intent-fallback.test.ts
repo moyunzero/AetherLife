@@ -40,4 +40,21 @@ describe("pickIntentFallbackReasonZh", () => {
     const c = pickIntentFallbackReasonZh("npc-3", zone, "patrol", "wander");
     expect(new Set([a, b, c]).size).toBeGreaterThanOrEqual(2);
   });
+
+  it("returns npc-7 voice pool not npc-1 default for extended seats", () => {
+    const reason = pickIntentFallbackReasonZh(
+      "npc-7",
+      "beginning-fields@v1:plaza",
+      "socializing",
+      "wander",
+    );
+    const npc1Default = pickIntentFallbackReasonZh(
+      "npc-1",
+      "beginning-fields@v1:plaza",
+      "socializing",
+      "wander",
+    );
+    expect(reason).not.toBe(npc1Default);
+    expect(reason).toMatch(/对话|折中|缓和|平衡/);
+  });
 });

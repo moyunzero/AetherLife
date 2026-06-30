@@ -83,7 +83,7 @@ export function DialogueOverlay({
       aria-hidden={!engaged}
     >
       {engaged ? (
-        <div className="dialogue-overlay__frame">
+        <div className="dialogue-overlay__frame" key={activeNpcId}>
           <div className="dialogue-overlay__portrait" aria-hidden="true">
             <span className="dialogue-overlay__portrait-initial">
               {portraitInitial(activeNpcName)}

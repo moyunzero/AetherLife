@@ -2,7 +2,7 @@ import {
   checkPlayerMessageContent,
   contentBlockedPayload,
   findNpc,
-  isBackgroundNpc,
+  isCouncilNpcId,
   MAX_PLAYER_MESSAGE_LEN,
 } from "@aetherlife/shared";
 import { addNpcTurnJob } from "../queue/npc-turn.js";
@@ -25,9 +25,10 @@ export function getContentBlockedResponse(text: string): ReturnType<typeof conte
 
 export function validateChatNpcId(roomId: string, npcId: unknown): string | null {
   if (typeof npcId !== "string" || !npcId.trim()) return null;
+  if (!isCouncilNpcId(npcId)) return null;
   const room = getOrCreate(roomId);
   const npc = findNpc(room.state, npcId);
-  if (!npc || isBackgroundNpc(npc)) return null;
+  if (!npc) return null;
   return npcId;
 }
 

@@ -42,6 +42,7 @@ type Props = {
   moveHint: string | null;
   thinkingNpcId?: string | null;
   thinkingNpcIds?: string[];
+  speakingNpcIds?: string[];
   activeNpcId?: string | null;
   /** When false, NPCs snap to grid (load / reset); when true, live moves animate step-by-step. */
   npcAnimateMoves: boolean;
@@ -62,7 +63,7 @@ type Props = {
   npcAmbientById?: Record<string, NpcAmbientSnapshot>;
   speakBusyNpcId?: string | null;
   onBootFailed?: () => void;
-  /** Map click on NPC sprite — same as avatar strip selectNpc. */
+  /** Map click on NPC sprite — opens dialogue overlay (same as corner-menu engage). */
   onNpcSpriteClick?: (npcId: string) => void;
   /** Camera-visible NPC ids for NpcAvatarStrip (registry bridge). */
   onViewportVisibleNpcIdsChange?: (npcIds: string[]) => void;
@@ -95,6 +96,7 @@ type RegistrySnapshot = {
   moveHint: string | null;
   thinkingNpcId: string | null;
   thinkingNpcIds: string[];
+  speakingNpcIds: string[];
   activeNpcId: string | null;
   npcAnimateMoves: boolean;
   npcResetEpoch: number;
@@ -124,6 +126,7 @@ function pushRoomRegistry(game: Phaser.Game, snap: RegistrySnapshot): void {
   game.registry.set("moveHint", snap.moveHint);
   game.registry.set("thinkingNpcId", snap.thinkingNpcId);
   game.registry.set("thinkingNpcIds", snap.thinkingNpcIds);
+  game.registry.set("speakingNpcIds", snap.speakingNpcIds);
   game.registry.set("activeNpcId", snap.activeNpcId);
   game.registry.set("npcAnimateMoves", snap.npcAnimateMoves);
   game.registry.set("npcResetEpoch", snap.npcResetEpoch);
@@ -201,6 +204,7 @@ export async function probePhaserBoot(timeoutMs = BOOT_TIMEOUT_MS): Promise<bool
         moveHint: null,
         thinkingNpcId: null,
         thinkingNpcIds: [],
+        speakingNpcIds: [],
         activeNpcId: null,
         npcAnimateMoves: false,
         npcResetEpoch: 0,
@@ -237,6 +241,7 @@ export function PhaserGame({
   moveHint,
   thinkingNpcId,
   thinkingNpcIds = [],
+  speakingNpcIds = [],
   activeNpcId = null,
   npcAnimateMoves,
   npcResetEpoch,
@@ -297,6 +302,7 @@ export function PhaserGame({
     moveHint,
     thinkingNpcId,
     thinkingNpcIds,
+    speakingNpcIds,
     activeNpcId,
     npcAnimateMoves,
     npcResetEpoch,
@@ -323,6 +329,7 @@ export function PhaserGame({
     moveHint,
     thinkingNpcId,
     thinkingNpcIds,
+    speakingNpcIds,
     activeNpcId,
     npcAnimateMoves,
     npcResetEpoch,
@@ -376,6 +383,7 @@ export function PhaserGame({
       moveHint: snap.moveHint,
       thinkingNpcId: snap.thinkingNpcId,
       thinkingNpcIds: snap.thinkingNpcIds,
+      speakingNpcIds: snap.speakingNpcIds,
       activeNpcId: snap.activeNpcId,
       npcAnimateMoves: snap.npcAnimateMoves,
       npcResetEpoch: snap.npcResetEpoch,
@@ -500,6 +508,7 @@ export function PhaserGame({
       moveHint,
       thinkingNpcId,
       thinkingNpcIds,
+      speakingNpcIds,
       activeNpcId,
       npcAnimateMoves,
       npcResetEpoch,
@@ -531,6 +540,7 @@ export function PhaserGame({
     moveHint,
     thinkingNpcId,
     thinkingNpcIds,
+    speakingNpcIds,
     activeNpcId,
     npcAnimateMoves,
     npcResetEpoch,

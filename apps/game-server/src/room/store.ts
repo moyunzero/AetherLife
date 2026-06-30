@@ -2,6 +2,7 @@ import { createDefaultRoom, type RoomState } from "@aetherlife/shared";
 import { seedCouncilMemoriesIfNeeded } from "../memory/councilSeed.js";
 import { seedCouncilRelationshipsIfNeeded } from "../memory/councilRelationshipSeed.js";
 import { seedWorldHistoryIfNeeded } from "../world/world-history-seed.js";
+import { normalizeRoomCouncilState } from "./council-migrate.js";
 
 export type RoomRecord = {
   state: RoomState;
@@ -27,10 +28,13 @@ function evictOldestRoomIfNeeded(): void {
 export function getOrCreate(roomId: string): RoomRecord {
   const existing = rooms.get(roomId);
   if (existing) {
+    existing.state = normalizeRoomCouncilState(roomId, existing.state);
     return touchRoom(roomId, existing);
   }
   evictOldestRoomIfNeeded();
-  const record: RoomRecord = { state: createDefaultRoom(roomId) };
+  const record: RoomRecord = {
+    state: normalizeRoomCouncilState(roomId, createDefaultRoom(roomId)),
+  };
   rooms.set(roomId, record);
   void seedCouncilMemoriesIfNeeded(roomId).catch((err) => {
     console.error("[council-seed] failed for room", roomId, err);
@@ -52,7 +56,7 @@ export function reset(roomId: string): RoomRecord {
 
 export function setState(roomId: string, state: RoomState): RoomRecord {
   const record = getOrCreate(roomId);
-  record.state = state;
+  record.state = normalizeRoomCouncilState(roomId, state);
   return record;
 }
 
