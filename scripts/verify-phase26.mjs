@@ -28,7 +28,7 @@ import {
 } from "./lib/e2e-memory-helpers.mjs";
 import { gameServerHttpBase, loadRootEnv } from "./lib/env.mjs";
 import { loadPlaywright } from "./lib/speak-browser-stack.mjs";
-import { assertCanonicalCouncilRoster, COUNCIL_NPC_IDS } from "./lib/council-spawn.mjs";
+import { COUNCIL_NPC_IDS } from "./lib/council-spawn.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 loadRootEnv(root);
@@ -51,8 +51,7 @@ const HTTP_TIMEOUT_MS =
   Number.parseInt(process.env.VERIFY_PHASE26_HTTP_TIMEOUT_MS || "60000", 10) || 60_000;
 
 function fetchWithTimeout(url, options = {}) {
-  const timeoutMs = options.timeoutMs ?? HTTP_TIMEOUT_MS;
-  const { timeoutMs: _drop, ...rest } = options;
+  const { timeoutMs = HTTP_TIMEOUT_MS, ...rest } = options;
   return fetch(url, { ...rest, signal: AbortSignal.timeout(timeoutMs) });
 }
 
@@ -220,9 +219,11 @@ async function readNpcSnapshot(page) {
     const snap = fn();
     const npcs = snap?.npcs ?? [];
     const sprites = snap?.sprites ?? [];
-    const councilIds = npcs.map((n) => n.id).filter((id) => canonicalIds.includes(id));
+    const npcIds = npcs.map((n) => n.id);
+    const canonicalSet = new Set(canonicalIds);
+    const councilIds = npcIds.filter((id) => canonicalSet.has(id));
     const missing = canonicalIds.filter((id) => !councilIds.includes(id));
-    const extra = councilIds.filter((id) => !canonicalIds.includes(id));
+    const extra = npcIds.filter((id) => !canonicalSet.has(id));
     const rosterOk = missing.length === 0 && extra.length === 0;
     return {
       ok: rosterOk && sprites.length >= canonicalIds.length,
@@ -357,10 +358,9 @@ function runLeaningDriftPytest() {
     stdio: "pipe",
   });
   if (result.status !== 0) {
-    console.warn(
-      `verify:phase26: leaning_drift pytest failed (non-fatal for MAP-05): ${result.stderr || result.stdout}`,
+    throw new Error(
+      `leaning_drift pytest failed: ${result.stderr || result.stdout || result.error?.message || "unknown error"}`,
     );
-    return;
   }
   console.log("verify:phase26: leaning_drift pytest OK (mock, REL-08 unit guard)");
 }
