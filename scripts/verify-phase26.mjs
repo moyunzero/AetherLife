@@ -28,6 +28,7 @@ import {
 } from "./lib/e2e-memory-helpers.mjs";
 import { gameServerHttpBase, loadRootEnv } from "./lib/env.mjs";
 import { loadPlaywright } from "./lib/speak-browser-stack.mjs";
+import { assertCanonicalCouncilRoster, COUNCIL_NPC_IDS } from "./lib/council-spawn.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 loadRootEnv(root);
@@ -46,6 +47,14 @@ const phaseTimeoutMs =
   Number.parseInt(process.env.VERIFY_PHASE26_TIMEOUT_MS || "900000", 10) || 900_000;
 const BANNER_WAIT_MS = Number.parseInt(process.env.E2E_BANNER_WAIT_MS || "", 10) || 60_000;
 const screenshotDir = process.env.VERIFY_PHASE26_SCREENSHOT_DIR || "";
+const HTTP_TIMEOUT_MS =
+  Number.parseInt(process.env.VERIFY_PHASE26_HTTP_TIMEOUT_MS || "60000", 10) || 60_000;
+
+function fetchWithTimeout(url, options = {}) {
+  const timeoutMs = options.timeoutMs ?? HTTP_TIMEOUT_MS;
+  const { timeoutMs: _drop, ...rest } = options;
+  return fetch(url, { ...rest, signal: AbortSignal.timeout(timeoutMs) });
+}
 
 async function maybeShot(page, name) {
   if (!screenshotDir || !page) return;
@@ -71,7 +80,11 @@ function internalHeaders() {
 async function waitFor(fn, timeoutMs, label) {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
-    if (await fn()) return;
+    try {
+      if (await fn()) return;
+    } catch {
+      // Transient fetch/UI errors — keep polling until timeoutMs.
+    }
     await new Promise((r) => setTimeout(r, 250));
   }
   throw new Error(`timeout: ${label} (${timeoutMs}ms)`);
@@ -91,7 +104,7 @@ async function healthOk() {
 
 async function fetchCollectiveState(playerId, npcId = "npc-1") {
   const qs = new URLSearchParams({ npcId });
-  const res = await fetch(
+  const res = await fetchWithTimeout(
     `${httpBase}/rooms/${encodeURIComponent(roomId)}/collective-state?${qs}`,
     { headers: { "X-Player-Id": playerId, "Cache-Control": "no-cache" } },
   );
@@ -103,7 +116,7 @@ async function fetchCollectiveState(playerId, npcId = "npc-1") {
 }
 
 async function fetchWorldVoteContext() {
-  const res = await fetch(
+  const res = await fetchWithTimeout(
     `${httpBase}/internal/rooms/${encodeURIComponent(roomId)}/world-vote/context`,
     { headers: internalHeaders() },
   );
@@ -115,7 +128,7 @@ async function fetchWorldVoteContext() {
 }
 
 async function triggerWorldVote() {
-  const res = await fetch(
+  const res = await fetchWithTimeout(
     `${httpBase}/internal/rooms/${encodeURIComponent(roomId)}/world-vote/trigger`,
     {
       method: "POST",
@@ -199,7 +212,7 @@ async function readCouncilTravelerHaystack(page, contextBody) {
 }
 
 async function readNpcSnapshot(page) {
-  return page.evaluate(() => {
+  return page.evaluate((canonicalIds) => {
     const fn = window.__aetherlife_npcDebug;
     if (typeof fn !== "function") {
       return { ok: false, reason: "__aetherlife_npcDebug missing (dev stack required)" };
@@ -207,16 +220,19 @@ async function readNpcSnapshot(page) {
     const snap = fn();
     const npcs = snap?.npcs ?? [];
     const sprites = snap?.sprites ?? [];
-    const councilIds = npcs
-      .map((n) => n.id)
-      .filter((id) => /^npc-\d+$/.test(id));
+    const councilIds = npcs.map((n) => n.id).filter((id) => canonicalIds.includes(id));
+    const missing = canonicalIds.filter((id) => !councilIds.includes(id));
+    const extra = councilIds.filter((id) => !canonicalIds.includes(id));
+    const rosterOk = missing.length === 0 && extra.length === 0;
     return {
-      ok: councilIds.length >= 12 && sprites.length >= 12,
+      ok: rosterOk && sprites.length >= canonicalIds.length,
       count: councilIds.length,
       spriteCount: sprites.length,
+      missing,
+      extra,
       npcs: npcs.map((n) => ({ id: n.id, x: n.x, y: n.y })),
     };
-  });
+  }, [...COUNCIL_NPC_IDS]);
 }
 
 async function assertCouncilMapPresence(page) {
@@ -227,7 +243,7 @@ async function assertCouncilMapPresence(page) {
   }
   if (!snap.ok) {
     throw new Error(
-      `MAP-05: expected ≥${MIN_COUNCIL_NPCS} council NPCs + sprites, got npcs=${snap.count} sprites=${snap.spriteCount} (${snap.reason ?? ""})`,
+      `MAP-05: expected canonical ${COUNCIL_NPC_IDS.length} council NPCs + sprites, got npcs=${snap.count} sprites=${snap.spriteCount} missing=${JSON.stringify(snap.missing ?? [])} extra=${JSON.stringify(snap.extra ?? [])} (${snap.reason ?? ""})`,
     );
   }
   console.log(
@@ -244,12 +260,12 @@ async function assertDualClientNpcSync(pageA, pageB) {
     );
   }
   const bMap = new Map(b.npcs.map((n) => [n.id, n]));
-  for (const na of a.npcs) {
-    if (!/^npc-\d+$/.test(na.id)) continue;
-    const nb = bMap.get(na.id);
-    if (!nb || nb.x !== na.x || nb.y !== na.y) {
+  for (const id of COUNCIL_NPC_IDS) {
+    const na = a.npcs.find((n) => n.id === id);
+    const nb = bMap.get(id);
+    if (!na || !nb || nb.x !== na.x || nb.y !== na.y) {
       throw new Error(
-        `MP-11 sync mismatch ${na.id}: clientA(${na.x},${na.y}) vs clientB(${nb?.x ?? "?"},${nb?.y ?? "?"})`,
+        `MP-11 sync mismatch ${id}: clientA(${na?.x ?? "?"},${na?.y ?? "?"}) vs clientB(${nb?.x ?? "?"},${nb?.y ?? "?"})`,
       );
     }
   }

@@ -244,6 +244,11 @@ export function loadWorldRegistry(bundle: WorldRegistryBundle): WorldRegistry {
         spawnsParsed.defaultPlayerSpawn.lx,
         spawnsParsed.defaultPlayerSpawn.ly,
       );
+      if (region.id === BEGINNING_FIELDS_ID && !spawnsParsed.councilSpawns) {
+        throw new Error(
+          `world registry: ${region.id} requires exactly 12 councilSpawns`,
+        );
+      }
       if (spawnsParsed.councilSpawns) {
         if (region.id === BEGINNING_FIELDS_ID && spawnsParsed.councilSpawns.length !== 12) {
           throw new Error(

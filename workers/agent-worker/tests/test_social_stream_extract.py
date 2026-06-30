@@ -81,6 +81,50 @@ def test_run_social_turn_llm_emits_partial_on_reply_first_stream(monkeypatch):
     assert partials[-1] == "你好呀"
 
 
+def test_run_social_turn_llm_salvages_truncated_stream_reply(monkeypatch):
+    """When JSON is truncated (max_tokens), keep the streamed reply instead of generic fallback."""
+    monkeypatch.delenv("LLM_MOCK", raising=False)
+    partials: list[str] = []
+
+    class _Chunk:
+        def __init__(self, content: str):
+            self.content = content
+
+    truncated = (
+        '{"reply":"这份心意我收下了，但请收回这份","social":{"kind":"affection","summary":"玩家表白'
+    )
+
+    class _LLM:
+        def stream(self, _messages):
+            yield _Chunk(truncated)
+
+    monkeypatch.setattr(
+        "src.graph.nodes.llm_social_turn.create_chat_model",
+        lambda **_kwargs: _LLM(),
+    )
+    monkeypatch.setattr(
+        "src.graph.nodes.llm_social_turn.auxiliary_provider_attempts",
+        lambda _cfg, **_: [("agnes", "agnes-2.0-flash")],
+    )
+
+    tokens = set_job_context(partial_emit=partials.append, phase_timing={})
+    try:
+        state: GraphState = {
+            "room_id": "default",
+            "player_message": "我喜欢你～",
+            "npc_id": "npc-11",
+            "player_id": "p1",
+            "room_snapshot": {"width": 8, "height": 8, "npcs": []},
+        }
+        turn = run_social_turn_llm(state, settings=Settings(llm_mock=False))
+    finally:
+        reset_job_context(tokens)
+
+    assert turn.reply == "这份心意我收下了，但请收回这份"
+    assert "我听到了" not in turn.reply
+    assert partials[-1] == turn.reply
+
+
 def test_run_social_turn_llm_skips_partial_stream_on_recall_question(monkeypatch):
     monkeypatch.delenv("LLM_MOCK", raising=False)
     partials: list[str] = []

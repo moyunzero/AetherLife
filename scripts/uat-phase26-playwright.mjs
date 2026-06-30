@@ -56,6 +56,9 @@ function runCmd(label, cmd, args, env = {}) {
       env: { ...process.env, ...env },
       stdio: "inherit",
     });
+    child.on("error", (err) => {
+      reject(new Error(`${label} spawn failed: ${err.message}`));
+    });
     child.on("close", (code) => {
       if (code === 0) resolvePromise(undefined);
       else reject(new Error(`${label} exit ${code}`));
@@ -79,15 +82,13 @@ async function shot(page, subdir, filename) {
 }
 
 async function waitMoveIdle(page, timeoutMs = 60_000) {
-  await page
-    .waitForFunction(
-      () => {
-        const d = window.__aetherlife_moveDebug?.();
-        return d != null && d.pending === 0 && !d.locomoting;
-      },
-      { timeout: timeoutMs },
-    )
-    .catch(() => undefined);
+  await page.waitForFunction(
+    () => {
+      const d = window.__aetherlife_moveDebug?.();
+      return d != null && d.pending === 0 && !d.locomoting;
+    },
+    { timeout: timeoutMs },
+  );
 }
 
 async function moveNearNpc(page, npcId) {

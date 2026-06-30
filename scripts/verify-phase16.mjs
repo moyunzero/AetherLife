@@ -10,6 +10,7 @@ import { dirname, resolve, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { assertE2eNoMock } from "./lib/e2e-policy.mjs";
 import { gameServerHttpBase, loadRootEnv } from "./lib/env.mjs";
+import { assertCanonicalCouncilRoster, COUNCIL_NPC_IDS } from "./lib/council-spawn.mjs";
 
 const BOOT_WARN_MS = 5000;
 const BOOT_FAIL_MS = 8000;
@@ -34,8 +35,7 @@ const roomId = process.env.VERIFY_PHASE16_ROOM_ID || `verify-p16-${Date.now()}`;
 const webUrl = `${webBase}${webBase.includes("?") ? "&" : "?"}room=${encodeURIComponent(roomId)}`;
 
 const CLOCK_RE = /\d{1,2}:\d{2}/;
-const COUNCIL_ID_RE = /^npc-\d+$/;
-const COUNCIL_NPC_COUNT = 12;
+const COUNCIL_NPC_COUNT = COUNCIL_NPC_IDS.length;
 const COUNCIL_NAMEPLATE_FONT = "13";
 
 const report = {
@@ -211,13 +211,14 @@ async function assertCouncilRoomAndSpeakGuards() {
   }
   const stateBody = await stateRes.json();
   const npcs = stateBody.state?.npcs ?? [];
-  const councilNpcs = npcs.filter((n) => COUNCIL_ID_RE.test(String(n.id)));
+  const councilNpcs = npcs.filter((n) => COUNCIL_NPC_IDS.includes(String(n.id)));
   const bgNpcs = npcs.filter((n) => String(n.id).startsWith("bg-villager-"));
   if (councilNpcs.length !== COUNCIL_NPC_COUNT) {
     throw new Error(
       `expected ${COUNCIL_NPC_COUNT} council npcs, got ${councilNpcs.length}`,
     );
   }
+  assertCanonicalCouncilRoster(councilNpcs.map((n) => n.id));
   if (bgNpcs.length > 0) {
     throw new Error(`expected 0 bg npcs after Phase 26, got ${bgNpcs.length}`);
   }
@@ -244,7 +245,7 @@ async function fetchRoomCouncilNpcs() {
     throw new Error(`GET state ${stateRes.status}`);
   }
   const stateBody = await stateRes.json();
-  return (stateBody.state?.npcs ?? []).filter((n) => COUNCIL_ID_RE.test(String(n.id)));
+  return (stateBody.state?.npcs ?? []).filter((n) => COUNCIL_NPC_IDS.includes(String(n.id)));
 }
 
 async function movePlayerToGrid(page, x, y) {
@@ -260,12 +261,12 @@ async function movePlayerToGrid(page, x, y) {
   );
 }
 
-async function waitForCouncilNameplate(page, timeoutMs = 8000) {
+async function waitForCouncilNameplate(page, expectedNpcId, timeoutMs = 8000) {
   const deadline = Date.now() + timeoutMs;
-  let last = await readCouncilNameplateProbe(page);
+  let last = await readCouncilNameplateProbe(page, expectedNpcId);
   while (Date.now() < deadline && !last.ok) {
     await page.waitForTimeout(400);
-    last = await readCouncilNameplateProbe(page);
+    last = await readCouncilNameplateProbe(page, expectedNpcId);
   }
   return last;
 }
@@ -297,7 +298,7 @@ async function readMoveDebug(page) {
   return page.evaluate(() => window.__aetherlife_moveDebug?.() ?? null);
 }
 
-async function movePlayerNearCouncilNpc(page, npcX, npcY) {
+async function movePlayerNearCouncilNpc(page, npcId, npcX, npcY) {
   for (const cell of cellsNearNpc(npcX, npcY)) {
     await movePlayerToGrid(page, cell.x, cell.y);
     await page.waitForTimeout(400);
@@ -305,22 +306,22 @@ async function movePlayerNearCouncilNpc(page, npcX, npcY) {
     if (!move) continue;
     const dist = chebyshevDistance(move.gridX, move.gridY, npcX, npcY);
     if (dist > 2) continue;
-    const probe = await waitForCouncilNameplate(page, 2500);
+    const probe = await waitForCouncilNameplate(page, npcId, 2500);
     if (probe.ok) {
       return { probe, playerCell: { x: move.gridX, y: move.gridY }, dist, targetCell: cell };
     }
   }
   const move = await readMoveDebug(page);
   return {
-    probe: await readCouncilNameplateProbe(page),
+    probe: await readCouncilNameplateProbe(page, npcId),
     playerCell: move ? { x: move.gridX, y: move.gridY } : null,
     dist: move ? chebyshevDistance(move.gridX, move.gridY, npcX, npcY) : null,
     targetCell: null,
   };
 }
 
-async function readCouncilNameplateProbe(page) {
-  return page.evaluate(({ fontPrefix }) => {
+async function readCouncilNameplateProbe(page, expectedNpcId) {
+  return page.evaluate(({ fontPrefix, expectedNpcId: npcId }) => {
     const fn = window.__aetherlife_councilNameplateDebug;
     if (typeof fn !== "function") {
       return {
@@ -330,13 +331,13 @@ async function readCouncilNameplateProbe(page) {
     }
     const probe = fn();
     const plates = probe?.visibleCouncilNameplates ?? [];
+    const fontOk = (p) => String(p.fontSize).includes(fontPrefix) && p.alpha > 0.05;
     return {
-      ok: plates.some(
-        (p) => String(p.fontSize).includes(fontPrefix) && p.alpha > 0.05,
-      ),
+      ok: plates.some((p) => p.id === npcId && fontOk(p)),
+      expectedNpcId: npcId,
       visibleCouncilNameplates: plates,
     };
-  }, { fontPrefix: COUNCIL_NAMEPLATE_FONT });
+  }, { fontPrefix: COUNCIL_NAMEPLATE_FONT, expectedNpcId });
 }
 
 async function main() {
@@ -528,7 +529,7 @@ async function main() {
     console.log(
       `verify:phase16: P16-10 seek proximity to ${targetCouncil.id}@(${targetCouncil.x},${targetCouncil.y})`,
     );
-    const near = await movePlayerNearCouncilNpc(page, targetCouncil.x, targetCouncil.y);
+    const near = await movePlayerNearCouncilNpc(page, targetCouncil.id, targetCouncil.x, targetCouncil.y);
     report.councilNpcProximityResult = near;
     const councilProbe = near.probe;
     report.councilNameplateProbe = councilProbe;

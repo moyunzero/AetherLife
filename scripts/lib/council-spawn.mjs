@@ -7,7 +7,19 @@
 import {
   createDefaultRoom,
   findNpc,
+  COUNCIL_NPC_IDS,
 } from "../../packages/shared/dist/index.js";
+
+/** Assert room/API npc ids exactly match canonical 12 council seats. */
+export function assertCanonicalCouncilRoster(ids) {
+  const got = [...ids].sort();
+  const want = [...COUNCIL_NPC_IDS].sort();
+  if (got.length !== want.length || got.some((id, i) => id !== want[i])) {
+    throw new Error(`council roster mismatch: got [${got.join(", ")}]`);
+  }
+}
+
+export { COUNCIL_NPC_IDS };
 
 /** Default grid home for a council npc after room reset / createDefaultRoom. */
 export function councilNpcHome(roomId, npcId) {

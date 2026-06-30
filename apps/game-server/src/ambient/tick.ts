@@ -61,6 +61,19 @@ export function applySoftLeashTarget(
   if (chebyshev(npc.x, npc.y, home.x, home.y) > maxRadius) {
     return { targetGx: home.x, targetGy: home.y };
   }
+  if (chebyshev(targetGx, targetGy, home.x, home.y) > maxRadius) {
+    const dx = targetGx - home.x;
+    const dy = targetGy - home.y;
+    const d = Math.max(Math.abs(dx), Math.abs(dy));
+    if (d <= 0) {
+      return { targetGx: home.x, targetGy: home.y };
+    }
+    const scale = maxRadius / d;
+    return {
+      targetGx: Math.round(home.x + dx * scale),
+      targetGy: Math.round(home.y + dy * scale),
+    };
+  }
   return { targetGx, targetGy };
 }
 

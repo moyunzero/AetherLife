@@ -358,6 +358,11 @@ export function setupRoomSceneInput(ctx: RoomSceneInputCtx): void {
 
     const releaseWorld = worldFromPointer(pointer);
     const releaseGrid = worldToGrid(releaseWorld.x, releaseWorld.y);
+
+    if (isGridDebugEnabled() && pointer.event.shiftKey) {
+      return;
+    }
+
     const hitNpcId =
       pickNpcAtWorldPoint(
         releaseWorld.x,
@@ -369,10 +374,6 @@ export function setupRoomSceneInput(ctx: RoomSceneInputCtx): void {
       ?? pickNpcAtWorldPoint(worldX, worldY, x, y, ctx.npcSprites);
     if (hitNpcId) {
       ctx.onNpcSelected?.(hitNpcId);
-      return;
-    }
-
-    if (isGridDebugEnabled() && pointer.event.shiftKey) {
       return;
     }
 

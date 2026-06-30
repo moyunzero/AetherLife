@@ -69,8 +69,11 @@ export async function engageDialogue(page, { timeoutMs = 45_000 } = {}) {
  */
 export async function engageNpcDialogue(page, npcId, { timeoutMs = 45_000 } = {}) {
   const dialogueBar = page.locator('[data-testid="dialogue-bar"]');
+  const activeChip = page.locator(`#npc-avatar-${npcId}`);
   if (await dialogueBar.isVisible().catch(() => false)) {
-    return;
+    if (await activeChip.isVisible().catch(() => false)) {
+      return;
+    }
   }
 
   const cornerMenu = page.locator('[data-testid="corner-menu"]');

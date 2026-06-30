@@ -336,9 +336,10 @@ export function ChatPage() {
         nearest = { id: npc.id, dist };
       }
     }
-    if (!nearest) return;
+    if (!nearest || nearest.id === activeNpcId) return;
+    setDraft("");
     setActiveNpcId(nearest.id);
-  }, [dialogueEngaged, localPlayerCell, roomNpcs, setActiveNpcId]);
+  }, [activeNpcId, dialogueEngaged, localPlayerCell, roomNpcs, setActiveNpcId]);
 
   const endDialogue = useCallback(() => {
     setDialogueEngaged(false);

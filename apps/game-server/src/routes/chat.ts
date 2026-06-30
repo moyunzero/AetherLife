@@ -48,7 +48,7 @@ export function createChatRouter(): Router {
 
     const colyseusRoom = getColyseusRoom(roomId) as GameRoom | undefined;
     const jobId = randomUUID();
-    if (colyseusRoom && !colyseusRoom.tryAcquireNpcSpeakJob(npcId, jobId)) {
+    if (colyseusRoom && !colyseusRoom.tryAcquireNpcSpeakJob(npcId, jobId, playerId)) {
       res.status(409).json({ ok: false, error: "npc_busy" });
       return;
     }

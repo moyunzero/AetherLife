@@ -286,7 +286,7 @@ export function syncRoomEntities(host: RoomSceneSyncHost): void {
     if (!ent.moveTween?.isPlaying()) {
       host.startNpcBob(ent, ent.gridX, ent.gridY, reduced, isNpcThinking(npc.id));
     }
-    if (isNpcThinking(npc.id) && !reduced && !ent.spriteMode) {
+    if (isNpcThinking(npc.id) && !reduced && !ent.spriteMode && !isNpcSpeaking(npc.id)) {
       ent.pulseTween?.stop();
       ent.pulseTween = host.tweens.add({
         targets: [ent.body, ent.ring],
@@ -317,7 +317,6 @@ export function syncRoomEntities(host: RoomSceneSyncHost): void {
           targets: ent.ring,
           scaleX: { from: 1, to: 1.28 },
           scaleY: { from: 1, to: 1.28 },
-          alpha: { from: 0.55, to: 0.2 },
           duration: 900,
           yoyo: true,
           repeat: -1,

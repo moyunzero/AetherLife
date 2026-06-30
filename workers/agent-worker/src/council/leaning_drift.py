@@ -70,7 +70,7 @@ def _database_url() -> str | None:
 
 
 def _use_in_memory() -> bool:
-    return os.getenv("LLM_MOCK") == "1" or not _database_url()
+    return os.getenv("LLM_MOCK") == "1"
 
 
 def _clamp_single_delta(delta: int) -> int:

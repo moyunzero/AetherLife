@@ -356,6 +356,7 @@ def run_social_turn_llm(
     # RECALL: merge_recall_into_reply runs in compose_reply — LLM stream would flash wrong text.
     stream_partial = partial_emit is not None and not is_recall_question(player_msg)
     last_error: BaseException | None = None
+    best_salvaged_reply = ""
     primary = social_provider_model(cfg)
     last_provider = primary[0]
     last_model = primary[1]
@@ -407,12 +408,14 @@ def run_social_turn_llm(
                         record_llm_call("social", provider, model)
                         record_phase_ms("t_social_llm_ms", int((time.perf_counter() - t0) * 1000))
                         parsed = _parse_social_turn_json(buffer) if buffer.strip() else None
+                        raw_content = buffer
                     else:
                         response = llm.invoke(messages)
                         record_llm_call("social", provider, model)
                         record_phase_ms("t_social_llm_ms", int((time.perf_counter() - t0) * 1000))
                         content = getattr(response, "content", "") or str(response)
-                        parsed = _parse_social_turn_json(str(content))
+                        raw_content = str(content)
+                        parsed = _parse_social_turn_json(raw_content)
                     if parsed is not None:
                         player_msg = (state.get("player_message") or "").strip()
                         reconciled = reconcile_social_perception(
@@ -427,6 +430,10 @@ def run_social_turn_llm(
                                 file=sys.stderr,
                             )
                         return parsed.model_copy(update={"social": reconciled})
+                    if raw_content.strip():
+                        salvaged = _extract_reply_from_json_stream(raw_content).strip()
+                        if len(salvaged) > len(best_salvaged_reply):
+                            best_salvaged_reply = salvaged
                     last_error = ValueError("social turn JSON parse failed")
                     print(
                         f"social JSON parse failed provider={provider} model={model}",
@@ -472,6 +479,20 @@ def run_social_turn_llm(
             f"social LLM degraded provider={last_provider} model={last_model} "
             f"error={type(last_error).__name__}",
             file=sys.stderr,
+        )
+
+    if best_salvaged_reply:
+        print(
+            f"social reply salvaged from partial JSON ({len(best_salvaged_reply)} chars)",
+            file=sys.stderr,
+        )
+        return SocialTurnOut(
+            social=SocialPerception(
+                kind=SOCIAL_SKIP_KIND,
+                summary="",
+                delta=0,
+            ),
+            reply=best_salvaged_reply,
         )
 
     msg = (state.get("player_message") or "").strip()

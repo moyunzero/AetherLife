@@ -1178,7 +1178,10 @@ def _maybe_apply_speak_leaning_drift(state: GraphState) -> None:
     if delta == 0:
         return
     room_id = state["room_id"]
-    npc_id = state.get("npc_id") or "npc-1"
+    npc_id = state.get("npc_id")
+    if not npc_id:
+        print("leaning_drift skip: missing npc_id in state", file=sys.stderr)
+        return
     snapshot = state.get("room_snapshot") or {}
     game_minute = int(snapshot.get("gameMinute") or 0)
     try:

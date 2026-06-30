@@ -50,7 +50,7 @@ export function shuffleCouncilSpawnAssignments(
   const shuffledSlots = [...slots];
   let seed = hashRoomSeed(roomId);
   for (let i = shuffledSlots.length - 1; i > 0; i -= 1) {
-    seed = (seed * 1103515245 + 12345) | 0;
+    seed = (Math.imul(seed, 1103515245) + 12345) | 0;
     const j = Math.abs(seed) % (i + 1);
     [shuffledSlots[i], shuffledSlots[j]] = [shuffledSlots[j]!, shuffledSlots[i]!];
   }

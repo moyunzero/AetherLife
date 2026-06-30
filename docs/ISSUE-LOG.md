@@ -185,7 +185,7 @@
 102. **MapSchema cleanup 禁止 stale setter**：`useColyseusRoom` unmount 仅 `setRoomNpcs([])`；**禁止** 恢复 `setMainNpcGridById` / `setBgNpcGridById`（ISSUE-096）。改 hook 须 `pnpm --filter @aetherlife/web test`。
 103. **npc-memory 新 migration 必须登记 journal**：新增 `packages/npc-memory/migrations/*.sql` 时 **同步** `migrations/meta/_journal.json`；`verify:phase26` 入口已 `db:migrate` preflight（ISSUE-097）。
 104. **`verify:phase26` traveler 断言须读完整 chip aria-label**：禁止仅依赖 24 字 `.council-deliberation-chip__title`；vote 前须 rude speak + collective rude API（对齐 phase25，ISSUE-098）。E2E **串行**：智谱并发=1 时禁止并行 `verify:phase26` + `uat:phase26` speak。
-105. **议会 `councilSpawns` 须落在 UI 村内带**：`x∈[17,37]`、`y∈[9,20]`、互距 Chebyshev ≥3（`region-walkability.test.ts`）；**禁止** 全图边角槽（ISSUE-099）；改 spawn 后 UAT 用 **新 `roomId`**。布局见 `BEGINNING-FIELDS.md` §议会出生点。
+105. **议会 `councilSpawns` 须全图分散、勿挤堆**：`x∈[5,33]`、`y∈[5,31]`、互距 Chebyshev ≥3、x/y 跨度均 ≥20（`region-walkability.test.ts`）；**禁止** 12 点挤在单一 ≤4×3 格网或南广场扎堆（ISSUE-099）；改 spawn 后 UAT 用 **新 `roomId`**。布局见 `BEGINNING-FIELDS.md` §议会出生点。
 
 ## 记录
 

@@ -452,17 +452,27 @@ export class GameRoom extends Room {
   }
 
   /** Claim speak mutex for HTTP /chat when a live Colyseus room exists. */
-  acquireNpcSpeakJob(npcId: string, jobId: string): void {
+  acquireNpcSpeakJob(npcId: string, jobId: string, playerId?: string): void {
     this.npcSpeakJobs.set(npcId, jobId);
+    if (playerId) {
+      this.lastSpeakInitiatorByNpc.set(npcId, playerId);
+    } else {
+      this.lastSpeakInitiatorByNpc.delete(npcId);
+    }
     setNpcSpeakPhase(this.mapRoomId, npcId, "thinking");
   }
 
   /** Atomically claim speak mutex; returns false if NPC already busy. */
-  tryAcquireNpcSpeakJob(npcId: string, jobId: string): boolean {
+  tryAcquireNpcSpeakJob(npcId: string, jobId: string, playerId?: string): boolean {
     if (this.npcSpeakJobs.has(npcId)) {
       return false;
     }
     this.npcSpeakJobs.set(npcId, jobId);
+    if (playerId) {
+      this.lastSpeakInitiatorByNpc.set(npcId, playerId);
+    } else {
+      this.lastSpeakInitiatorByNpc.delete(npcId);
+    }
     setNpcSpeakPhase(this.mapRoomId, npcId, "thinking");
     return true;
   }

@@ -36,6 +36,7 @@ describe("room store", () => {
 
     const migrated = getOrCreate(roomId);
     expect(migrated.state.npcs).toHaveLength(12);
+    expect(migrated.state.npcs.map((n) => n.id)).toEqual([...COUNCIL_NPC_IDS]);
     expect(migrated.state.npcs.find((n) => n.id === "npc-1")?.x).toBe(23);
     expect(migrated.state.npcs.some((n) => n.id.startsWith("bg-villager"))).toBe(false);
   });
