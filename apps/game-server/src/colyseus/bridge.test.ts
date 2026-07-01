@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { createDefaultRoom, HOME_DEFAULT_PLAYER_SPAWN } from "@aetherlife/shared";
+import {
+  COUNCIL_NPC_IDS,
+  createDefaultRoom,
+  HOME_DEFAULT_PLAYER_SPAWN,
+} from "@aetherlife/shared";
 import { runAmbientTick } from "../ambient/tick.js";
 import { clearChunkDeltaMemory } from "../world/chunk-repository.js";
 import { ChunkLoader } from "../world/chunk-loader.js";
@@ -17,18 +21,60 @@ import {
 import { GameRoomState, PlayerSchema } from "./schema.js";
 
 describe("syncColyseusFromMap", () => {
-  it("copies npc positions and door flag", () => {
+  it("creates MapSchema slots for all 12 council NPC ids", () => {
     const map = createDefaultRoom("default");
-    map.npcs[0]!.x = 7;
-    map.npcs[0]!.y = 1;
-    map.objects = [{ id: "door-1", kind: "door", x: 3, y: 3, state: "open" }];
-
     const colyseus = new GameRoomState();
     syncColyseusFromMap(colyseus, map);
 
-    expect(colyseus.npc1X).toBe(7);
-    expect(colyseus.npc1Y).toBe(1);
+    expect(colyseus.npcs.size).toBe(12);
+    for (const npcId of COUNCIL_NPC_IDS) {
+      const slot = colyseus.npcs.get(npcId);
+      expect(slot, `missing colyseus slot for ${npcId}`).toBeDefined();
+      const mapNpc = map.npcs.find((n) => n.id === npcId);
+      expect(slot!.x).toBe(mapNpc!.x);
+      expect(slot!.y).toBe(mapNpc!.y);
+    }
+    expect(colyseus.doorOpen).toBe(false);
+  });
+
+  it("incrementally updates changed fields and deletes stale map keys", () => {
+    const map = createDefaultRoom("bridge-incremental");
+    const colyseus = new GameRoomState();
+    syncColyseusFromMap(colyseus, map);
+
+    const npc1 = map.npcs.find((n) => n.id === "npc-1")!;
+    npc1.x = 7;
+    npc1.y = 1;
+    npc1.activityKey = "reading";
+    map.objects = [{ id: "door-1", kind: "door", x: 3, y: 3, state: "open" }];
+    map.npcs = map.npcs.filter((n) => n.id !== "npc-12");
+
+    syncColyseusFromMap(colyseus, map);
+
+    const slot1 = colyseus.npcs.get("npc-1")!;
+    expect(slot1.x).toBe(7);
+    expect(slot1.y).toBe(1);
+    expect(slot1.activityKey).toBe("reading");
+    expect(colyseus.npcs.has("npc-12")).toBe(false);
     expect(colyseus.doorOpen).toBe(true);
+  });
+
+  it("preserves moved NPC coordinates on second sync (reconnect / resume)", () => {
+    const map = createDefaultRoom("bridge-resume");
+    const colyseus = new GameRoomState();
+    syncColyseusFromMap(colyseus, map);
+
+    const npc3 = map.npcs.find((n) => n.id === "npc-3")!;
+    const movedX = npc3.x + 4;
+    const movedY = npc3.y + 2;
+    npc3.x = movedX;
+    npc3.y = movedY;
+
+    syncColyseusFromMap(colyseus, map);
+
+    const slot3 = colyseus.npcs.get("npc-3")!;
+    expect(slot3.x).toBe(movedX);
+    expect(slot3.y).toBe(movedY);
   });
 });
 
@@ -106,11 +152,12 @@ describe("initiator player view", () => {
 });
 
 describe("ambient tick schema sync", () => {
-  it("npc1ActivityKey matches map after runAmbientTick", async () => {
+  it("npc-1 activityKey matches map after runAmbientTick", async () => {
     clearChunkDeltaMemory();
     const map = createDefaultRoom("ambient-bridge");
     const colyseus = new GameRoomState();
     colyseus.gameMinute = 360;
+    syncColyseusFromMap(colyseus, map);
     const loader = new ChunkLoader({ worldId: "bridge-ambient", worldSeed: 42 });
     await loader.ensureChunksForPlayers(
       map.npcs.map((n) => ({ gx: n.x, gy: n.y })),
@@ -125,23 +172,7 @@ describe("ambient tick schema sync", () => {
       recentNpcCells: new Map(),
     });
 
-    expect(map.npcs[0]!.activityKey).toBe("reading");
-    expect(colyseus.npc1ActivityKey).toBe("reading");
-  });
-
-  it("syncs background npc slots from map", () => {
-    const map = createDefaultRoom("bg-bridge");
-    const bg = map.npcs.find((n) => n.id === "bg-villager-2")!;
-    bg.x = 31;
-    bg.y = 16;
-    bg.activityKey = "wandering";
-
-    const colyseus = new GameRoomState();
-    syncColyseusFromMap(colyseus, map);
-
-    expect(colyseus.bgNpc2Active).toBe(true);
-    expect(colyseus.bgNpc2X).toBe(31);
-    expect(colyseus.bgNpc2Y).toBe(16);
-    expect(colyseus.bgNpc2ActivityKey).toBe("wandering");
+    expect(map.npcs.find((n) => n.id === "npc-1")!.activityKey).toBe("reading");
+    expect(colyseus.npcs.get("npc-1")!.activityKey).toBe("reading");
   });
 });

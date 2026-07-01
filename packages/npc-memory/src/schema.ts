@@ -132,6 +132,20 @@ export const mutationAuditLogs = pgTable(
   ],
 );
 
+export const npcLeaningDrift = pgTable(
+  "npc_leaning_drift",
+  {
+    roomId: text("room_id").notNull(),
+    npcId: text("npc_id").notNull(),
+    drift: integer("drift").notNull().default(0),
+    dayBucketApplied: integer("day_bucket_applied").notNull().default(0),
+  },
+  (table) => [
+    primaryKey({ columns: [table.roomId, table.npcId] }),
+    index("npc_leaning_drift_room_idx").on(table.roomId),
+  ],
+);
+
 export const npcRelationships = pgTable(
   "npc_relationships",
   {

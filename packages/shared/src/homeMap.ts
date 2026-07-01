@@ -10,8 +10,8 @@ const beginningFields = getRegionById(BEGINNING_FIELDS_ID);
 export const HOME_MAP_TILE_W = beginningFields?.size.w ?? 40;
 export const HOME_MAP_TILE_H = beginningFields?.size.h ?? 40;
 
-/** Bump when `HOME_*_SPAWN` coords change — invalidates client sessionStorage grid restore. */
-export const HOME_SPAWN_CONFIG_VERSION = 1;
+/** Bump when spawn coords change — invalidates client sessionStorage grid restore. */
+export const HOME_SPAWN_CONFIG_VERSION = 12;
 
 /** Default player spawn on Beginning Fields (Tiled tile coords = game gx, gy). */
 export const HOME_DEFAULT_PLAYER_SPAWN = { x: 34, y: 13 } as const;

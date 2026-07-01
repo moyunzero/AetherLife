@@ -36,6 +36,9 @@ export function CouncilRosterPanel({ biographyEntries, linkedEdges = [] }: Props
       data-testid="council-roster-panel"
     >
       <h3 className="council-roster-panel__title">星际议会</h3>
+      <p className="council-roster-panel__nav-hint" data-testid="council-roster-nav-hint">
+        12 名议员分布在村内土径各处，走近即可对话。
+      </p>
       <ul className="council-roster-panel__list">
         {COUNCIL_NPC_IDS.map((npcId) => {
           const persona = getPersona(npcId);

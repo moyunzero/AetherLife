@@ -829,7 +829,7 @@ This document synthesizes all **37 development phases** (including sub-phases). 
 
 | | |
 |---|---|
-| **Status** | 📋 Planned |
+| **Status** | ✅ Complete (2026-06-30) |
 
 **Goal:** All 12 council NPCs on map — Colyseus sync, Phaser render, all speakable + ambient.
 

@@ -38,6 +38,9 @@ import { getOrCreatePlayerId } from "./lib/playerSession.js";
 import { playerRequestsMove } from "./lib/playerMoveIntent.js";
 import { subscribeTabPresence } from "./lib/playerSession.js";
 import { ImmersiveShell } from "./ImmersiveShell.js";
+import { chebyshevDistance } from "./game/ProximityNameplate.js";
+
+const PROXIMITY_SPEAK_CELLS = 2;
 
 /** Merge HTTP room snapshot into moveMap; Colyseus grid wins over stale HTTP npc coords. */
 function mergeRoomStateIntoMoveMap(
@@ -96,8 +99,7 @@ export function ChatPage() {
     gameClock,
     npcActivityById,
     npcAmbientById,
-    mainNpcGridById,
-    bgNpcGridById,
+    roomNpcs,
   } = useColyseusRoom(mapRoomId, moveMap, onWorldHistorySync, onCouncilDeliberationSync);
   const {
     pageState: worldHistoryPageState,
@@ -296,13 +298,48 @@ export function ChatPage() {
 
   const engageNpc = useCallback(
     (npcId: string) => {
-      composerRef.current?.blur();
+      if (activeNpcId !== npcId) setDraft("");
       setActiveNpcId(npcId);
       setDialogueEngaged(true);
+      composerRef.current?.blur();
       requestAnimationFrame(() => composerRef.current?.focus());
     },
-    [setActiveNpcId],
+    [activeNpcId, setActiveNpcId],
   );
+
+  const localPlayerCell = useMemo(() => {
+    const self = players.find((p) => p.sessionId === sessionId);
+    return self ? { x: self.x, y: self.y } : null;
+  }, [players, sessionId]);
+
+  const mergedThinkingNpcIds = useMemo(() => {
+    const ids = new Set(thinkingNpcIds);
+    for (const npc of roomNpcs) {
+      if (npc.isThinking) ids.add(npc.id);
+    }
+    return [...ids];
+  }, [thinkingNpcIds, roomNpcs]);
+
+  const schemaSpeakingNpcIds = useMemo(
+    () => roomNpcs.filter((npc) => npc.isSpeaking).map((npc) => npc.id),
+    [roomNpcs],
+  );
+
+  useEffect(() => {
+    if (dialogueEngaged) return;
+    if (!localPlayerCell || roomNpcs.length === 0) return;
+    let nearest: { id: string; dist: number } | null = null;
+    for (const npc of roomNpcs) {
+      const dist = chebyshevDistance(npc.x, npc.y, localPlayerCell.x, localPlayerCell.y);
+      if (dist > PROXIMITY_SPEAK_CELLS) continue;
+      if (!nearest || dist < nearest.dist) {
+        nearest = { id: npc.id, dist };
+      }
+    }
+    if (!nearest || nearest.id === activeNpcId) return;
+    setDraft("");
+    setActiveNpcId(nearest.id);
+  }, [activeNpcId, dialogueEngaged, localPlayerCell, roomNpcs, setActiveNpcId]);
 
   const endDialogue = useCallback(() => {
     setDialogueEngaged(false);
@@ -360,21 +397,26 @@ export function ChatPage() {
     void refetchState({ retryUntilMs: 15_000 });
   }, [refetchState]);
 
-  /** Ambient tick updates npc*X/Y on Colyseus schema — merge into moveMap for Phaser tweens. */
+  const colyseusNpcGrids = useMemo(
+    () =>
+      Object.fromEntries(roomNpcs.map((npc) => [npc.id, { x: npc.x, y: npc.y }])),
+    [roomNpcs],
+  );
+
+  /** Ambient tick updates npc x/y on Colyseus MapSchema — merge into moveMap for Phaser tweens. */
   useEffect(() => {
-    const grids = { ...mainNpcGridById, ...bgNpcGridById };
-    if (Object.keys(grids).length === 0) return;
+    if (roomNpcs.length === 0) return;
     setMoveMap((prev) => {
       let changed = false;
       const npcs = prev.npcs.map((npc) => {
-        const g = grids[npc.id];
+        const g = colyseusNpcGrids[npc.id];
         if (!g || (npc.x === g.x && npc.y === g.y)) return npc;
         changed = true;
         return { ...npc, x: g.x, y: g.y };
       });
       return changed ? { ...prev, npcs } : prev;
     });
-  }, [mainNpcGridById, bgNpcGridById]);
+  }, [colyseusNpcGrids, roomNpcs.length]);
 
   useEffect(() => subscribeTabPresence(() => setDuplicateTab(true)), []);
 
@@ -395,8 +437,7 @@ export function ChatPage() {
     if (moves.length > 0) setNpcMoveHint(moves.join("；"));
     setMoveMap((prev) => {
       if (!npcWorldLive) return roomState;
-      const grids = { ...mainNpcGridById, ...bgNpcGridById };
-      return mergeRoomStateIntoMoveMap(roomState, prev, grids);
+      return mergeRoomStateIntoMoveMap(roomState, prev, colyseusNpcGrids);
     });
 
     if (npcWorldLive) return;
@@ -410,7 +451,7 @@ export function ChatPage() {
       }),
     );
     return () => cancelAnimationFrame(id);
-  }, [roomState, npcWorldLive, mainNpcGridById, bgNpcGridById]);
+  }, [roomState, npcWorldLive, colyseusNpcGrids]);
 
   const performResetGame = useCallback(async () => {
     prevNpcPosRef.current.clear();
@@ -680,7 +721,8 @@ export function ChatPage() {
                 animating={animating}
                 moveHint={sceneHint}
                 thinkingNpcId={thinkingNpcId}
-                thinkingNpcIds={thinkingNpcIds}
+                thinkingNpcIds={mergedThinkingNpcIds}
+                speakingNpcIds={schemaSpeakingNpcIds}
                 activeNpcId={activeNpcId}
                 npcAnimateMoves={npcWorldLive}
                 npcResetEpoch={npcResetEpoch}

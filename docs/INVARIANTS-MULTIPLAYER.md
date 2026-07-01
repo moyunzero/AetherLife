@@ -32,14 +32,23 @@
 | MP-09 | Speak 队列按 **npcId** 互斥，不按房间互斥；不同 NPC 可并行。 |
 | MP-10 | Worker 在 `POST apply-actions` 前必须用 `action_sanitize` 剥离 LLM 多余字段；`interact.objectId` 须存在于当前 `room.objects`，否则跳过该条而非整批 400。 |
 
-## 3. 禁止事项
+## 3. Council map presence（Phase 26）
+
+| ID | 不变量 |
+|----|--------|
+| MP-11 | **同房所有客户端** 经 Colyseus 见 **相同 12 议会 NPC** 的权威 `(x,y)` 与 `isThinking`/`isSpeaking`；web 仅通过 `useColyseusRoom` 派生 `roomNpcs[]`，禁止直读 MapSchema。 |
+| MP-12 | **禁止**恢复 flat `npc1*`/`bgNpc*` 三槽或 bg-villager 模型；`schemaVersion=2` + `MapSchema<NpcEntityState>` 为唯一 SSOT（见 C-08）。 |
+
+## 4. 禁止事项
 
 - 禁止在 worker `fetch_state` 时不传 `X-Player-Id`（非 `__legacy__` 时）。
 - 禁止在 `apply-actions` 中忽略 `initiatorPlayerId` 做相对移动吸附。
 - 禁止假设 `room_snapshot.player` 与 UI 上「你」的 Colyseus 坐标永远一致（多人时必然不一致）。
 - 禁止将 LLM `tool_calls.args` 原样 POST 到 `apply-actions`（`game-actions` Zod `.strict()` 会 400）。
+- 禁止在 web/Phaser 直读 Colyseus `state.npcs` Map — 须消费 `useColyseusRoom` 派生的 `roomNpcs[]`（C-08 / MP-11）。
+- 禁止恢复 `npc1X`/`bgNpc1X` 扁平槽或仅 3 主 NPC + 4 bg-villager 房间模型（MP-12）。
 
-## 4. 验证清单
+## 5. 验证清单
 
 单元测试可用 `LLM_MOCK=1`；**phase 验收（`pnpm verify:phase*`）必须真实 LLM**，禁止 `LLM_MOCK=1` 或 `dev:stack:mock`。
 
@@ -50,9 +59,10 @@ cd workers/agent-worker && LLM_MOCK=1 uv run pytest -q
 
 pnpm dev:stack
 pnpm verify:phase8   # 含双人「移动到我的下方」+ X-Player-Id 四邻断言
+pnpm verify:phase26  # 12 NPC 地图 + 3 speak + 议会闭环（真实 LLM，禁止 LLM_MOCK）
 ```
 
-## 5. 为何会反复出问题（根因模式）
+## 6. 为何会反复出问题（根因模式）
 
 | 模式 | 说明 | 本项目实例 |
 |------|------|------------|

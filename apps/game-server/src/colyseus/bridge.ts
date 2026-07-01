@@ -12,10 +12,32 @@ import { getChunkLoader } from "../world/chunk-loader.js";
 import { buildMoveGrid, findNearestWalkableCell } from "./move-handler.js";
 import { getColyseusRoom } from "./room-registry.js";
 import { bumpStateVersion } from "./version.js";
-import type { GameRoomState } from "./schema.js";
+import { NpcEntityState, type GameRoomState } from "./schema.js";
 
 function cellKey(x: number, y: number): string {
   return `${x},${y}`;
+}
+
+function syncNpcEntity(target: NpcEntityState, npc: RoomState["npcs"][number]): void {
+  const activityKey = npc.activityKey ?? "idle";
+  const intentReasonZh = npc.intentReasonZh ?? "";
+  const joinActive = npc.joinVicinityActive ?? false;
+  const joinUntil = npc.joinVicinityUntil ?? 0;
+  const joinStarted = npc.joinVicinityStartedAt ?? 0;
+  const isThinking = npc.status === "thinking";
+  const isSpeaking = npc.status === "speaking";
+
+  if (target.x !== npc.x) target.x = npc.x;
+  if (target.y !== npc.y) target.y = npc.y;
+  if (target.activityKey !== activityKey) target.activityKey = activityKey;
+  if (target.intentReasonZh !== intentReasonZh) target.intentReasonZh = intentReasonZh;
+  if (target.joinVicinityActive !== joinActive) target.joinVicinityActive = joinActive;
+  if (target.joinVicinityUntil !== joinUntil) target.joinVicinityUntil = joinUntil;
+  if (target.joinVicinityStartedAt !== joinStarted) {
+    target.joinVicinityStartedAt = joinStarted;
+  }
+  if (target.isThinking !== isThinking) target.isThinking = isThinking;
+  if (target.isSpeaking !== isSpeaking) target.isSpeaking = isSpeaking;
 }
 
 /** Merge Colyseus player positions; legacy map.player only when no live multiplayer session. */
@@ -122,94 +144,27 @@ export function syncMapPlayerPosition(roomId: string, x: number, y: number): voi
 }
 
 export function syncColyseusFromMap(colyseus: GameRoomState, map: RoomState): void {
-  const npcSlots: Array<["npc1" | "npc2" | "npc3", string]> = [
-    ["npc1", "npc-1"],
-    ["npc2", "npc-2"],
-    ["npc3", "npc-3"],
-  ];
+  const seen = new Set<string>();
 
-  for (const [slot, id] of npcSlots) {
-    const npc = map.npcs.find((n) => n.id === id);
-    if (!npc) continue;
-    const activityKey = npc.activityKey ?? "idle";
-    const intentReasonZh = npc.intentReasonZh ?? "";
-    const joinActive = npc.joinVicinityActive ?? false;
-    const joinUntil = npc.joinVicinityUntil ?? 0;
-    const joinStarted = npc.joinVicinityStartedAt ?? 0;
-    if (slot === "npc1") {
-      colyseus.npc1X = npc.x;
-      colyseus.npc1Y = npc.y;
-      colyseus.npc1ActivityKey = activityKey;
-      colyseus.npc1IntentReasonZh = intentReasonZh;
-      colyseus.npc1JoinVicinityActive = joinActive;
-      colyseus.npc1JoinVicinityUntil = joinUntil;
-      colyseus.npc1JoinVicinityStartedAt = joinStarted;
-    } else if (slot === "npc2") {
-      colyseus.npc2X = npc.x;
-      colyseus.npc2Y = npc.y;
-      colyseus.npc2ActivityKey = activityKey;
-      colyseus.npc2IntentReasonZh = intentReasonZh;
-      colyseus.npc2JoinVicinityActive = joinActive;
-      colyseus.npc2JoinVicinityUntil = joinUntil;
-      colyseus.npc2JoinVicinityStartedAt = joinStarted;
-    } else {
-      colyseus.npc3X = npc.x;
-      colyseus.npc3Y = npc.y;
-      colyseus.npc3ActivityKey = activityKey;
-      colyseus.npc3IntentReasonZh = intentReasonZh;
-      colyseus.npc3JoinVicinityActive = joinActive;
-      colyseus.npc3JoinVicinityUntil = joinUntil;
-      colyseus.npc3JoinVicinityStartedAt = joinStarted;
+  for (const npc of map.npcs) {
+    seen.add(npc.id);
+    let slot = colyseus.npcs.get(npc.id);
+    if (!slot) {
+      slot = new NpcEntityState();
+      colyseus.npcs.set(npc.id, slot);
+    }
+    syncNpcEntity(slot, npc);
+  }
+
+  for (const id of [...colyseus.npcs.keys()]) {
+    if (!seen.has(id)) {
+      colyseus.npcs.delete(id);
     }
   }
 
   const door = map.objects.find((o) => o.id === "door-1");
   if (door) {
     colyseus.doorOpen = door.state === "open";
-  }
-
-  const bgSlots: Array<["bgNpc1" | "bgNpc2" | "bgNpc3" | "bgNpc4", string]> = [
-    ["bgNpc1", "bg-villager-1"],
-    ["bgNpc2", "bg-villager-2"],
-    ["bgNpc3", "bg-villager-3"],
-    ["bgNpc4", "bg-villager-4"],
-  ];
-
-  for (const [slot, id] of bgSlots) {
-    const npc = map.npcs.find((n) => n.id === id);
-    const active = Boolean(npc);
-    const activityKey = npc?.activityKey ?? "wandering";
-    const x = npc?.x ?? 0;
-    const y = npc?.y ?? 0;
-    if (slot === "bgNpc1") {
-      colyseus.bgNpc1Active = active;
-      if (npc) {
-        colyseus.bgNpc1X = x;
-        colyseus.bgNpc1Y = y;
-        colyseus.bgNpc1ActivityKey = activityKey;
-      }
-    } else if (slot === "bgNpc2") {
-      colyseus.bgNpc2Active = active;
-      if (npc) {
-        colyseus.bgNpc2X = x;
-        colyseus.bgNpc2Y = y;
-        colyseus.bgNpc2ActivityKey = activityKey;
-      }
-    } else if (slot === "bgNpc3") {
-      colyseus.bgNpc3Active = active;
-      if (npc) {
-        colyseus.bgNpc3X = x;
-        colyseus.bgNpc3Y = y;
-        colyseus.bgNpc3ActivityKey = activityKey;
-      }
-    } else {
-      colyseus.bgNpc4Active = active;
-      if (npc) {
-        colyseus.bgNpc4X = x;
-        colyseus.bgNpc4Y = y;
-        colyseus.bgNpc4ActivityKey = activityKey;
-      }
-    }
   }
 }
 

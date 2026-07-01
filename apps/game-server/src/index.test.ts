@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach, vi } from "vitest";
 import request from "supertest";
-import { COLYSEUS_SERVER_MESSAGES } from "@aetherlife/shared";
+import { COLYSEUS_SERVER_MESSAGES, COUNCIL_NPC_IDS } from "@aetherlife/shared";
 import { CollectiveRepository } from "@aetherlife/npc-memory";
 import { createApp } from "./index.js";
 import { clearAllActionTrackers } from "./collective/action-tracker.js";
@@ -35,6 +35,10 @@ function voteMinutes(proposalFull: string, yesCount: number) {
     proposalFull,
     ballots: voteBallotsEleven(yesCount),
   };
+}
+
+function emptyCouncilMemoryCounts(): Record<string, number> {
+  return Object.fromEntries(COUNCIL_NPC_IDS.map((id) => [id, 0]));
 }
 
 describe("game-server", () => {
@@ -106,17 +110,9 @@ describe("game-server", () => {
   it("GET /rooms/default/state returns npcs and memoryCounts", async () => {
     const res = await request(app).get("/rooms/default/state");
     expect(res.status).toBe(200);
-    expect(res.body.state.npcs).toHaveLength(7);
+    expect(res.body.state.npcs).toHaveLength(12);
     expect(res.body.state.objects).toBeDefined();
-    expect(res.body.memoryCounts).toEqual({
-      "npc-1": 0,
-      "npc-2": 0,
-      "npc-3": 0,
-      "bg-villager-1": 0,
-      "bg-villager-2": 0,
-      "bg-villager-3": 0,
-      "bg-villager-4": 0,
-    });
+    expect(res.body.memoryCounts).toEqual(emptyCouncilMemoryCounts());
     expect(res.body.memoryCount).toBeUndefined();
   });
 
@@ -128,16 +124,9 @@ describe("game-server", () => {
     const res = await request(app).post("/rooms/default/reset");
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
-    expect(res.body.state.npcs[0]).toEqual(expect.objectContaining({ id: "npc-1", x: 23, y: 10 }));
-    expect(res.body.memoryCounts).toEqual({
-      "npc-1": 0,
-      "npc-2": 0,
-      "npc-3": 0,
-      "bg-villager-1": 0,
-      "bg-villager-2": 0,
-      "bg-villager-3": 0,
-      "bg-villager-4": 0,
-    });
+    expect(res.body.state.npcs).toHaveLength(12);
+    expect(res.body.state.npcs.map((n: { id: string }) => n.id)).toEqual([...COUNCIL_NPC_IDS]);
+    expect(res.body.memoryCounts).toEqual(emptyCouncilMemoryCounts());
   });
 
   it("POST apply-actions with valid move updates acting npc coordinates", async () => {
@@ -667,7 +656,7 @@ describe("game-server", () => {
   it("POST /rooms/default/chat rejects invalid npcId", async () => {
     const res = await request(app)
       .post("/rooms/default/chat")
-      .send({ message: "hello", npcId: "npc-9" });
+      .send({ message: "hello", npcId: "npc-99" });
     expect(res.status).toBe(400);
   });
 

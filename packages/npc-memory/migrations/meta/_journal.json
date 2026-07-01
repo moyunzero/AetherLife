@@ -57,6 +57,13 @@
       "when": 1750982400000,
       "tag": "0009_npc_relationships",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1751068800000,
+      "tag": "0010_npc_leaning_drift",
+      "breakpoints": true
     }
   ]
 }

@@ -177,6 +177,16 @@
 97. **关系 delta 仅 worker 异步写**：`applyRelationshipDeltas` 仅经 worker `world_vote` job `POST .../npc-relationships/apply-deltas`；**禁止** `onMessage("speak")` / `GameRoom` handler 内直接改 `npc_relationships`。回归：`test_world_vote.py` · `verify:phase25` affection before/after GET。
 98. **编年史 yes/no 须为 11 票真实计数**：`post_world_history` / sealed `councilDeliberationSync` 的 `yesCount`/`noCount` **禁止** `+1` 或超过 11；与 `tally_ballots`（非提案人 11 席）一致；Zod `max(11)`。`recordPlayerSpeak` **仅**在 `startNpcChatTurn` 成功后调用。回归：`test_post_world_history_yes_count_matches_ballot_tally` · `councilDeliberation.test.ts` · `world-vote-trigger.test.ts` speak-order · `pnpm verify:phase25` minutes 11 ballots。
 
+### Phase 26 — Council map presence（C-08 / MP-11）
+
+99. **MapSchema 禁止恢复 flat 三槽**：`GameRoomState.npcs: MapSchema<NpcEntityState>` + `schemaVersion=2` 为唯一 SSOT；**禁止**恢复 `npc1X`/`bgNpc1X` 或 3 主 NPC + 4 bg-villager 模型（MP-12）。改 `schema.ts`/`bridge.ts`/`useColyseusRoom` 须 `pnpm --filter @aetherlife/game-server test -- bridge.test` + `pnpm --filter @aetherlife/web test -- colyseusAmbientSnapshot`。
+100. **`verify:phase26` 禁止 mock LLM**：脚本入口 `assertE2eNoMock` + `assertE2eRealLlm`；**禁止** `LLM_MOCK=1` / `dev:stack:mock` 假绿（MAP-05 / T-26-04）。须 `pnpm dev:stack` + 真实 API keys；leaning_drift 子 pytest 可 `LLM_MOCK=1`（非 speak 硬断言）。
+101. **Phase 26 勿破坏 frozen UX**：`entityLabels.ts` / `ProximityNameplate.ts` / `entitySprites.ts` / `useNpcChat.ts` speakBusy 方案 A 为已验收契约（Guardrail #57–#59）；Phase 26 仅扩展 12 席 id 范围，merge 前须 `pnpm verify:phase13` + `pnpm verify:phase26`（stack 就绪时）。
+102. **MapSchema cleanup 禁止 stale setter**：`useColyseusRoom` unmount 仅 `setRoomNpcs([])`；**禁止** 恢复 `setMainNpcGridById` / `setBgNpcGridById`（ISSUE-096）。改 hook 须 `pnpm --filter @aetherlife/web test`。
+103. **npc-memory 新 migration 必须登记 journal**：新增 `packages/npc-memory/migrations/*.sql` 时 **同步** `migrations/meta/_journal.json`；`verify:phase26` 入口已 `db:migrate` preflight（ISSUE-097）。
+104. **`verify:phase26` traveler 断言须读完整 chip aria-label**：禁止仅依赖 24 字 `.council-deliberation-chip__title`；vote 前须 rude speak + collective rude API（对齐 phase25，ISSUE-098）。E2E **串行**：智谱并发=1 时禁止并行 `verify:phase26` + `uat:phase26` speak。
+105. **议会 `councilSpawns` 须全图分散、勿挤堆**：`x∈[5,33]`、`y∈[5,31]`、互距 Chebyshev ≥3、x/y 跨度均 ≥20（`region-walkability.test.ts`）；**禁止** 12 点挤在单一 ≤4×3 格网或南广场扎堆（ISSUE-099）；改 spawn 后 UAT 用 **新 `roomId`**。布局见 `BEGINNING-FIELDS.md` §议会出生点。
+
 ## 记录
 
 ### ISSUE-001 — thinking 中切换 NPC Tab 后无法移动（UI 冻结）
@@ -2461,6 +2471,159 @@ Worker 主循环仅在 npc-turn 队列 **连续 5s 为空** 时才 `BLPOP` chunk
 **防复发**
 
 - Guardrail #98
+
+---
+
+### ISSUE-096 — Phase 26 UAT ChatPage 白屏（useColyseusRoom cleanup 引用已删 setter）
+
+- **状态:** fixed
+- **发现:** 2026-06-30（Phase 26 UAT / Browser MCP）
+- **阶段/范围:** `apps/web/src/hooks/useColyseusRoom.ts` · MapSchema 迁移遗留
+- **严重性:** blocker
+
+**根因**
+
+- MapSchema 迁移后 cleanup 仍调用 `setMainNpcGridById({})` / `setBgNpcGridById({})`，unmount 抛错 → ChatPage 白屏。
+
+**修复**
+
+- cleanup 改为 `setRoomNpcs([])`（commit `412a064`）。
+
+**验证**
+
+- `pnpm --filter @aetherlife/web test` · Browser MCP 可见 12 NPC 地图
+
+**防复发**
+
+- Guardrail #102
+
+---
+
+### ISSUE-097 — `0010_npc_leaning_drift` 未登记 journal → world-vote `relation "npc_leaning_drift" does not exist`
+
+- **状态:** fixed
+- **发现:** 2026-06-30（verify:phase26）
+- **阶段/范围:** `packages/npc-memory/migrations/` · `verify:phase26.mjs`
+- **严重性:** blocker
+
+**根因**
+
+- SQL 文件存在但 `migrations/meta/_journal.json` 无 `0010_npc_leaning_drift` 条目，`db:migrate` 跳过。
+
+**修复**
+
+- journal 补登记；`verify:phase26` 入口加 `db:migrate` preflight。
+
+**验证**
+
+- `pnpm --filter @aetherlife/npc-memory db:migrate` · `verify:phase26` vote 段通过
+
+**防复发**
+
+- Guardrail #103
+
+---
+
+### ISSUE-098 — verify:phase26 traveler 断言 flaky（chip 24 字截断 + 缺 rude collective 前置）
+
+- **状态:** fixed
+- **发现:** 2026-06-30（verify:phase26 Run 2）
+- **阶段/范围:** `scripts/verify-phase26.mjs`
+- **严重性:** major
+
+**根因**
+
+- 断言仅读 `.council-deliberation-chip__title`（24 字截断），LLM 提案标题前段可无「旅者」；collective 事件被标为 optional，worker 无旅者素材时提案不含旅者语义。
+
+**修复**
+
+- 对齐 phase25：rude speak + 等待 collective rude API；断言轮询 chip `aria-label` + banner + feed。
+
+**验证**
+
+- `pnpm verify:phase26`（Run 3 重跑）
+
+**防复发**
+
+- Guardrail #104
+
+---
+
+### ISSUE-099 — 议会 spawn 集中南广场：同屏只见 9 人、占格堵路
+
+- **状态:** fixed
+- **发现:** 2026-06-30（UAT `uat-spawn-audit-v2/v3`）
+- **阶段/范围:** `spawns.json` · Phase 26 地图 presence
+- **严重性:** major（UX）
+
+**根因**
+
+- Phase 26 初版「使馆区聚集」+ 后修南移 y=17–19 仍 **12 点挤在相邻格**；镜头跟玩家 `(34,13)` 时南侧集群在视口外或重叠可数为 9 堆；NPC 格占 `buildGlobalMoveGrid` 导致「该方向无法移动」。
+
+**修复**
+
+- **全图分散** 12 锚点（西北→东南岸，见 `BEGINNING-FIELDS.md` §议会出生点）；`maxRadius: 0`；单测改 Chebyshev 间距 + 地图跨度；名册 hint 改「地图各区域」；`26-CONTEXT` D-MAP-SPAWN-01 修订。
+
+**验证**
+
+- `pnpm --filter @aetherlife/game-server test -- region-walkability`（9/9）
+- 新房间 `?room=uat-spawn-dispersed`：`__aetherlife_npcDebug()` → 12 sprites，坐标分布于 x∈[8,38] y∈[7,29]
+
+**防复发**
+
+- Guardrail #105：改 `councilSpawns` 须跑 `region-walkability` 分散断言；**禁止** 12 点挤在单一 ≤4×3 格网；已存在房间须换新 `roomId` 验收。
+
+---
+
+### ISSUE-100 — `uat:phase7:reset-snap` 仍断言 `HOME_NPC_SPAWNS` 旧坐标（Phase 26 后超时）
+
+- **状态:** fixed
+- **发现:** 2026-06-30（`pnpm agent:verify --e2e` GF-08）
+- **阶段/范围:** `scripts/uat-phase7-reset-snap.mjs` · Phase 26 council shuffle
+- **严重性:** major（E2E 假红）
+
+**根因**
+
+- Phase 26 后 `createDefaultRoom` 用 `shuffleCouncilSpawnAssignments` + `councilSpawns`；`default` 房 npc-1 家在 `(20,26)`，脚本仍等 `(23,10)`（legacy `HOME_NPC_SPAWNS`）→ reset 后 `waitForFunction` 10s 超时。
+
+**修复**
+
+- 新增 `scripts/lib/council-spawn.mjs`（`councilNpcHome(roomId, npcId)` → `createDefaultRoom` SSOT）；`uat-phase7-reset-snap.mjs` 改读 council home；post-reset 超时 20s。
+
+**验证**
+
+- `pnpm --filter @aetherlife/shared build` · `pnpm uat:phase7:reset-snap` → OK ~44s
+
+**防复发**
+
+- Guardrail #106：`uat:phase7:reset-snap` / 任何 reset-home E2E **禁止**硬编码 `HOME_NPC_SPAWNS` 作 council 默认格；须 `councilNpcHome(roomId, npcId)` 或 `GET state` 后 `createDefaultRoom` 对齐。
+
+---
+
+### ISSUE-101 — `verify:phase16` 仍断言 2–4 bg npc（Phase 26 移除 bg 层）
+
+- **状态:** fixed
+- **发现:** 2026-06-30（`pnpm agent:verify --e2e` GF-09）
+- **阶段/范围:** `scripts/verify-phase16.mjs` · Phase 26 12 席 council
+- **严重性:** major（E2E 假红）
+
+**根因**
+
+- Phase 26 删除 `bg-villager-*` 房间种子；P16-10/11 仍要求 2–4 bg npc + 11px bg 铭牌 → `expected 2–4 bg npcs, got 0`。
+
+**修复**
+
+- P16-11：断言 12 council + 0 bg + `bg-villager-1`/非法 id speak 400。
+- P16-10：走近 council npc-1，断言 `__aetherlife_councilNameplateDebug` VIS-04 13px proximity 铭牌；`roomSceneSync` 新增 debug hook。
+- `docs/E2E-POLICY.md` §3.1 phase16 行更新。
+
+**验证**
+
+- `pnpm verify:phase16` · `pnpm agent:verify --e2e`
+
+**防复发**
+
+- Guardrail #107：Phase 26+ 后 **禁止** verify/UAT 脚本断言 `bg-villager` 房间存在；ambient 回归用 12 席 council + `verify:phase26` 地图门禁。
 
 ---
 

@@ -548,6 +548,17 @@ def test_leaning_default_vote_uses_stable_hash():
     assert a == b
 
 
+def test_leaning_default_vote_respects_positive_drift(monkeypatch):
+    from src.graph import world_vote as wv
+
+    monkeypatch.setattr(
+        "src.graph.world_vote.get_leaning_drift",
+        lambda room_id, npc_id: 25 if npc_id == "npc-3" else 0,
+    )
+    assert wv._leaning_default_vote("npc-3", "seed", room_id="room-drift") == "yes"
+    assert wv._leaning_default_vote("npc-1", "seed", room_id="room-drift") == "no"
+
+
 def test_post_deliberation_failed_skips_when_job_superseded():
     from src.graph.world_vote import post_deliberation_failed
 

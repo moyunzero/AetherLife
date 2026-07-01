@@ -75,6 +75,7 @@ export {
   toGlobal,
   zoneAtLocal,
   type Poi,
+  type CouncilSpawnEntry,
   type RegionSpawns,
   type WorldRegion,
   type WorldRegionId,
@@ -324,6 +325,18 @@ export {
 } from "./npcPersonas.js";
 
 export { relationshipKindLabelZh } from "./council/relationshipLabels.js";
+
+export {
+  getCouncilSpawnSlots,
+  shuffleCouncilSpawnAssignments,
+  type CouncilSpawnAssignment,
+  type CouncilSpawnSlot,
+} from "./council/spawn.js";
+
+export {
+  migrateRoomCouncilNpcs,
+  type CouncilRoomMigrationResult,
+} from "./council/migrate.js";
 
 export {
   ARCHETYPE_CHANGE_RATE,

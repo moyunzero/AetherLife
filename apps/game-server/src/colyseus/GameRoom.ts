@@ -42,6 +42,7 @@ import { applySegmentStartIntentFallback } from "../ambient/segment-intent.js";
 import { MAIN_AMBIENT_NPC_IDS, runAmbientTick } from "../ambient/tick.js";
 import { addNpcAmbientIntentJob } from "../queue/npc-ambient-intent.js";
 import { maybeEnqueueWorldVote, recordPlayerSpeak } from "../world/world-vote-trigger.js";
+import { setNpcSpeakPhase } from "./speak-schema.js";
 
 export const AMBIENT_MS = 6000;
 
@@ -253,6 +254,7 @@ export class GameRoom extends Room {
       const jobId = randomUUID();
       try {
         this.npcSpeakJobs.set(npcId, jobId);
+        setNpcSpeakPhase(this.mapRoomId, npcId, "thinking");
         registerJob(jobId, this, this.mapRoomId, client.sessionId, {
           npcId,
           playerId,
@@ -272,6 +274,7 @@ export class GameRoom extends Room {
         const held = this.npcSpeakJobs.get(npcId);
         if (held === pendingToken || held === jobId) {
           this.npcSpeakJobs.delete(npcId);
+          setNpcSpeakPhase(this.mapRoomId, npcId, "idle");
           this.broadcast(COLYSEUS_SERVER_MESSAGES.speakIdle, { npcId });
         }
         unregisterJob(jobId);
@@ -433,6 +436,7 @@ export class GameRoom extends Room {
     for (const [npcId, id] of this.npcSpeakJobs.entries()) {
       if (id === jobId) {
         this.npcSpeakJobs.delete(npcId);
+        setNpcSpeakPhase(this.mapRoomId, npcId, "idle");
         this.broadcast(COLYSEUS_SERVER_MESSAGES.speakIdle, { npcId });
         if (options?.enqueueAmbient !== false) {
           this.enqueueAmbientIntentIfIdle(npcId, "speak_end");
@@ -448,16 +452,28 @@ export class GameRoom extends Room {
   }
 
   /** Claim speak mutex for HTTP /chat when a live Colyseus room exists. */
-  acquireNpcSpeakJob(npcId: string, jobId: string): void {
+  acquireNpcSpeakJob(npcId: string, jobId: string, playerId?: string): void {
     this.npcSpeakJobs.set(npcId, jobId);
+    if (playerId) {
+      this.lastSpeakInitiatorByNpc.set(npcId, playerId);
+    } else {
+      this.lastSpeakInitiatorByNpc.delete(npcId);
+    }
+    setNpcSpeakPhase(this.mapRoomId, npcId, "thinking");
   }
 
   /** Atomically claim speak mutex; returns false if NPC already busy. */
-  tryAcquireNpcSpeakJob(npcId: string, jobId: string): boolean {
+  tryAcquireNpcSpeakJob(npcId: string, jobId: string, playerId?: string): boolean {
     if (this.npcSpeakJobs.has(npcId)) {
       return false;
     }
     this.npcSpeakJobs.set(npcId, jobId);
+    if (playerId) {
+      this.lastSpeakInitiatorByNpc.set(npcId, playerId);
+    } else {
+      this.lastSpeakInitiatorByNpc.delete(npcId);
+    }
+    setNpcSpeakPhase(this.mapRoomId, npcId, "thinking");
     return true;
   }
 

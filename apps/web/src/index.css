@@ -208,10 +208,10 @@ body {
   font-size: 0.82rem;
   line-height: 1.4;
   color: var(--shell-ink);
-  display: -webkit-box;
-  -webkit-line-clamp: 1;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: min(40vh, 12rem);
+  overflow-y: auto;
 }
 
 .dialogue-overlay__last-line--streaming {

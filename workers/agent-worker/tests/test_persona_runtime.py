@@ -73,6 +73,38 @@ def test_runtime_relationship_for_npc11():
     assert "恶作剧" in block
 
 
+def test_runtime_relationship_for_npc12():
+    edges = [
+        _runtime_edge(
+            npc_a="npc-12",
+            npc_b="npc-1",
+            affection=31,
+            history_summary="议事厅辩论后关系回暖",
+            current_status=["缓和"],
+        ),
+    ]
+    block = build_persona_block("npc-12", runtime_relationships=edges)
+    assert "议事厅辩论后关系回暖" in block
+    assert "31" in block
+
+
+def test_runtime_relationship_registry_fallback_when_no_edges():
+    registry_block = build_persona_block("npc-7")
+    runtime_block = build_persona_block(
+        "npc-7",
+        runtime_relationships=[
+            _runtime_edge(
+                npc_a="npc-7",
+                npc_b="npc-3",
+                affection=55,
+                history_summary="runtime-only edge",
+            ),
+        ],
+    )
+    assert registry_block != runtime_block
+    assert "runtime-only edge" in runtime_block
+
+
 def test_all_council_seats_produce_blocks():
     for npc_id in COUNCIL_NPC_IDS:
         block = build_persona_block(npc_id)

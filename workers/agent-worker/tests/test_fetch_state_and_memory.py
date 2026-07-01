@@ -159,6 +159,37 @@ def test_recall_action_loads_memory_with_full_embed():
     assert kwargs.get("memory_attempts") == 2
 
 
+def test_fetch_speak_enrichment_fetches_edges_for_npc12():
+    from src.graph.npc_loop import _fetch_speak_enrichment
+
+    state = {
+        "room_id": "default",
+        "player_message": "你好",
+        "npc_id": "npc-12",
+        "player_id": "p1",
+    }
+    settings = Settings(game_server_url="http://127.0.0.1:2567")
+    client = MagicMock()
+
+    with patch("src.graph.npc_loop.fetch_runtime_relationship_edges") as edges:
+        edges.return_value = [
+            {
+                "npcAId": "npc-12",
+                "npcBId": "npc-1",
+                "affection": 10,
+                "historySummary": "test",
+                "currentStatus": [],
+                "baseTag": "peer",
+            },
+        ]
+        with patch("src.graph.npc_loop.fetch_dual_rag_context") as dual:
+            dual.return_value = {"canon_context": ""}
+            out = _fetch_speak_enrichment(state, settings=settings, client=client, skip_dual_rag=False)
+
+    edges.assert_called_once()
+    assert len(out["runtime_relationships"]) == 1
+
+
 def test_casual_fast_lane_skips_relationship_edges_fetch():
     from src.graph.npc_loop import _fetch_speak_enrichment
 

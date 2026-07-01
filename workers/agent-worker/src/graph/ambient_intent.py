@@ -96,6 +96,51 @@ _FALLBACK_REASON_BY_NPC: dict[str, dict[str, str]] = {
         "plaza": "看看广场里有什么新鲜事",
         "default": "直来直去省得误会",
     },
+    "npc-4": {
+        "orchard": "今天想搞点有趣的动静",
+        "plaza": "广场越热闹越有意思",
+        "default": "无聊才是最大Bug",
+    },
+    "npc-5": {
+        "orchard": "想听听风里的哭声",
+        "plaza": "出来走走心会软一点",
+        "default": "别让眼泪白流",
+    },
+    "npc-6": {
+        "orchard": "得先算算这笔账划不划算",
+        "plaza": "看看有没有可交换的筹码",
+        "default": "账本永远要厚实",
+    },
+    "npc-7": {
+        "orchard": "不妨换个角度想想",
+        "plaza": "出来聊聊也许能缓和",
+        "default": "别让局面彻底破裂",
+    },
+    "npc-8": {
+        "orchard": "得先确认大家还安全",
+        "plaza": "出来走走顺便照看一下",
+        "default": "家园安稳是底线",
+    },
+    "npc-9": {
+        "orchard": "这里要是更美就好了",
+        "plaza": "广场气氛得再浪漫些",
+        "default": "太丑太累就回家躺平",
+    },
+    "npc-10": {
+        "orchard": "今天得找点刺激的",
+        "plaza": "广场里谁不服来战",
+        "default": "冒险比安稳带劲",
+    },
+    "npc-11": {
+        "orchard": "细节还得再抠一抠",
+        "plaza": "广场布局也得讲究",
+        "default": "差不多可不行",
+    },
+    "npc-12": {
+        "orchard": "那边说不定有新世界",
+        "plaza": "广场只是探险起点",
+        "default": "探索权不能丢",
+    },
 }
 
 
@@ -105,7 +150,9 @@ def _zone_suffix(zone_id: str) -> str:
 
 
 def _fallback_reason(npc_id: str, zone_id: str) -> str:
-    pools = _FALLBACK_REASON_BY_NPC.get(npc_id) or _FALLBACK_REASON_BY_NPC["npc-1"]
+    pools = _FALLBACK_REASON_BY_NPC.get(npc_id)
+    if pools is None:
+        pools = _FALLBACK_REASON_BY_NPC["npc-1"]
     suffix = _zone_suffix(zone_id)
     return pools.get(suffix) or pools.get("default") or "心里有点事"
 

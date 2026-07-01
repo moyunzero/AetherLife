@@ -88,22 +88,19 @@ const LocalCellSchema = z
   })
   .strict();
 
-const BackgroundNpcSpawnEntrySchema = z
+const CouncilSpawnEntrySchema = z
   .object({
-    id: z.string().regex(/^bg-villager-[1-4]$/),
-    lx: z.number().int().min(0),
-    ly: z.number().int().min(0),
-    displayNameZh: z.string().min(1).max(16),
-    wanderZoneId: z.string().min(1),
-    activityKey: z.string().optional(),
+    x: z.number().int().min(0),
+    y: z.number().int().min(0),
+    facing: z.enum(["n", "s", "e", "w"]),
+    maxRadius: z.number().int().min(0).max(64),
   })
   .strict();
 
 const SpawnsFileSchema = z
   .object({
     defaultPlayerSpawn: LocalCellSchema,
-    npcSpawns: z.record(z.string(), LocalCellSchema),
-    backgroundNpc: z.array(BackgroundNpcSpawnEntrySchema).max(4).optional(),
+    councilSpawns: z.array(CouncilSpawnEntrySchema).length(12).optional(),
   })
   .strict();
 
@@ -139,17 +136,16 @@ export type Poi = {
   kind: "home" | "work" | "social" | "landmark";
 };
 
+export type CouncilSpawnEntry = {
+  x: number;
+  y: number;
+  facing: "n" | "s" | "e" | "w";
+  maxRadius: number;
+};
+
 export type RegionSpawns = {
   defaultPlayerSpawn: { lx: number; ly: number };
-  npcSpawns: Record<string, { lx: number; ly: number }>;
-  backgroundNpc?: Array<{
-    id: string;
-    lx: number;
-    ly: number;
-    displayNameZh: string;
-    wanderZoneId: string;
-    activityKey?: string;
-  }>;
+  councilSpawns?: CouncilSpawnEntry[];
 };
 
 export type WorldRegistry = {
@@ -248,20 +244,19 @@ export function loadWorldRegistry(bundle: WorldRegistryBundle): WorldRegistry {
         spawnsParsed.defaultPlayerSpawn.lx,
         spawnsParsed.defaultPlayerSpawn.ly,
       );
-      for (const [npcId, cell] of Object.entries(spawnsParsed.npcSpawns)) {
-        validateLocalCellInRegion(region, cell.lx, cell.ly);
-        if (!npcId.match(/^npc-\d+$/)) {
-          throw new Error(`world registry: invalid npc spawn key ${npcId}`);
-        }
+      if (region.id === BEGINNING_FIELDS_ID && !spawnsParsed.councilSpawns) {
+        throw new Error(
+          `world registry: ${region.id} requires exactly 12 councilSpawns`,
+        );
       }
-      if (spawnsParsed.backgroundNpc) {
-        for (const bg of spawnsParsed.backgroundNpc) {
-          validateLocalCellInRegion(region, bg.lx, bg.ly);
-          if (!allZoneIds.has(bg.wanderZoneId)) {
-            throw new Error(
-              `world registry: backgroundNpc ${bg.id} references unknown zoneId ${bg.wanderZoneId}`,
-            );
-          }
+      if (spawnsParsed.councilSpawns) {
+        if (region.id === BEGINNING_FIELDS_ID && spawnsParsed.councilSpawns.length !== 12) {
+          throw new Error(
+            `world registry: ${region.id} requires exactly 12 councilSpawns`,
+          );
+        }
+        for (const slot of spawnsParsed.councilSpawns) {
+          validateLocalCellInRegion(region, slot.x, slot.y);
         }
       }
       spawnsByRegion.set(region.id, spawnsParsed);
@@ -421,44 +416,19 @@ export function defaultBeginningFieldsBundle(): WorldRegistryBundle {
     spawnsByRegionId: {
       [BEGINNING_FIELDS_ID]: {
         defaultPlayerSpawn: { lx: 34, ly: 13 },
-        npcSpawns: {
-          "npc-1": { lx: 23, ly: 10 },
-          "npc-2": { lx: 9, ly: 21 },
-          "npc-3": { lx: 28, ly: 27 },
-        },
-        backgroundNpc: [
-          {
-            id: "bg-villager-1",
-            lx: 33,
-            ly: 11,
-            displayNameZh: "老张",
-            wanderZoneId: "beginning-fields@v1:plaza",
-            activityKey: "wandering",
-          },
-          {
-            id: "bg-villager-2",
-            lx: 30,
-            ly: 15,
-            displayNameZh: "小满",
-            wanderZoneId: "beginning-fields@v1:plaza",
-            activityKey: "wandering",
-          },
-          {
-            id: "bg-villager-3",
-            lx: 19,
-            ly: 12,
-            displayNameZh: "阿牛",
-            wanderZoneId: "beginning-fields@v1:orchard",
-            activityKey: "wandering",
-          },
-          {
-            id: "bg-villager-4",
-            lx: 25,
-            ly: 25,
-            displayNameZh: "巧娘",
-            wanderZoneId: "beginning-fields@v1:pond",
-            activityKey: "wandering",
-          },
+        councilSpawns: [
+          { x: 9, y: 21, facing: "s", maxRadius: 0 },
+          { x: 9, y: 5, facing: "s", maxRadius: 0 },
+          { x: 23, y: 11, facing: "e", maxRadius: 0 },
+          { x: 31, y: 13, facing: "w", maxRadius: 0 },
+          { x: 17, y: 13, facing: "e", maxRadius: 0 },
+          { x: 33, y: 28, facing: "n", maxRadius: 0 },
+          { x: 20, y: 26, facing: "s", maxRadius: 0 },
+          { x: 16, y: 31, facing: "n", maxRadius: 0 },
+          { x: 27, y: 27, facing: "w", maxRadius: 0 },
+          { x: 29, y: 17, facing: "s", maxRadius: 0 },
+          { x: 5, y: 9, facing: "e", maxRadius: 0 },
+          { x: 17, y: 22, facing: "s", maxRadius: 0 },
         ],
       },
     },
@@ -502,7 +472,6 @@ export function defaultWorldRegistryBundle(): WorldRegistryBundle {
       ...bf.spawnsByRegionId,
       [VILLAGE_PLAZA_ID]: {
         defaultPlayerSpawn: { lx: 10, ly: 20 },
-        npcSpawns: {},
       },
     },
   };

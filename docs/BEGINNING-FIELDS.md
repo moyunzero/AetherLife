@@ -72,3 +72,28 @@ atlas 整图加载 → object `setTexture(key, frame)` 无效 → 重复 tile / 
 **回归：** 实机 home Campfire 单组 2×2 + 动画。
 
 **Skills：** `loading-assets`（spritesheet vs image）、`tilemaps`（tile layer vs object layer）、`sprites-and-images`（frame index）。
+
+---
+
+## 议会 12 席出生点（Phase 26 · 村内多点分散）
+
+**决策（2026-06-30 v3）：** 12 议员锚点分布于全图（西北 x=5 → 东南 x=33），避免同屏聚团与占格堵路。所有点须可走（collision=0），任意两点 Chebyshev ≥3，`maxRadius: 0` 锁定锚点防止 ambient 聚团。`shuffleCouncilSpawnAssignments(roomId)` 将 12 槽位随机映射到 npc-1…12。
+
+**SSOT：** `apps/game-server/data/world/beginning-fields@v1/spawns.json` → `councilSpawns[]`（本地格 lx/ly，经 `getCouncilSpawnSlots` 转全局 gx/gy）。
+
+| 槽序 | 锚点 (x,y) | facing | 区域 |
+|------|------------|--------|------|
+| 0 | 9, 21 | s | 西侧偏南 |
+| 1 | 9, 5 | s | 西北林地 |
+| 2 | 23, 11 | e | 中北 |
+| 3 | 31, 13 | w | 东北 |
+| 4 | 17, 13 | e | 中部 |
+| 5 | 33, 28 | n | 东南岸 |
+| 6 | 20, 26 | s | 中南 |
+| 7 | 16, 31 | n | 西南岸 |
+| 8 | 27, 27 | w | 东南路径 |
+| 9 | 29, 17 | s | 东侧 |
+| 10 | 5, 9 | e | 西北角 |
+| 11 | 17, 22 | s | 中西 |
+
+**约束：** 全点 collision 可走；与玩家默认 spawn (34,13) Chebyshev ≥3；任意两点 ≥3；x 跨度 ≥20、y 跨度 ≥20（见 `region-walkability.test.ts`）；`maxRadius: 0`。

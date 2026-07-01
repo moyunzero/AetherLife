@@ -2,6 +2,7 @@ import * as Phaser from "phaser";
 import {
   chunkViewsFingerprint,
   isBackgroundNpcId,
+  isCouncilNpcId,
   shouldSuppressLocalSchemaSnap,
   type ChunkView,
   type RoomState,
@@ -17,6 +18,7 @@ import {
   npcDisplayName,
   THINKING_PULSE_MS,
 } from "./entityLabels.js";
+import { tickViewportVisibleNpcIds } from "./roomSceneViewport.js";
 import {
   applyFacingFromSchema,
   paletteRowForPlayerId,
@@ -154,8 +156,11 @@ export function syncRoomEntities(host: RoomSceneSyncHost): void {
   const thinkingNpcId = host.registry.get("thinkingNpcId") as string | null;
   const thinkingNpcIds =
     (host.registry.get("thinkingNpcIds") as string[] | undefined) ?? [];
+  const speakingNpcIds =
+    (host.registry.get("speakingNpcIds") as string[] | undefined) ?? [];
   const isNpcThinking = (npcId: string) =>
     thinkingNpcIds.includes(npcId) || thinkingNpcId === npcId;
+  const isNpcSpeaking = (npcId: string) => speakingNpcIds.includes(npcId);
   const animating = host.registry.get("animating") as boolean;
   const pendingMoves = host.getMovementSync()?.getPendingCount() ?? 0;
   const reduced = host.registry.get("reducedMotion") as boolean;
@@ -281,7 +286,7 @@ export function syncRoomEntities(host: RoomSceneSyncHost): void {
     if (!ent.moveTween?.isPlaying()) {
       host.startNpcBob(ent, ent.gridX, ent.gridY, reduced, isNpcThinking(npc.id));
     }
-    if (isNpcThinking(npc.id) && !reduced && !ent.spriteMode) {
+    if (isNpcThinking(npc.id) && !reduced && !ent.spriteMode && !isNpcSpeaking(npc.id)) {
       ent.pulseTween?.stop();
       ent.pulseTween = host.tweens.add({
         targets: [ent.body, ent.ring],
@@ -300,6 +305,29 @@ export function syncRoomEntities(host: RoomSceneSyncHost): void {
         ent.body.setAlpha(1);
         ent.ring.setAlpha(1);
         ent.body.setFillStyle(theme.npcTint, connected ? 0.85 : 0.35);
+        ent.ring.setStrokeStyle(MARKER_STROKE, theme.npcTint, connected ? 0.5 : 0.2);
+      }
+    }
+
+    if (isNpcSpeaking(npc.id) && !reduced) {
+      if (!ent.speakHaloTween && !ent.spriteMode) {
+        ent.ring.setVisible(true);
+        ent.ring.setStrokeStyle(MARKER_STROKE, theme.accent, 0.65);
+        ent.speakHaloTween = host.tweens.add({
+          targets: ent.ring,
+          scaleX: { from: 1, to: 1.28 },
+          scaleY: { from: 1, to: 1.28 },
+          duration: 900,
+          yoyo: true,
+          repeat: -1,
+        });
+      }
+    } else if (ent.speakHaloTween) {
+      ent.speakHaloTween.stop();
+      ent.speakHaloTween = undefined;
+      ent.ring.setScale(1, 1);
+      if (!ent.spriteMode && !isNpcThinking(npc.id)) {
+        ent.ring.setAlpha(1);
         ent.ring.setStrokeStyle(MARKER_STROKE, theme.npcTint, connected ? 0.5 : 0.2);
       }
     }
@@ -409,6 +437,13 @@ function installDevSyncHooks(
         alpha: number;
       }>;
     } | null;
+    __aetherlife_councilNameplateDebug?: () => {
+      visibleCouncilNameplates: Array<{
+        id: string;
+        fontSize: string;
+        alpha: number;
+      }>;
+    } | null;
   };
   w.__aetherlife_moveDebug = () => {
     const sid = host.getSessionId();
@@ -449,18 +484,38 @@ function installDevSyncHooks(
   w.__aetherlife_sendMoveTo = (x, y) => {
     void host.getMovementSync()?.sendMoveTo(x, y);
   };
-  w.__aetherlife_npcDebug = () => ({
-    animateNpcMoves: ctx.animateNpcMoves,
-    npcs: ctx.mapNpcs.map((n) => ({ id: n.id, x: n.x, y: n.y })),
-    sprites: [...host.npcSprites.entries()].map(([id, ent]) => ({
-      id,
-      gridX: ent.gridX,
-      gridY: ent.gridY,
-      targetX: ent.targetGridX ?? ent.gridX,
-      targetY: ent.targetGridY ?? ent.gridY,
-      tweening: Boolean(ent.moveTween?.isPlaying()),
-    })),
-  });
+  w.__aetherlife_npcDebug = () => {
+    const entries = [...host.npcSprites.entries()];
+    const boundsOverlapPairs: Array<{ a: string; b: string }> = [];
+    for (let i = 0; i < entries.length; i += 1) {
+      const [idA, entA] = entries[i]!;
+      const bA = entA.container.getBounds();
+      for (let j = i + 1; j < entries.length; j += 1) {
+        const [idB, entB] = entries[j]!;
+        const bB = entB.container.getBounds();
+        const overlap =
+          bA.x < bB.x + bB.width &&
+          bA.x + bA.width > bB.x &&
+          bA.y < bB.y + bB.height &&
+          bA.y + bA.height > bB.y;
+        if (overlap) boundsOverlapPairs.push({ a: idA, b: idB });
+      }
+    }
+    return {
+      animateNpcMoves: ctx.animateNpcMoves,
+      npcs: ctx.mapNpcs.map((n) => ({ id: n.id, x: n.x, y: n.y })),
+      sprites: entries.map(([id, ent]) => ({
+        id,
+        gridX: ent.gridX,
+        gridY: ent.gridY,
+        targetX: ent.targetGridX ?? ent.gridX,
+        targetY: ent.targetGridY ?? ent.gridY,
+        tweening: Boolean(ent.moveTween?.isPlaying()),
+      })),
+      boundsOverlapPairs,
+      distinctVisualEstimate: entries.length - boundsOverlapPairs.length,
+    };
+  };
   w.__aetherlife_uatFrameHomestead = () => host.frameHomesteadScreenshot();
   w.__aetherlife_visualDebug = () => {
     const sid = host.getSessionId();
@@ -538,6 +593,16 @@ function installDevSyncHooks(
       .map(([id, ent]) => ({
         id,
         testid: ent.label.getData("testid") as string | null,
+        fontSize: String(ent.label.style.fontSize ?? ""),
+        alpha: ent.label.alpha,
+      })),
+  });
+  w.__aetherlife_councilNameplateDebug = () => ({
+    visibleCouncilNameplates: [...host.npcSprites.entries()]
+      .filter(([id]) => isCouncilNpcId(id))
+      .filter(([, ent]) => (ent.nameplateAlpha ?? ent.label.alpha) > 0.05)
+      .map(([id, ent]) => ({
+        id,
         fontSize: String(ent.label.style.fontSize ?? ""),
         alpha: ent.label.alpha,
       })),

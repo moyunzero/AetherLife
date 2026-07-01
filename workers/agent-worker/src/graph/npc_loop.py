@@ -64,6 +64,11 @@ from src.graph.speak_intent import (
     should_skip_memory_embed,
 )
 from src.llm.call_budget import record_llm_call
+from src.council.leaning_drift import (
+    apply_speak_leaning_drift,
+    estimate_speak_sentiment_delta,
+    get_leaning_drift,
+)
 from src.council.memory_context import fetch_dual_rag_context
 from src.memory.client import (
     _MEMORY_CONTEXT_INTERACTIVE_TIMEOUT_S,
@@ -1165,11 +1170,46 @@ def run_npc_turn_interactive(
     return graph.invoke(initial, config={"configurable": {"thread_id": thread_id}})
 
 
+def _maybe_apply_speak_leaning_drift(state: GraphState) -> None:
+    player_message = (state.get("player_message") or "").strip()
+    if not player_message:
+        return
+    delta = estimate_speak_sentiment_delta(player_message)
+    if delta == 0:
+        return
+    room_id = state["room_id"]
+    npc_id = state.get("npc_id")
+    if not npc_id:
+        print("leaning_drift skip: missing npc_id in state", file=sys.stderr)
+        return
+    snapshot = state.get("room_snapshot") or {}
+    game_minute = int(snapshot.get("gameMinute") or 0)
+    try:
+        applied = apply_speak_leaning_drift(
+            room_id,
+            npc_id,
+            delta,
+            game_minute=game_minute,
+        )
+        if applied:
+            print(
+                f"leaning_drift room={room_id} npc={npc_id} applied={applied} "
+                f"total={get_leaning_drift(room_id, npc_id)}",
+                file=sys.stderr,
+            )
+    except Exception as exc:
+        print(
+            f"leaning_drift apply failed room={room_id} npc={npc_id}: {exc}",
+            file=sys.stderr,
+        )
+
+
 def run_npc_memory_tail(state: GraphState, settings: Settings | None = None) -> GraphState:
     """Post-reply memory: importance, reflect, summarize — must not block Colyseus done."""
     cfg = settings or get_settings()
     with create_http_client() as client:
         state = persist_turn_memory(state, settings=cfg, client=client)
+        _maybe_apply_speak_leaning_drift(state)
         state = maybe_collective_refine(state, settings=cfg)
         state = maybe_reflect_turn(state, settings=cfg, client=client)
         state = maybe_bulk_summarize_turn(state, settings=cfg, client=client)

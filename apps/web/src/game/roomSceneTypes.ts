@@ -35,6 +35,7 @@ export type EntitySprite = AnimatableEntity & {
   targetGridY?: number;
   bobTween?: Phaser.Tweens.Tween;
   pulseTween?: Phaser.Tweens.Tween;
+  speakHaloTween?: Phaser.Tweens.Tween;
   nameplateAlpha?: number;
   nameplateTween?: Phaser.Tweens.Tween;
   nameplateWantShow?: boolean;

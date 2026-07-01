@@ -2,10 +2,15 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it } from "vitest";
-import { buildGlobalMoveGrid, createDefaultRoom, parseAmbientIntent } from "@aetherlife/shared";
+import {
+  buildGlobalMoveGrid,
+  COUNCIL_NPC_IDS,
+  createDefaultRoom,
+  parseAmbientIntent,
+} from "@aetherlife/shared";
 import { GameRoomState } from "../colyseus/schema.js";
 import { clearAllIntentsForTests, setIntent } from "./intent-cache.js";
-import { pickJoinVicinityTarget, runAmbientTick } from "./tick.js";
+import { hashNpcBucket, MAIN_AMBIENT_NPC_IDS, pickJoinVicinityTarget, runAmbientTick, applySoftLeashTarget } from "./tick.js";
 import { clearChunkDeltaMemory } from "../world/chunk-repository.js";
 import { ChunkLoader } from "../world/chunk-loader.js";
 
@@ -63,9 +68,9 @@ describe("runAmbientTick", () => {
       recentNpcCells,
     });
 
-    expect(map.npcs[0]!.activityKey).toBeUndefined();
-    expect(map.npcs[1]!.activityKey).toBeDefined();
-    expect(map.npcs[1]!.activityKey).not.toBe("idle");
+    expect(map.npcs.find((n) => n.id === "npc-1")!.activityKey).toBe("idle");
+    expect(map.npcs.find((n) => n.id === "npc-2")!.activityKey).toBeDefined();
+    expect(map.npcs.find((n) => n.id === "npc-2")!.activityKey).not.toBe("idle");
   });
 
   it("resting segment sets activityKey without changing x/y", async () => {
@@ -225,26 +230,36 @@ describe("runAmbientTick", () => {
     );
   });
 
-  it("contains no fetch/axios/worker/llm imports (LIFE-03)", () => {
-    const code = TICK_SOURCE.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
-    expect(code).not.toMatch(/\bfetch\s*\(/);
-    expect(code).not.toMatch(/\baxios\b/);
-    expect(code).not.toMatch(/\bworker\b/);
-    expect(code).not.toMatch(/\bopenai\b/i);
-    expect(code).not.toMatch(/\bllm\b/i);
+  it("MAIN_AMBIENT_NPC_IDS covers all 12 council seats", () => {
+    expect(MAIN_AMBIENT_NPC_IDS.length).toBe(12);
+    expect([...MAIN_AMBIENT_NPC_IDS].sort()).toEqual([...COUNCIL_NPC_IDS].sort());
   });
 
-  it("moves background NPC with wandering activity (no intent)", async () => {
-    const map = createDefaultRoom("tick-bg");
+  it("only NPCs in the current minute bucket may change position", async () => {
+    clearAllIntentsForTests();
+    const map = createDefaultRoom("tick-bucket");
     const gameState = new GameRoomState();
-    gameState.gameMinute = 400;
-    const bg = map.npcs.find((n) => n.id === "bg-villager-1")!;
-    const startX = bg.x;
-    const startY = bg.y;
+    const gameMinute = 478;
+    gameState.gameMinute = gameMinute;
+    const activeBucket = (gameMinute + 1) % 12;
+    const activeNpc = map.npcs.find((n) => hashNpcBucket(n.id) === activeBucket)!;
+    activeNpc.maxRadius = 4;
+    const targetGx = activeNpc.x + 1;
+    const targetGy = activeNpc.y;
+    setIntent("tick-bucket", activeNpc.id, {
+      intent: parseAmbientIntent({
+        target: { gx: targetGx, gy: targetGy },
+        reasonZh: "去那边",
+        untilGameMinute: gameMinute + 60,
+      }),
+      trigger: "segment_change",
+      gameMinute,
+    });
     const loader = await loaderForMap(map);
+    const before = new Map(map.npcs.map((n) => [n.id, { x: n.x, y: n.y }]));
 
     runAmbientTick({
-      roomId: "tick-bg",
+      roomId: "tick-bucket",
       gameState,
       map,
       loader,
@@ -252,10 +267,99 @@ describe("runAmbientTick", () => {
       recentNpcCells: new Map(),
     });
 
-    expect(bg.activityKey).toBe("wandering");
-    expect(bg.intentReasonZh ?? "").toBe("");
-    const dx = Math.abs(bg.x - startX);
-    const dy = Math.abs(bg.y - startY);
-    expect(dx + dy).toBeLessThanOrEqual(1);
+    let movedCount = 0;
+    for (const npc of map.npcs) {
+      const start = before.get(npc.id)!;
+      const moved = npc.x !== start.x || npc.y !== start.y;
+      if (moved) {
+        movedCount += 1;
+        expect(gameState.gameMinute % 12).toBe(hashNpcBucket(npc.id));
+      }
+    }
+    expect(movedCount).toBeGreaterThanOrEqual(1);
+  });
+
+  it("maxRadius 0 council seats stay at embassy home during ambient tick", async () => {
+    clearAllIntentsForTests();
+    const map = createDefaultRoom("tick-stationary");
+    const gameState = new GameRoomState();
+    const gameMinute = 478;
+    gameState.gameMinute = gameMinute;
+    const activeBucket = (gameMinute + 1) % 12;
+    const stationaryNpc = map.npcs.find((n) => hashNpcBucket(n.id) === activeBucket)!;
+    stationaryNpc.maxRadius = 0;
+    setIntent("tick-stationary", stationaryNpc.id, {
+      intent: parseAmbientIntent({
+        target: { gx: stationaryNpc.x + 2, gy: stationaryNpc.y },
+        reasonZh: "想走远一点",
+        untilGameMinute: gameMinute + 60,
+      }),
+      trigger: "segment_change",
+      gameMinute,
+    });
+    const loader = await loaderForMap(map);
+    const before = { x: stationaryNpc.x, y: stationaryNpc.y };
+
+    runAmbientTick({
+      roomId: "tick-stationary",
+      gameState,
+      map,
+      loader,
+      npcSpeakJobs: new Map(),
+      recentNpcCells: new Map(),
+    });
+
+    expect(stationaryNpc.x).toBe(before.x);
+    expect(stationaryNpc.y).toBe(before.y);
+  });
+
+  it("assigns each council seat a distinct hash bucket slot 0..11", () => {
+    const buckets = COUNCIL_NPC_IDS.map((id) => hashNpcBucket(id));
+    expect(new Set(buckets).size).toBe(12);
+  });
+
+  it("applySoftLeashTarget biases wander target back toward embassy home", () => {
+    const npc = {
+      id: "npc-7",
+      name: "纳兰温言",
+      x: 40,
+      y: 12,
+      homeX: 31,
+      homeY: 12,
+      maxRadius: 8,
+      status: "idle",
+      inventory: [],
+    };
+    const leashed = applySoftLeashTarget(npc, 50, 20);
+    expect(leashed).toEqual({ targetGx: 31, targetGy: 12 });
+  });
+
+  it("applySoftLeashTarget clamps destination inside embassy radius", () => {
+    const npc = {
+      id: "npc-7",
+      name: "纳兰温言",
+      x: 31,
+      y: 12,
+      homeX: 31,
+      homeY: 12,
+      maxRadius: 3,
+      status: "idle",
+      inventory: [],
+    };
+    const leashed = applySoftLeashTarget(npc, 50, 12);
+    const dist = Math.max(Math.abs(leashed.targetGx - 31), Math.abs(leashed.targetGy - 12));
+    expect(dist).toBeLessThanOrEqual(3);
+    expect(leashed.targetGx).not.toBe(50);
+  });
+
+  it("contains no fetch/axios/worker/llm imports (LIFE-03)", () => {
+    const code = TICK_SOURCE.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+    expect(code).not.toMatch(/\bfetch\s*\(/);
+    expect(code).not.toMatch(/\baxios\b/);
+    expect(code).not.toMatch(/\bworker\b/);
+    expect(code).not.toMatch(/\bopenai\b/i);
+    expect(code).not.toMatch(/\bllm\b/i);
+    expect(code).not.toMatch(/\bisBackgroundNpc\b/);
+    expect(code).not.toMatch(/\brunBackgroundNpcTick\b/);
   });
 });

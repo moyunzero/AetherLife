@@ -829,7 +829,7 @@
 
 | | |
 |---|---|
-| **状态** | 📋 规划中 |
+| **状态** | ✅ 已完成（2026-06-30） |
 
 **目标:** All 12 council NPCs on map — Colyseus sync, Phaser render, all speakable + ambient.
 
