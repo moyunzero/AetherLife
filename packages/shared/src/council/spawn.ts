@@ -1,6 +1,6 @@
 import {
   BEGINNING_FIELDS_ID,
-  defaultBeginningFieldsBundle,
+  defaultWorldRegistryBundle,
   getRegionById,
   getWorldRegistry,
   loadWorldRegistry,
@@ -32,7 +32,7 @@ function hashRoomSeed(roomId: string): number {
 
 function ensureRegistry(): void {
   if (!getWorldRegistry()) {
-    setWorldRegistry(loadWorldRegistry(defaultBeginningFieldsBundle()));
+    setWorldRegistry(loadWorldRegistry(defaultWorldRegistryBundle()));
   }
 }
 

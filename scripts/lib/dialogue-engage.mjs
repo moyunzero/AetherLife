@@ -2,6 +2,51 @@
  * Shared Phase 19 immersive-shell dialogue engagement for E2E/benchmark scripts.
  * Opens dialogue via corner-menu NPC tab or canvas click; waits for dialogue-bar.
  */
+
+/** True when npcId is the active speak target (dialogue-bar survives corner-menu close). */
+export async function isActiveNpcDialogue(page, npcId) {
+  const fromBar = await page
+    .locator('[data-testid="dialogue-bar"]')
+    .getAttribute("data-active-npc-id")
+    .catch(() => null);
+  if (fromBar === npcId) return true;
+
+  const selected = await page
+    .locator(`#npc-avatar-${npcId}`)
+    .getAttribute("aria-selected")
+    .catch(() => null);
+  return selected === "true";
+}
+
+/** Poll until dialogue targets npcId (chip aria-selected or dialogue-bar data attribute). */
+export async function waitForActiveNpcDialogue(page, npcId, { timeoutMs = 8_000 } = {}) {
+  await page.waitForFunction(
+    (expectedId) => {
+      const bar = document.querySelector('[data-testid="dialogue-bar"]');
+      if (bar?.getAttribute("data-active-npc-id") === expectedId) return true;
+      const chip = document.getElementById(`npc-avatar-${expectedId}`);
+      return chip?.getAttribute("aria-selected") === "true";
+    },
+    npcId,
+    { timeout: timeoutMs },
+  );
+}
+
+/** DEV hook: programmatically engage npc (same path as sprite click). */
+async function engageNpcViaDevHook(page, npcId, { timeoutMs = 8_000 } = {}) {
+  const called = await page.evaluate((id) => {
+    const fn = window.__aetherlife_engageNpc;
+    if (typeof fn !== "function") return false;
+    fn(id);
+    return true;
+  }, npcId);
+  if (!called) return false;
+  const dialogueBar = page.locator('[data-testid="dialogue-bar"]');
+  await dialogueBar.waitFor({ state: "visible", timeout: timeoutMs });
+  await waitForActiveNpcDialogue(page, npcId, { timeoutMs });
+  return true;
+}
+
 export async function engageDialogue(page, { timeoutMs = 45_000 } = {}) {
   const dialogueBar = page.locator('[data-testid="dialogue-bar"]');
   if (await dialogueBar.isVisible().catch(() => false)) {
@@ -69,11 +114,18 @@ export async function engageDialogue(page, { timeoutMs = 45_000 } = {}) {
  */
 export async function engageNpcDialogue(page, npcId, { timeoutMs = 45_000 } = {}) {
   const dialogueBar = page.locator('[data-testid="dialogue-bar"]');
-  const activeChip = page.locator(`#npc-avatar-${npcId}`);
-  if (await dialogueBar.isVisible().catch(() => false)) {
-    if (await activeChip.isVisible().catch(() => false)) {
-      return;
-    }
+  if (
+    (await dialogueBar.isVisible().catch(() => false)) &&
+    (await isActiveNpcDialogue(page, npcId))
+  ) {
+    return;
+  }
+
+  if (
+    (await dialogueBar.isVisible().catch(() => false)) &&
+    (await engageNpcViaDevHook(page, npcId, { timeoutMs: 8_000 }).catch(() => false))
+  ) {
+    return;
   }
 
   const cornerMenu = page.locator('[data-testid="corner-menu"]');
@@ -88,7 +140,10 @@ export async function engageNpcDialogue(page, npcId, { timeoutMs = 45_000 } = {}
 
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (await dialogueBar.isVisible().catch(() => false)) {
+    if (
+      (await dialogueBar.isVisible().catch(() => false)) &&
+      (await isActiveNpcDialogue(page, npcId))
+    ) {
       return;
     }
     await cornerMenu.locator(".corner-menu__trigger").click();
@@ -96,13 +151,16 @@ export async function engageNpcDialogue(page, npcId, { timeoutMs = 45_000 } = {}
     try {
       await chip.waitFor({ state: "visible", timeout: 12_000 });
       await chip.click();
-      await dialogueBar.waitFor({ state: "visible", timeout: 8_000 });
+      await waitForActiveNpcDialogue(page, npcId, { timeoutMs: 8_000 });
       return;
     } catch {
+      if (await engageNpcViaDevHook(page, npcId, { timeoutMs: 8_000 }).catch(() => false)) {
+        return;
+      }
       await cornerMenu.locator(".corner-menu__trigger").click();
       await page.waitForTimeout(400);
     }
   }
 
-  throw new Error(`engageNpcDialogue: dialogue-bar not visible for ${npcId} within ${timeoutMs}ms`);
+  throw new Error(`engageNpcDialogue: failed to target ${npcId} within ${timeoutMs}ms`);
 }

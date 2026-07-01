@@ -131,7 +131,7 @@
 54. **Speak UX 方案 A（life-sim）**：当前 Tab NPC 在 sending/thinking/speakBusy 时 `composerBusyForActiveNpc` 禁用 textarea + 发送；`sendMessage` **不得**在 in-flight 时客户端 enqueue（仅 server `speakBusy` 路径保留内部队列 drain）。
 55. **`onDone` 后 drain 队列前同步 in-flight refs**：`clearInFlightRefsForDrain`（ISSUE-036；仅服务 speakBusy 内部队列）。
 56. **Speak 状态提示贴近 composer**：`composer-speak-status` 显示「正在思考…」或多人 busy；勿展示用户侧「已排队 N 条」。
-57. **Proximity 铭牌样式冻结（Phase 13 UAT #6/#7）**：`entityLabels.ts` 的 `NAMEPLATE_*` + `applyNameplateStyle`（12px、stroke 4px、shadow）、`entitySprites.ts` 的 `SPRITE_NAMEPLATE_Y`、`ProximityNameplate.ts` 的 `PROXIMITY_CELLS=2` 为 **已验收契约**；禁止为「顺手优化」削弱对比度或改回 disc 时代 `MARKER_LABEL_Y`；改动须 `pnpm verify:phase13` + 人工 UAT 铭牌可读性。
+57. **Proximity 铭牌样式（Phase 13 UAT #6/#7，2026-07 刷新）**：`entityLabels.ts` 的 `SCENE_LABEL_FONT`（宋体）、`applyNameplateStyle`（约 10px @ CELL_PX=32、无描边/无底条、轻投影）、`sceneLabelLayout.ts` 名字/状态堆叠、`entitySprites.spriteNameplateY`、`ProximityNameplate.ts` 的 `PROXIMITY_CELLS=2` 为 **已验收契约**；改动须 `pnpm verify:phase13` + 人工 UAT 铭牌可读性。
 58. **Phase 8 speakBusy（方案 A）须清 sending 态**：`onSpeakBusy` 在 inflight → `enqueueSpeak` 后 **必须** 同步清 `sendingNpcId` / ref，否则 B 端显示「正在思考…」而非「其他玩家占用」；UAT：`pnpm uat:phase8:playwright` Test 4。
 59. **已验收 UX/视觉代码 — 最小 diff**：ISSUE 标 `fixed` 且 UAT/verify 通过的 hook、铭牌、composer 状态机，后续 phase 不得 drive-by 重构；scope 外改动 `pnpm agent:verify:scope` 应 fail。
 60. **Decor 须低于同格实体 depth**：`DecorRenderer` 用 `entityDepth(gx, gy, 0)`；玩家/NPC 至少 layer 1。禁止 decor 与实体同 layer 1（同格时后 spawn 的 decor 会盖住角色，如 home 土路围栏）。回归：`entityLayout.test.ts`「同格 entity > decor」+ 实机站 pathRow=6。
@@ -181,11 +181,17 @@
 
 99. **MapSchema 禁止恢复 flat 三槽**：`GameRoomState.npcs: MapSchema<NpcEntityState>` + `schemaVersion=2` 为唯一 SSOT；**禁止**恢复 `npc1X`/`bgNpc1X` 或 3 主 NPC + 4 bg-villager 模型（MP-12）。改 `schema.ts`/`bridge.ts`/`useColyseusRoom` 须 `pnpm --filter @aetherlife/game-server test -- bridge.test` + `pnpm --filter @aetherlife/web test -- colyseusAmbientSnapshot`。
 100. **`verify:phase26` 禁止 mock LLM**：脚本入口 `assertE2eNoMock` + `assertE2eRealLlm`；**禁止** `LLM_MOCK=1` / `dev:stack:mock` 假绿（MAP-05 / T-26-04）。须 `pnpm dev:stack` + 真实 API keys；leaning_drift 子 pytest 可 `LLM_MOCK=1`（非 speak 硬断言）。
-101. **Phase 26 勿破坏 frozen UX**：`entityLabels.ts` / `ProximityNameplate.ts` / `entitySprites.ts` / `useNpcChat.ts` speakBusy 方案 A 为已验收契约（Guardrail #57–#59）；Phase 26 仅扩展 12 席 id 范围，merge 前须 `pnpm verify:phase13` + `pnpm verify:phase26`（stack 就绪时）。
+101. **Phase 26 勿破坏 frozen UX**：`entityLabels.ts` / `ProximityNameplate.ts` / `entitySprites.ts` / `useNpcChat.ts` speakBusy 方案 A 为已验收契约（Guardrail #57–#59、#106–#107）；Phase 26 仅扩展 12 席 id 范围，merge 前须 `pnpm verify:phase13` + `pnpm verify:phase26`（stack 就绪时）。
 102. **MapSchema cleanup 禁止 stale setter**：`useColyseusRoom` unmount 仅 `setRoomNpcs([])`；**禁止** 恢复 `setMainNpcGridById` / `setBgNpcGridById`（ISSUE-096）。改 hook 须 `pnpm --filter @aetherlife/web test`。
 103. **npc-memory 新 migration 必须登记 journal**：新增 `packages/npc-memory/migrations/*.sql` 时 **同步** `migrations/meta/_journal.json`；`verify:phase26` 入口已 `db:migrate` preflight（ISSUE-097）。
 104. **`verify:phase26` traveler 断言须读完整 chip aria-label**：禁止仅依赖 24 字 `.council-deliberation-chip__title`；vote 前须 rude speak + collective rude API（对齐 phase25，ISSUE-098）。E2E **串行**：智谱并发=1 时禁止并行 `verify:phase26` + `uat:phase26` speak。
 105. **议会 `councilSpawns` 须全图分散、勿挤堆**：`x∈[5,33]`、`y∈[5,31]`、互距 Chebyshev ≥3、x/y 跨度均 ≥20（`region-walkability.test.ts`）；**禁止** 12 点挤在单一 ≤4×3 格网或南广场扎堆（ISSUE-099）；改 spawn 后 UAT 用 **新 `roomId`**。布局见 `BEGINNING-FIELDS.md` §议会出生点。
+
+### Character visuals — LPC & CELL_PX（产品决策 · 2026-07）
+
+106. **全员 LPC 角色皮**：本地/远端**所有玩家**与 **`npc-1`** 使用烘焙 `sprites/lpc-npc-1.png`（`createPlayerSprite` → `createLpcNpc1Sprite`）；**禁止**恢复 `sprites/characters.png` 四色 palette 作玩家皮除非新开 phase 决策。`useSpriteEntities()` 门槛：`spritesLpcNpc1` + `spritesNpcs` 均须存在。烘焙：`pnpm assets:sync:lpc-npc1`（源 `npc-asset/npc-1.png`）。文档：[BEGINNING-FIELDS.md](./BEGINNING-FIELDS.md) §角色视觉。回归：`pnpm --filter @aetherlife/web test` + `pnpm verify:phase6:move-only`。
+107. **显示格 CELL_PX=32**：`gridLayout.CELL_PX=32`（16px 源 ×2）；角色显示高 `CHAR_DISPLAY_PX=64`（占 2 逻辑格）。改 `CELL_PX` 须同步 `entityLayout.LABEL_SCALE`、`GRID_STEP_MS`、地图注释与 [BEGINNING-FIELDS.md](./BEGINNING-FIELDS.md)。Phase 13.3 历史仍为 48px 校准记录，**当前运行时以 32px 为准**。
+108. **Phase 26+ verify 禁止断言 bg-villager**：`verify:phase16` / UAT 脚本 **禁止** 要求房间存在 `bg-villager-*`（ISSUE-101）；ambient/铭牌回归用 12 席 council + `verify:phase26`。
 
 ## 记录
 
@@ -2623,7 +2629,37 @@ Worker 主循环仅在 npc-turn 队列 **连续 5s 为空** 时才 `BLPOP` chunk
 
 **防复发**
 
-- Guardrail #107：Phase 26+ 后 **禁止** verify/UAT 脚本断言 `bg-villager` 房间存在；ambient 回归用 12 席 council + `verify:phase26` 地图门禁。
+- Guardrail #108：Phase 26+ 后 **禁止** verify/UAT 脚本断言 `bg-villager` 房间存在；ambient 回归用 12 席 council + `verify:phase26` 地图门禁。
+
+---
+
+### ISSUE-102 — 全员 LPC 角色皮与 CELL_PX=32 视觉刷新
+
+- **状态:** fixed
+- **发现:** 2026-07-01（Phase 26.1 产品决策）
+- **阶段/范围:** `apps/web/src/game/**` · LPC 资产管线 · 铭牌布局
+- **严重性:** minor（视觉/文档；非多人契约变更）
+
+**决策**
+
+- **全员 LPC**：所有玩家（含远端）+ `npc-1` 使用 `sprites/lpc-npc-1.png`；废弃 `sprites/characters.png` 四色 palette 作玩家皮。
+- **显示格**：`CELL_PX=32`（16×2）；角色高 64px（2 格）；`GRID_STEP_MS=200`。
+
+**交付**
+
+- `scripts/sync-npc-lpc-assets.mjs` · `pnpm assets:sync:lpc-npc1`
+- `lpcNpc1Sheet.ts` · `entitySprites` LPC 路径 · `sceneLabelLayout.ts` 铭牌堆叠
+- 文档：[BEGINNING-FIELDS.md](./BEGINNING-FIELDS.md) §角色视觉 · Guardrails #106–#107
+
+**验证**
+
+- `pnpm --filter @aetherlife/web test`
+- `pnpm agent:verify`
+- `pnpm verify:phase6:move-only` · `pnpm verify:phase13`（须 `pnpm dev:stack`）
+
+**防复发**
+
+- Guardrail #106（全员 LPC）· #107（CELL_PX=32）
 
 ---
 

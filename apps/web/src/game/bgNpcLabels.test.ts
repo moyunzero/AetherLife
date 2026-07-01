@@ -15,6 +15,7 @@ function mockLabel() {
     setFontSize(size: string) {
       style.fontSize = size;
     },
+    setFontFamily() {},
     setFontStyle(weight: string) {
       style.fontStyle = weight;
     },
@@ -42,9 +43,8 @@ describe("bgNpcLabels", () => {
     const label = mockLabel();
     applyBgNameplateStyle(label as never);
     expect(label.style.fontSize).toBe(BG_NAMEPLATE_FONT_SIZE);
-    expect(label.style.fontStyle).toBe("600");
-    expect(label.style.color).toBe("#c8c0a8");
-    expect(label.style.strokeThickness).toBe(4);
+    expect(label.style.fontStyle).toBe("bold");
+    expect(label.style.color).toBe("#e8e0c8");
     expect(label.getData("testid")).toBe(BG_NPC_NAMEPLATE_TESTID);
   });
 
@@ -52,8 +52,7 @@ describe("bgNpcLabels", () => {
     const label = mockLabel();
     applyBgActivityStyle(label as never);
     expect(label.style.fontSize).toBe(BG_ACTIVITY_FONT_SIZE);
-    expect(label.style.fontStyle).toBe("500");
-    expect(label.style.color).toBe("#9aa890");
-    expect(label.style.strokeThickness).toBe(2);
+    expect(label.style.fontStyle).toBe("normal");
+    expect(label.style.color).toBe("#d0dcc4");
   });
 });

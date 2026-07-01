@@ -3,7 +3,8 @@ import {
   shuffleCouncilSpawnAssignments,
 } from "./council/spawn.js";
 import {
-  defaultBeginningFieldsBundle,
+  defaultWorldRegistryBundle,
+  getWorldRegistry,
   loadWorldRegistry,
   setWorldRegistry,
 } from "./worldRegion.js";
@@ -69,11 +70,8 @@ const LEGACY_STARTER_INVENTORY: Partial<Record<string, string[]>> = {
 };
 
 function ensureCouncilSpawnsReady(): void {
-  try {
-    getCouncilSpawnSlots();
-  } catch {
-    setWorldRegistry(loadWorldRegistry(defaultBeginningFieldsBundle()));
-  }
+  if (getWorldRegistry()) return;
+  setWorldRegistry(loadWorldRegistry(defaultWorldRegistryBundle()));
 }
 
 function councilRoomNpcs(roomId: string): NpcState[] {
@@ -89,7 +87,7 @@ function councilRoomNpcs(roomId: string): NpcState[] {
     maxRadius: slot.maxRadius,
     facing: slot.facing,
     status: "idle",
-    inventory: LEGACY_STARTER_INVENTORY[npcId] ?? [],
+    inventory: [...(LEGACY_STARTER_INVENTORY[npcId] ?? [])],
     activityKey: "idle",
   }));
 }

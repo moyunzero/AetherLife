@@ -4,12 +4,12 @@ import {
   NAMEPLATE_FONT_SIZE,
   NAMEPLATE_NPC_COLOR,
   NAMEPLATE_PLAYER_COLOR,
-  NAMEPLATE_STROKE_COLOR,
-  NAMEPLATE_STROKE_WIDTH,
+  SCENE_LABEL_FONT,
 } from "./entityLabels.js";
 
 function mockLabel() {
   return {
+    setFontFamily: vi.fn(),
     setFontSize: vi.fn(),
     setFontStyle: vi.fn(),
     setColor: vi.fn(),
@@ -17,22 +17,21 @@ function mockLabel() {
     setShadow: vi.fn(),
     setBackgroundColor: vi.fn(),
     setPadding: vi.fn(),
+    setWordWrapWidth: vi.fn(),
   };
 }
 
 describe("applyNameplateStyle", () => {
-  it("applies frozen high-contrast player nameplate tokens", () => {
+  it("applies Songti nameplate without stroke or backdrop", () => {
     const label = mockLabel();
     applyNameplateStyle(label as never, "player");
+    expect(label.setFontFamily).toHaveBeenCalledWith(SCENE_LABEL_FONT);
     expect(label.setFontSize).toHaveBeenCalledWith(NAMEPLATE_FONT_SIZE);
     expect(label.setColor).toHaveBeenCalledWith(NAMEPLATE_PLAYER_COLOR);
-    expect(label.setStroke).toHaveBeenCalledWith(
-      NAMEPLATE_STROKE_COLOR,
-      NAMEPLATE_STROKE_WIDTH,
-    );
-    expect(label.setShadow).toHaveBeenCalledWith(0, 0, "#000000", 0, false, false);
+    expect(label.setStroke).toHaveBeenCalledWith("#000000", 0);
     expect(label.setBackgroundColor).toHaveBeenCalledWith("");
     expect(label.setPadding).toHaveBeenCalledWith(0, 0, 0, 0);
+    expect(label.setShadow).toHaveBeenCalledWith(1, 1, "rgba(0,0,0,0.45)", 1, false, false);
   });
 
   it("applies NPC fill color", () => {

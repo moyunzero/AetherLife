@@ -164,7 +164,7 @@ function applyObjectTileAnimation(
 }
 
 /**
- * Beginning Fields Tiled JSON (40×40 @ 16px, scaled to 48px cells).
+ * Beginning Fields Tiled JSON (40×40 @ 16px, scaled to 32px cells).
  * Plan A: sole ground art for chunk (0,0); no procedural floor inside bounds.
  */
 export class HomeMapBackground {

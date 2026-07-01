@@ -401,6 +401,7 @@ function installDevSyncHooks(
   const w = window as Window & {
     __aetherlife_npcDebug?: () => AetherlifeNpcDebug;
     __aetherlife_sendMoveTo?: (x: number, y: number) => void;
+    __aetherlife_engageNpc?: (npcId: string) => void;
     __aetherlife_moveDebug?: () => {
       gridX: number;
       gridY: number;
@@ -483,6 +484,10 @@ function installDevSyncHooks(
   };
   w.__aetherlife_sendMoveTo = (x, y) => {
     void host.getMovementSync()?.sendMoveTo(x, y);
+  };
+  w.__aetherlife_engageNpc = (npcId) => {
+    const cb = host.registry.get("onNpcSpriteClick") as ((id: string) => void) | undefined;
+    cb?.(npcId);
   };
   w.__aetherlife_npcDebug = () => {
     const entries = [...host.npcSprites.entries()];

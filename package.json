@@ -38,6 +38,7 @@
     "art:import:roguelike": "node scripts/import-phase13-art.mjs --all",
     "art:import:tiles": "node scripts/import-phase13.2-farm-art.mjs --tiles-only",
     "art:import:lpc": "node scripts/import-phase13-art.mjs --characters --npcs",
+    "assets:sync:lpc-npc1": "node scripts/sync-npc-lpc-assets.mjs",
     "art:import:character": "node scripts/import-character-art.mjs",
     "art:placeholder": "node scripts/generate-phase13-atlases.mjs",
     "art:agnes:preview": "node scripts/agnes-ui-assets.mjs --preview",

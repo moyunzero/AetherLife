@@ -1,8 +1,24 @@
 # Beginning Fields — home Tiled 地图
 
-Fan-tasy **Beginning Fields**（40×40 @ 16px → 游戏内 48px/grid）由 `HomeMapBackground` 渲染。Plan A：home 区内 **仅 Tiled 层**，`RoomScene` 跳过程序化 floor/decor。
+Fan-tasy **Beginning Fields**（40×40 @ 16px Tiled → 游戏内 **32px/格**，16×2 整数缩放）由 `HomeMapBackground` 渲染。Plan A：home 区内 **仅 Tiled 层**，`RoomScene` 跳过程序化 floor/decor。
 
-Web agent 摘要：[apps/web/AGENTS.md](../apps/web/AGENTS.md) · 回归 ISSUE-042 · Guardrails #63–#65 in [ISSUE-LOG.md](./ISSUE-LOG.md).
+Web agent 摘要：[apps/web/AGENTS.md](../apps/web/AGENTS.md) · 回归 ISSUE-042 · Guardrails #63–#65、#106–#107 in [ISSUE-LOG.md](./ISSUE-LOG.md).
+
+---
+
+## 角色视觉（产品决策 · 2026-07）
+
+| 决策 | 内容 |
+|------|------|
+| **显示格** | `CELL_PX = 32`（`gridLayout.ts`）；瓦片 16px 源图 ×2 |
+| **角色身高** | `CHAR_DISPLAY_PX = 64`（占 **2 逻辑格**；脚底仍锚在格心南缘） |
+| **全员 LPC** | **所有玩家 + `npc-1`** 使用烘焙 LPC 皮 `sprites/lpc-npc-1.png`（walk + idle）；**不再**用 `sprites/characters.png` 的 Stardew 四色 palette 区分玩家 |
+| **其他 NPC** | `npc-2`…`npc-12` 等仍用 `sprites/npcs.png`（Stardew 16×32 @ 2×） |
+| **资源管线** | 源图 `npc-asset/npc-1.png` → `pnpm assets:sync:lpc-npc1` → `public/assets/sprites/lpc-npc-1.png` |
+| **运行时** | `lpcNpc1Sheet.ts` + `entitySprites.ts`；`useSpriteEntities()` 须同时存在 `spritesLpcNpc1` 与 `spritesNpcs` |
+| **铭牌** | 宋体（`Noto Serif SC`）、无描边/无底条、轻投影；名字/状态垂直堆叠见 `sceneLabelLayout.ts` |
+
+**回归：** `pnpm --filter @aetherlife/web test` · `pnpm verify:phase13` · `pnpm verify:phase6:move-only`（改 `RoomScene` / 实体 sprite 时）
 
 ---
 

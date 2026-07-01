@@ -191,25 +191,33 @@ export async function closeShellDrawer(page) {
  * @param {import('playwright').Page} page
  * @param {number} t0
  * @param {number} timeoutMs
+ * @param {string} [baselineText] ignore pre-existing reply (NPC switch / skipEngage)
  * @returns {Promise<{ firstTextMs: number; overlayPartialMs: number | null }>}
  */
-async function waitSpeakFirstText(page, t0, timeoutMs) {
+async function waitSpeakFirstText(page, t0, timeoutMs, baselineText = "") {
+  const baseline = baselineText.trim();
   const deadline = Date.now() + timeoutMs;
   let overlayPartialMs = null;
+
+  const isNewReply = (text) => {
+    const trimmed = text.trim();
+    if (!trimmed || /^思考/.test(trimmed)) return false;
+    return !baseline || trimmed !== baseline;
+  };
 
   while (Date.now() < deadline) {
     if (overlayPartialMs === null) {
       const streaming = page.locator(OVERLAY_STREAMING);
       if (await streaming.isVisible().catch(() => false)) {
         const st = ((await streaming.textContent().catch(() => "")) ?? "").trim();
-        if (st) overlayPartialMs = Date.now() - t0;
+        if (st && isNewReply(st)) overlayPartialMs = Date.now() - t0;
       }
     }
 
     const summary = page.locator(".dialogue-bar__summary-text");
     if ((await summary.count()) > 0) {
       const text = (await summary.first().textContent().catch(() => "")) ?? "";
-      if (text.trim() && !/^思考/.test(text.trim())) {
+      if (isNewReply(text)) {
         return { firstTextMs: Date.now() - t0, overlayPartialMs };
       }
     }
@@ -217,7 +225,7 @@ async function waitSpeakFirstText(page, t0, timeoutMs) {
     const overlayNpc = page.locator(OVERLAY_NPC_REPLY).last();
     if (await overlayNpc.isVisible().catch(() => false)) {
       const text = (await overlayNpc.textContent().catch(() => "")) ?? "";
-      if (text.trim()) {
+      if (isNewReply(text)) {
         return { firstTextMs: Date.now() - t0, overlayPartialMs };
       }
     }
@@ -288,6 +296,8 @@ export async function sendSpeakOverlay(
     { timeout: speakTimeoutMs },
   );
 
+  const baselineReply = await extractNpcReplyText(page);
+
   const t0 = Date.now();
   await composer.fill(text);
   await page.locator("button.composer__submit").click();
@@ -300,7 +310,12 @@ export async function sendSpeakOverlay(
     // thinking may be too fast to observe
   }
 
-  const { firstTextMs, overlayPartialMs } = await waitSpeakFirstText(page, t0, speakTimeoutMs);
+  const { firstTextMs, overlayPartialMs } = await waitSpeakFirstText(
+    page,
+    t0,
+    speakTimeoutMs,
+    baselineReply,
+  );
 
   await page.waitForFunction(
     () => {

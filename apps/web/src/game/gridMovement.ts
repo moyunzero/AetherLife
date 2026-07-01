@@ -1,5 +1,5 @@
 /** Shared grid locomotion timing — Phaser tweens + keyboard repeat. */
-export const GRID_STEP_MS = 120;
+export const GRID_STEP_MS = 200;
 export const STEP_OVERLAP = 0.72;
 export const MAX_PREDICT_AHEAD = 8;
 /** Visual-only steps while network pending is full (keeps sprite moving at chunk boundaries). */
@@ -12,7 +12,7 @@ export const CLICK_PENDING_DRAIN_MS = 3000;
 export const PENDING_POLL_MS = 50;
 /**
  * Hold this long before WASD auto-repeat starts.
- * Prevents a short tap (keydown + keyup <~120ms) from firing a second step via setInterval.
+ * Prevents a short tap (keydown + keyup <~200ms) from firing a second step via setInterval.
  */
 export const HOLD_REPEAT_DELAY_MS = Math.max(GRID_STEP_MS + 80, 200);
 

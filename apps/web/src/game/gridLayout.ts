@@ -1,5 +1,5 @@
-/** Screen pixels per logic cell — 16×3 integer scale (Phase 13.3). */
-export const CELL_PX = 48;
+/** Screen pixels per logic cell — 16×2 integer scale (Phase 13.3). */
+export const CELL_PX = 32;
 
 /** Phaser viewport size in cells (camera follows player in global coords). */
 export const VIEWPORT_CELLS = 12;

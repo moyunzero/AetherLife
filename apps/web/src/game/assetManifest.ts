@@ -42,6 +42,8 @@ export const ASSET_KEYS = {
   tilesDecor: "tiles/decor",
   spritesCharacters: "sprites/characters",
   spritesNpcs: "sprites/npcs",
+  /** Baked walk+idle from npc-asset/npc-1.png (scripts/sync-npc-lpc-assets.mjs). */
+  spritesLpcNpc1: "sprites/lpc-npc-1",
   spritesUiSpeech: "sprites/ui-speech",
   tilesScrubPack: "tiles/biome-scrub",
   tilesWetlandPack: "tiles/biome-wetland",
@@ -77,6 +79,13 @@ export const CORE_AREA_ASSETS: AssetSheetDef[] = [
     url: `${BASE}/sprites/npcs.png`,
     frameWidth: CHAR_FRAME_W,
     frameHeight: CHAR_FRAME_H,
+  },
+  {
+    kind: "spritesheet",
+    key: ASSET_KEYS.spritesLpcNpc1,
+    url: `${BASE}/sprites/lpc-npc-1.png`,
+    frameWidth: 64,
+    frameHeight: 64,
   },
   { kind: "image", key: ASSET_KEYS.spritesUiSpeech, url: `${BASE}/sprites/ui-speech.png` },
 ];
