@@ -1,33 +1,51 @@
 import type * as Phaser from "phaser";
+import { labelPx, nameplateFontPx } from "./entityLayout.js";
 
-/** In-scene entity labels — aligned with 07-UI-SPEC (Source Serif 4, 11px, --text). */
+/** In-scene entity labels — aligned with 07-UI-SPEC (Source Serif 4, scaled to CELL_PX). */
 export const ENTITY_LABEL_FONT = '"Source Serif 4", "Noto Serif SC", serif';
-export const ENTITY_LABEL_COLOR = "#e8e2d6";
-export const ENTITY_LABEL_FONT_SIZE = "11px";
-export const THINKING_PULSE_MS = 1200;
 
 /**
- * Proximity nameplates — high contrast on Kenney pastoral tiles (13-UAT #6).
- * **Frozen contract:** do not weaken stroke/shadow/size without verify:phase13 + UAT test 6/7.
+ * Scene nameplates — 宋体系（Web: Noto Serif SC；系统: 宋体/SimSun）。
+ * Alternatives (swap `SCENE_LABEL_FONT`):
+ * - 黑体: SCENE_LABEL_FONT_SANS
+ * - 楷体: SCENE_LABEL_FONT_KAI
  */
-export const NAMEPLATE_FONT_SIZE = "13px";
+export const SCENE_LABEL_FONT =
+  '"Noto Serif SC", "Songti SC", "SimSun", "STSong", serif';
+
+export const SCENE_LABEL_FONT_SANS =
+  '"Noto Sans SC", "PingFang SC", "Microsoft YaHei UI", sans-serif';
+
+export const SCENE_LABEL_FONT_KAI =
+  '"KaiTi", "STKaiti", "Noto Serif SC", serif';
+
+export const ENTITY_LABEL_COLOR = "#e8e2d6";
+export const ENTITY_LABEL_FONT_SIZE = labelPx(11);
+export const THINKING_PULSE_MS = 1200;
+
+export const NAMEPLATE_FONT_SIZE_PX = nameplateFontPx();
+export const NAMEPLATE_FONT_SIZE = `${NAMEPLATE_FONT_SIZE_PX}px`;
 export const NAMEPLATE_PLAYER_COLOR = "#ffffff";
-export const NAMEPLATE_NPC_COLOR = "#fff4a8";
-export const NAMEPLATE_STROKE_COLOR = "#000000";
-export const NAMEPLATE_STROKE_WIDTH = 5;
+export const NAMEPLATE_NPC_COLOR = "#fff6b8";
+
+/** No stroke, no backdrop — light drop shadow for tile contrast. */
+export function applySceneHanLabelBase(label: Phaser.GameObjects.Text): void {
+  label.setFontFamily(SCENE_LABEL_FONT);
+  label.setStroke("#000000", 0);
+  label.setBackgroundColor("");
+  label.setPadding(0, 0, 0, 0);
+  label.setShadow(1, 1, "rgba(0,0,0,0.45)", 1, false, false);
+}
 
 export function applyNameplateStyle(
   label: Phaser.GameObjects.Text,
   kind: "player" | "npc",
 ): void {
+  applySceneHanLabelBase(label);
   label.setFontSize(NAMEPLATE_FONT_SIZE);
-  label.setFontStyle("700");
+  label.setFontStyle("600");
   label.setColor(kind === "npc" ? NAMEPLATE_NPC_COLOR : NAMEPLATE_PLAYER_COLOR);
-  label.setStroke(NAMEPLATE_STROKE_COLOR, NAMEPLATE_STROKE_WIDTH);
-  // shadowFill=true draws a solid dark rectangle behind glyphs — text-only nameplates use stroke only
-  label.setShadow(0, 0, "#000000", 0, false, false);
-  label.setBackgroundColor("");
-  label.setPadding(0, 0, 0, 0);
+  label.setWordWrapWidth(0);
 }
 
 export function npcDisplayName(name: string): string {

@@ -5,7 +5,7 @@ import { isGlobalFloorBlocked } from "./floorBlocked.js";
 import { CELL_PX } from "./gridLayout.js";
 import { TILE_PX } from "./assetManifest.js";
 
-/** Match decor/sprites: 16px atlas tiles fill 48px grid cells (3× scale). */
+/** Match decor/sprites: 16px atlas tiles fill 32px grid cells (2× scale). */
 const FLOOR_TILE_SCALE = CELL_PX / TILE_PX;
 import {
   isWetlandShoreCell,

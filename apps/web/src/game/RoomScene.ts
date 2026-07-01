@@ -71,9 +71,12 @@ import {
   npcVariantForId,
   playIdleAnim,
   registerCharacterAnims,
+  registerLpcNpc1Anims,
   registerNpcAnims,
-  SPRITE_NAMEPLATE_Y,
+  spriteNameplateY,
+  spriteProfileForNpc,
 } from "./entitySprites.js";
+import { spriteProfileForPlayer } from "./lpcNpc1Sheet.js";
 import { ASSET_KEYS } from "./assetManifest.js";
 import {
   logBootTiming,
@@ -327,6 +330,7 @@ export class RoomScene extends Phaser.Scene {
     this.scale.on("resize", this.handleScaleResize, this);
     this.time.delayedCall(0, () => this.fitCamera());
     if (this.useSpriteEntities()) {
+      registerLpcNpc1Anims(this);
       registerCharacterAnims(this);
       registerNpcAnims(this);
     }
@@ -405,7 +409,11 @@ export class RoomScene extends Phaser.Scene {
   }
 
   private useSpriteEntities(): boolean {
-    return !isVisualFallbackActive(this) && this.textures.exists(ASSET_KEYS.spritesCharacters);
+    return (
+      !isVisualFallbackActive(this)
+      && this.textures.exists(ASSET_KEYS.spritesLpcNpc1)
+      && this.textures.exists(ASSET_KEYS.spritesNpcs)
+    );
   }
 
   private handleEntityStepStart(
@@ -772,6 +780,7 @@ export class RoomScene extends Phaser.Scene {
     if (!this.useSpriteEntities()) return ent;
 
     ent.spriteMode = true;
+    ent.spriteProfile = spriteProfileForPlayer();
     ent.paletteRow = paletteRow;
     ent.facingDir = "down";
     const avatar = createPlayerSprite(this, paletteRow);
@@ -779,7 +788,7 @@ export class RoomScene extends Phaser.Scene {
     ent.ring.setVisible(false);
     ent.label.setText(truncateNameplate(label));
     ent.label.setAlpha(0);
-    ent.label.y = SPRITE_NAMEPLATE_Y;
+    ent.label.y = spriteNameplateY(ent.spriteProfile);
     applyNameplateStyle(ent.label, "player");
     ent.container.addAt(avatar, 0);
     ent.avatar = avatar;
@@ -817,17 +826,18 @@ export class RoomScene extends Phaser.Scene {
 
     ent.spriteMode = true;
     ent.isNpc = true;
+    ent.spriteProfile = spriteProfileForNpc(npcId);
     ent.paletteRow = npcVariantForId(npcId);
     ent.facingDir = "down";
-    ent.activityLabel?.setY(activityLabelY(true));
-    ent.intentLabel?.setY(intentLabelY(true));
+    ent.activityLabel?.setY(activityLabelY(true, ent.spriteProfile));
+    ent.intentLabel?.setY(intentLabelY(true, ent.spriteProfile));
     const avatar = createNpcSprite(this, npcId, isBg ? BG_NPC_TINT : undefined);
-    const bubble = createSpeechBubble(this);
+    const bubble = createSpeechBubble(this, ent.spriteProfile);
     ent.body.setVisible(false);
     ent.ring.setVisible(false);
     ent.label.setText(truncateNameplate(label));
     ent.label.setAlpha(0);
-    ent.label.y = SPRITE_NAMEPLATE_Y;
+    ent.label.y = spriteNameplateY(ent.spriteProfile);
     if (isBg) {
       applyBgNameplateStyle(ent.label);
     } else {
@@ -850,7 +860,7 @@ export class RoomScene extends Phaser.Scene {
       applyBgActivityStyle(activityLabel);
       activityLabel.setData("testid", `bg-npc-activity-${ent.npcId}`);
     }
-    activityLabel.y = activityLabelY(ent.spriteMode === true);
+    activityLabel.y = activityLabelY(ent.spriteMode === true, ent.spriteProfile);
     ent.container.add(activityLabel);
     ent.activityLabel = activityLabel;
   }
@@ -858,7 +868,7 @@ export class RoomScene extends Phaser.Scene {
   private attachNpcIntentLabel(ent: EntitySprite): void {
     if (!ent.npcId) return;
     const intentLabel = createIntentLabel(this, ent.npcId);
-    intentLabel.y = intentLabelY(ent.spriteMode === true);
+    intentLabel.y = intentLabelY(ent.spriteMode === true, ent.spriteProfile);
     ent.container.add(intentLabel);
     ent.intentLabel = intentLabel;
   }
@@ -1084,7 +1094,9 @@ export class RoomScene extends Phaser.Scene {
     reduced: boolean,
     thinking: boolean,
   ): void {
-    const labelY = ent.spriteMode ? SPRITE_NAMEPLATE_Y : MARKER_LABEL_Y;
+    const labelY = ent.spriteMode
+      ? spriteNameplateY(ent.spriteProfile ?? "stardew")
+      : MARKER_LABEL_Y;
     if (reduced || thinking) {
       ent.bobTween?.stop();
       ent.bobTween = undefined;

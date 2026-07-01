@@ -845,6 +845,24 @@ This document synthesizes all **37 development phases** (including sub-phases). 
 
 ---
 
+### Phase 26.1 — LPC Character Visual Refresh（全员 LPC）
+
+| | |
+|---|---|
+| **Status** | ✅ Shipped (2026-07-01) |
+
+**Goal:** Unify **all players** + **npc-1** on LPC walk/idle sprite; rescale grid to **CELL_PX=32** with **64px** character height (2 cells).
+
+**Product decision:** **全员 LPC** — no Stardew `characters.png` palette rows for players; council NPCs `npc-2`…`npc-12` remain on `npcs.png`.
+
+**Key deliverables:** `scripts/sync-npc-lpc-assets.mjs` · `lpc-npc-1.png` · `lpcNpc1Sheet.ts` · `entitySprites` LPC path · nameplate refresh (`sceneLabelLayout.ts`, Songti, no stroke/backdrop).
+
+**Verification:** `pnpm --filter @aetherlife/web test` · `pnpm verify:phase6:move-only` · `pnpm verify:phase13`
+
+**Tech decisions:** `GRID_STEP_MS=200` · `useSpriteEntities()` requires `spritesLpcNpc1` + `spritesNpcs`; Phase 13.3 48px record superseded at runtime — see Guardrails #106–#107 · [BEGINNING-FIELDS.md](../docs/BEGINNING-FIELDS.md) §角色视觉
+
+---
+
 ### Phase 27 — Personal Life Timeline
 
 | | |

@@ -845,6 +845,24 @@
 
 ---
 
+### Phase 26.1 — LPC 角色视觉刷新（全员 LPC）
+
+| | |
+|---|---|
+| **状态** | ✅ 已交付 (2026-07-01) |
+
+**目标:** **所有玩家** + **npc-1** 统一 LPC walk/idle；显示格 **CELL_PX=32**，角色高 **64px**（2 格）。
+
+**产品决策:** **全员 LPC** — 玩家不再用 Stardew `characters.png` 四色 palette；议会 `npc-2`…`npc-12` 仍用 `npcs.png`。
+
+**交付物:** `scripts/sync-npc-lpc-assets.mjs` · `lpc-npc-1.png` · `lpcNpc1Sheet.ts` · 铭牌刷新（`sceneLabelLayout.ts`、宋体、无描边/底条）。
+
+**验收:** `pnpm --filter @aetherlife/web test` · `pnpm verify:phase6:move-only` · `pnpm verify:phase13`
+
+**技术决策:** `GRID_STEP_MS=200` · `useSpriteEntities()` 须 `spritesLpcNpc1` + `spritesNpcs`；Phase 13.3 的 48px 为历史记录，**运行时以 32px 为准** — Guardrails #106–#107 · [BEGINNING-FIELDS.md](../docs/BEGINNING-FIELDS.md) §角色视觉
+
+---
+
 ### Phase 27 — 个人人生时间线
 
 | | |

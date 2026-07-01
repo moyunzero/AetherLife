@@ -28,6 +28,7 @@ memory.md
 
 # Local asset drops (not wired into build yet)
 npc-img/
+npc-asset/
 
 # Internal development docs (local only)
 docs/ISSUE-LOG.md

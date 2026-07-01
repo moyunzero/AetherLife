@@ -36,7 +36,7 @@ const webUrl = `${webBase}${webBase.includes("?") ? "&" : "?"}room=${encodeURICo
 
 const CLOCK_RE = /\d{1,2}:\d{2}/;
 const COUNCIL_NPC_COUNT = COUNCIL_NPC_IDS.length;
-const COUNCIL_NAMEPLATE_FONT = "13";
+const COUNCIL_NAMEPLATE_FONT = "10";
 
 const report = {
   roomId,
@@ -536,7 +536,7 @@ async function main() {
     console.log(`verify:phase16: councilNameplateProbe=${JSON.stringify(councilProbe)}`);
     record(
       "P16-10",
-      "council proximity nameplate (VIS-04 13px)",
+      "council proximity nameplate (VIS-04 scaled)",
       councilProbe.ok,
       JSON.stringify(councilProbe.visibleCouncilNameplates),
     );

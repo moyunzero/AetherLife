@@ -6,7 +6,7 @@ import {
 
 const beginningFields = getRegionById(BEGINNING_FIELDS_ID);
 
-/** Beginning Fields Tiled map covers this many world grid cells (1 Tiled tile = 1 cell @ 48px). */
+/** Beginning Fields Tiled map covers this many world grid cells (1 Tiled tile = 1 cell @ 32px). */
 export const HOME_MAP_TILE_W = beginningFields?.size.w ?? 40;
 export const HOME_MAP_TILE_H = beginningFields?.size.h ?? 40;
 

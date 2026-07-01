@@ -1,17 +1,16 @@
 import type * as Phaser from "phaser";
-import { ENTITY_LABEL_FONT } from "./entityLabels.js";
-import { MARKER_LABEL_Y } from "./entityLayout.js";
-import { SPRITE_NAMEPLATE_Y } from "./entitySprites.js";
+import { applySceneHanLabelBase, SCENE_LABEL_FONT } from "./entityLabels.js";
+import { intentFontPx } from "./entityLayout.js";
 import { truncateIntentLabel, type NpcAmbientUiState } from "./activityLabelLogic.js";
 
 const FADE_IN_MS = 150;
 const FADE_OUT_MS = 100;
 
-export const INTENT_LABEL_FONT_SIZE = "8px";
-export const INTENT_LABEL_COLOR = "#c8c4b8";
-export const INTENT_LABEL_STROKE_COLOR = "#000000";
-export const INTENT_LABEL_STROKE_WIDTH = 3;
-export const INTENT_LABEL_Y_OFFSET = 27;
+export const INTENT_LABEL_FONT_SIZE_PX = intentFontPx();
+export const INTENT_LABEL_FONT_SIZE = `${INTENT_LABEL_FONT_SIZE_PX}px`;
+export const INTENT_LABEL_COLOR = "#d8d4c8";
+
+export { intentLabelY } from "./sceneLabelLayout.js";
 
 export type IntentProgressContext = {
   dwellMs: number;
@@ -33,21 +32,15 @@ export type IntentLabelTarget = {
   intentLabelWantShow?: boolean;
 };
 
-export function intentLabelY(spriteMode: boolean | undefined): number {
-  const base = spriteMode ? SPRITE_NAMEPLATE_Y : MARKER_LABEL_Y;
-  return base + INTENT_LABEL_Y_OFFSET;
-}
-
 export function createIntentLabel(scene: Phaser.Scene, npcId: string): Phaser.GameObjects.Text {
   const label = scene.add.text(0, 0, "", {
     fontSize: INTENT_LABEL_FONT_SIZE,
-    fontFamily: ENTITY_LABEL_FONT,
-    fontStyle: "600",
+    fontFamily: SCENE_LABEL_FONT,
+    fontStyle: "normal",
     color: INTENT_LABEL_COLOR,
     align: "center",
-    stroke: INTENT_LABEL_STROKE_COLOR,
-    strokeThickness: INTENT_LABEL_STROKE_WIDTH,
   });
+  applySceneHanLabelBase(label);
   label.setOrigin(0.5, 1);
   label.setScrollFactor(1);
   label.setAlpha(0);

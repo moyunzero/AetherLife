@@ -256,7 +256,7 @@ export class LocalPlayerMovementController {
       x: wx,
       y: wy,
       duration: GRID_STEP_MS,
-      ease: "Cubic.easeInOut",
+      ease: "Linear",
       onUpdate: (tween) => {
         const target = tween.targets[0] as Phaser.GameObjects.Container;
         ent.container.setDepth(

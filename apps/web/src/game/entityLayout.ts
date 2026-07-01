@@ -5,18 +5,48 @@ import { CELL_PX } from "./gridLayout.js";
  */
 export { CELL_PX };
 
-/** Disc radius (fits inside 48px cell with label above). */
-export const MARKER_RADIUS = 14;
+/** On-screen character height — two logic cells (feet anchor unchanged). */
+export const CHAR_DISPLAY_PX = CELL_PX * 2;
+
+/** Typography / marker scale vs Phase 13 UAT baseline (@ CELL_PX=48). */
+export const LABEL_SCALE = CELL_PX / 48;
+
+/** Minimum glyph sizes for legible Han labels on small grids. */
+export const LABEL_MIN_NAMEPLATE_PX = 10;
+export const LABEL_MIN_ACTIVITY_PX = 9;
+
+export function labelPx(base: number, minPx = 8): string {
+  return `${Math.max(minPx, Math.round(base * LABEL_SCALE))}px`;
+}
+
+export function nameplateFontPx(): number {
+  return Math.max(LABEL_MIN_NAMEPLATE_PX, Math.round(12 * LABEL_SCALE));
+}
+
+export function activityFontPx(): number {
+  return Math.max(LABEL_MIN_ACTIVITY_PX, Math.round(10 * LABEL_SCALE));
+}
+
+export function intentFontPx(): number {
+  return Math.max(LABEL_MIN_ACTIVITY_PX, Math.round(8 * LABEL_SCALE));
+}
+
+export function labelOffset(base: number): number {
+  return Math.max(2, Math.round(base * LABEL_SCALE));
+}
+
+/** Disc radius (fits inside cell with label above). */
+export const MARKER_RADIUS = labelOffset(14);
 
 /** Disc center — container origin = cell center (gridToWorld). */
 export const MARKER_CY = 0;
 
 /** Label baseline above disc center. */
-export const MARKER_LABEL_Y = -(MARKER_RADIUS + 6);
+export const MARKER_LABEL_Y = -(MARKER_RADIUS + labelOffset(6));
 
 export const MARKER_STROKE = 2;
 
-export const MARKER_LABEL_MAX_WIDTH = 44;
+export const MARKER_LABEL_MAX_WIDTH = labelOffset(44);
 
 /** Floor/tile layers use depth below this; entities & Tiled objects sit above. */
 export const ENTITY_DEPTH_BASE = 10_000;

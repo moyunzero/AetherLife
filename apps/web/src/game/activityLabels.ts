@@ -1,7 +1,6 @@
 import type * as Phaser from "phaser";
-import { ENTITY_LABEL_FONT } from "./entityLabels.js";
-import { MARKER_LABEL_Y } from "./entityLayout.js";
-import { SPRITE_NAMEPLATE_Y } from "./entitySprites.js";
+import { applySceneHanLabelBase, SCENE_LABEL_FONT } from "./entityLabels.js";
+import { activityFontPx } from "./entityLayout.js";
 import {
   resolveActivityLabel,
   shouldShowActivity,
@@ -22,11 +21,11 @@ export {
 const FADE_IN_MS = 150;
 const FADE_OUT_MS = 100;
 
-export const ACTIVITY_LABEL_FONT_SIZE = "10px";
-export const ACTIVITY_LABEL_COLOR = "#b8c4a8";
-export const ACTIVITY_LABEL_STROKE_COLOR = "#000000";
-export const ACTIVITY_LABEL_STROKE_WIDTH = 3;
-export const ACTIVITY_LABEL_Y_OFFSET = 14;
+export const ACTIVITY_LABEL_FONT_SIZE_PX = activityFontPx();
+export const ACTIVITY_LABEL_FONT_SIZE = `${ACTIVITY_LABEL_FONT_SIZE_PX}px`;
+export const ACTIVITY_LABEL_COLOR = "#e6e8dc";
+
+export { activityLabelY } from "./sceneLabelLayout.js";
 
 export type ActivityTarget = {
   activityLabel: Phaser.GameObjects.Text;
@@ -47,21 +46,15 @@ function targetCell(t: ActivityTarget): { x: number; y: number } {
   return { x, y };
 }
 
-export function activityLabelY(spriteMode: boolean | undefined): number {
-  const base = spriteMode ? SPRITE_NAMEPLATE_Y : MARKER_LABEL_Y;
-  return base + ACTIVITY_LABEL_Y_OFFSET;
-}
-
 export function createActivityLabel(scene: Phaser.Scene, npcId: string): Phaser.GameObjects.Text {
   const label = scene.add.text(0, 0, "", {
     fontSize: ACTIVITY_LABEL_FONT_SIZE,
-    fontFamily: ENTITY_LABEL_FONT,
-    fontStyle: "600",
+    fontFamily: SCENE_LABEL_FONT,
+    fontStyle: "normal",
     color: ACTIVITY_LABEL_COLOR,
     align: "center",
-    stroke: ACTIVITY_LABEL_STROKE_COLOR,
-    strokeThickness: ACTIVITY_LABEL_STROKE_WIDTH,
   });
+  applySceneHanLabelBase(label);
   label.setOrigin(0.5, 1);
   label.setScrollFactor(1);
   label.setAlpha(0);

@@ -79,10 +79,24 @@ Before **Write/Edit** on `src/game/**` or `PhaserGame.tsx`, **Read** the matchin
 
 ## Beginning Fields
 
-Home Tiled map (40×40). Full bake / collision / Y-sort workflow: **[docs/BEGINNING-FIELDS.md](../../docs/BEGINNING-FIELDS.md)**.
+Home Tiled map (40×40 @ 16px → **32px/grid** in-game). Full bake / collision / Y-sort workflow: **[docs/BEGINNING-FIELDS.md](../../docs/BEGINNING-FIELDS.md)**.
 
 - After map change: `node scripts/bake-beginning-fields.mjs`
 - Regression: home Campfire 2×2 + animation (ISSUE-042)
+
+## Character visuals（全员 LPC · 2026-07）
+
+**产品决策：** 所有玩家 + `npc-1` → LPC `sprites/lpc-npc-1.png`；议会其余 NPC → Stardew `sprites/npcs.png`。
+
+| Task | Command / path |
+|------|----------------|
+| 烘焙 LPC 皮 | `pnpm assets:sync:lpc-npc1`（源 `npc-asset/npc-1.png`） |
+| 常量 | `gridLayout.CELL_PX=32` · `entityLayout.CHAR_DISPLAY_PX=64` |
+| 运行时 | `lpcNpc1Sheet.ts` · `entitySprites.ts` · `sceneLabelLayout.ts` |
+| 文档 | [BEGINNING-FIELDS.md](../../docs/BEGINNING-FIELDS.md) §角色视觉 |
+| 回归 | `pnpm verify:phase6:move-only` + `pnpm verify:phase13` |
+
+Guardrails #106–#107 · Frozen UX 见根 [AGENTS.md](../../AGENTS.md)。
 
 ## Verify locally
 

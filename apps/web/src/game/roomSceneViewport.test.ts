@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { CELL_PX } from "./gridLayout.js";
 import {
   hitNpcAtWorldPoint,
   npcIdAtGridCell,
@@ -73,16 +74,16 @@ describe("tickViewportVisibleNpcIds", () => {
 
 describe("hitNpcAtWorldPoint", () => {
   it("returns top-most NPC at world point", () => {
-    const box: Rect = { x: 0, y: 0, width: 48, height: 48 };
+    const box: Rect = { x: 0, y: 0, width: CELL_PX, height: CELL_PX };
     const sprites = new Map<string, EntitySprite>([
       ["npc-low", mockEntity({ npcId: "npc-low", bounds: box, depth: 1 })],
       ["npc-top", mockEntity({ npcId: "npc-top", bounds: box, depth: 5 })],
     ]);
-    expect(hitNpcAtWorldPoint(24, 24, sprites)).toBe("npc-top");
+    expect(hitNpcAtWorldPoint(CELL_PX / 2, CELL_PX / 2, sprites)).toBe("npc-top");
   });
 
   it("returns null when no NPC hit", () => {
-    const box: Rect = { x: 0, y: 0, width: 48, height: 48 };
+    const box: Rect = { x: 0, y: 0, width: CELL_PX, height: CELL_PX };
     const sprites = new Map<string, EntitySprite>([
       ["npc-a", mockEntity({ npcId: "npc-a", bounds: box })],
     ]);
@@ -93,7 +94,7 @@ describe("hitNpcAtWorldPoint", () => {
 describe("npcIdAtGridCell", () => {
   it("returns NPC on matching grid cell", () => {
     const sprites = new Map<string, EntitySprite>([
-      ["npc-a", mockEntity({ npcId: "npc-a", bounds: { x: 0, y: 0, width: 48, height: 48 }, gridX: 3, gridY: 4 })],
+      ["npc-a", mockEntity({ npcId: "npc-a", bounds: { x: 0, y: 0, width: CELL_PX, height: CELL_PX }, gridX: 3, gridY: 4 })],
     ]);
     expect(npcIdAtGridCell(3, 4, sprites)).toBe("npc-a");
     expect(npcIdAtGridCell(3, 5, sprites)).toBeNull();
@@ -107,7 +108,7 @@ describe("pickNpcAtWorldPoint", () => {
         "npc-a",
         mockEntity({
           npcId: "npc-a",
-          bounds: { x: 0, y: 0, width: 48, height: 48 },
+          bounds: { x: 0, y: 0, width: CELL_PX, height: CELL_PX },
           gridX: 2,
           gridY: 2,
         }),
