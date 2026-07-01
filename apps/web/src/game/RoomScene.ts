@@ -906,6 +906,8 @@ export class RoomScene extends Phaser.Scene {
     ent.bobTween = undefined;
     ent.pulseTween?.stop();
     ent.pulseTween = undefined;
+    ent.speakHaloTween?.stop();
+    ent.speakHaloTween = undefined;
     ent.nameplateTween?.stop();
     ent.nameplateTween = undefined;
     ent.activityLabelTween?.stop();
@@ -914,6 +916,7 @@ export class RoomScene extends Phaser.Scene {
     ent.intentLabelTween = undefined;
     ent.moveTween?.stop();
     ent.moveTween = undefined;
+    this.tweens.killTweensOf(ent.ring);
     this.tweens.killTweensOf(ent.container);
   }
 

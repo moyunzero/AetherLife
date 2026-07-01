@@ -20,7 +20,7 @@ import {
   assertE2eRealLlm,
   e2eSpeakTimeoutMs,
 } from "./lib/e2e-policy.mjs";
-import { engageDialogue } from "./lib/dialogue-engage.mjs";
+import { engageDialogue, engageNpcDialogue } from "./lib/dialogue-engage.mjs";
 import {
   closeShellDrawer,
   openShellDrawerCollective,
@@ -298,42 +298,11 @@ async function moveNearNpc(page, npcId) {
   await page.waitForTimeout(400);
 }
 
-async function engageCouncilNpc(page, npcId, timeoutMs) {
-  const dialogueBar = page.locator('[data-testid="dialogue-bar"]');
-  if (await dialogueBar.isVisible().catch(() => false)) return;
-
-  const cornerMenu = page.locator('[data-testid="corner-menu"]');
-  await cornerMenu.waitFor({ state: "visible", timeout: 30_000 });
-  await page.waitForFunction(
-    () =>
-      Boolean(
-        document.querySelector('[data-testid="corner-menu"] .corner-menu__status-dot--ok'),
-      ),
-    { timeout: 45_000 },
-  );
-
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (await dialogueBar.isVisible().catch(() => false)) return;
-    await cornerMenu.locator(".corner-menu__trigger").click();
-    const chip = page.locator(`#npc-avatar-${npcId}`);
-    try {
-      await chip.waitFor({ state: "visible", timeout: 12_000 });
-      await chip.click();
-      await dialogueBar.waitFor({ state: "visible", timeout: 8_000 });
-      return;
-    } catch {
-      await page.waitForTimeout(400);
-    }
-  }
-  throw new Error(`engageCouncilNpc: dialogue-bar not visible for ${npcId} within ${timeoutMs}ms`);
-}
-
 async function speakToCouncilNpc(page, npcId, text) {
   await moveNearNpc(page, npcId);
   await page.waitForTimeout(600);
   await closeShellDrawer(page);
-  await engageCouncilNpc(page, npcId, engageTimeoutMs);
+  await engageNpcDialogue(page, npcId, { timeoutMs: engageTimeoutMs });
   const reply = await sendSpeakOverlay(page, text, {
     speakTimeoutMs,
     engageTimeoutMs,

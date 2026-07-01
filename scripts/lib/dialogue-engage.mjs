@@ -2,6 +2,16 @@
  * Shared Phase 19 immersive-shell dialogue engagement for E2E/benchmark scripts.
  * Opens dialogue via corner-menu NPC tab or canvas click; waits for dialogue-bar.
  */
+
+/** True when the corner-menu / overlay NPC tab for npcId is the active speak target. */
+export async function isActiveNpcDialogue(page, npcId) {
+  const selected = await page
+    .locator(`#npc-avatar-${npcId}`)
+    .getAttribute("aria-selected")
+    .catch(() => null);
+  return selected === "true";
+}
+
 export async function engageDialogue(page, { timeoutMs = 45_000 } = {}) {
   const dialogueBar = page.locator('[data-testid="dialogue-bar"]');
   if (await dialogueBar.isVisible().catch(() => false)) {
@@ -69,11 +79,11 @@ export async function engageDialogue(page, { timeoutMs = 45_000 } = {}) {
  */
 export async function engageNpcDialogue(page, npcId, { timeoutMs = 45_000 } = {}) {
   const dialogueBar = page.locator('[data-testid="dialogue-bar"]');
-  const activeChip = page.locator(`#npc-avatar-${npcId}`);
-  if (await dialogueBar.isVisible().catch(() => false)) {
-    if (await activeChip.isVisible().catch(() => false)) {
-      return;
-    }
+  if (
+    (await dialogueBar.isVisible().catch(() => false)) &&
+    (await isActiveNpcDialogue(page, npcId))
+  ) {
+    return;
   }
 
   const cornerMenu = page.locator('[data-testid="corner-menu"]');
@@ -88,7 +98,10 @@ export async function engageNpcDialogue(page, npcId, { timeoutMs = 45_000 } = {}
 
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (await dialogueBar.isVisible().catch(() => false)) {
+    if (
+      (await dialogueBar.isVisible().catch(() => false)) &&
+      (await isActiveNpcDialogue(page, npcId))
+    ) {
       return;
     }
     await cornerMenu.locator(".corner-menu__trigger").click();
@@ -97,8 +110,14 @@ export async function engageNpcDialogue(page, npcId, { timeoutMs = 45_000 } = {}
       await chip.waitFor({ state: "visible", timeout: 12_000 });
       await chip.click();
       await dialogueBar.waitFor({ state: "visible", timeout: 8_000 });
+      if (!(await isActiveNpcDialogue(page, npcId))) {
+        throw new Error(`dialogue opened for wrong NPC after clicking ${npcId}`);
+      }
       return;
-    } catch {
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("wrong NPC")) {
+        throw err;
+      }
       await cornerMenu.locator(".corner-menu__trigger").click();
       await page.waitForTimeout(400);
     }

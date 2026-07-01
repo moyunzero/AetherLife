@@ -51,6 +51,19 @@ describe("createDefaultRoom", () => {
     expect(room.npcs[1]?.inventory).toEqual(["key-2"]);
     expect(room.npcs[2]?.inventory).toEqual(["note-1"]);
   });
+
+  it("clones starter inventory per room (no shared array refs)", () => {
+    setWorldRegistry(loadWorldRegistry(defaultBeginningFieldsBundle()));
+    const a = createDefaultRoom("room-inv-a");
+    const b = createDefaultRoom("room-inv-b");
+    const invA = a.npcs.find((n) => n.id === "npc-1")?.inventory;
+    const invB = b.npcs.find((n) => n.id === "npc-1")?.inventory;
+    expect(invA).toEqual(["key-1"]);
+    expect(invB).toEqual(["key-1"]);
+    expect(invA).not.toBe(invB);
+    invA?.push("mutated");
+    expect(b.npcs.find((n) => n.id === "npc-1")?.inventory).toEqual(["key-1"]);
+  });
 });
 
 describe("findNpc", () => {
