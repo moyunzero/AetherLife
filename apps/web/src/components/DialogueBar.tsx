@@ -86,6 +86,7 @@ export function DialogueBar({
     <div
       className={`dialogue-bar dialogue-bar--overlay${reducedMotion ? " dialogue-bar--reduced-motion" : ""}`}
       data-testid="dialogue-bar"
+      data-active-npc-id={activeNpcId}
     >
       <div className="dialogue-bar__header">
         <div className="dialogue-bar__drawer-actions">
