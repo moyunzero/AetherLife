@@ -35,9 +35,9 @@ class Settings(BaseSettings):
     llm_model_lore_t1: str | None = None
     llm_model_lore_t0: str | None = None
     # High-RPM auxiliary (SiliconFlow L0 ~1000 RPM) — every speak / bulk paths
-    llm_provider_social: str = "nvidia"
-    llm_model_social: str = "meta/llama-3.3-70b-instruct"
-    llm_provider_social_fallback: str = "agnes"
+    llm_provider_social: str = "groq"
+    llm_model_social: str = "llama-3.3-70b-versatile"
+    llm_provider_social_fallback: str = "nvidia"
     llm_provider_summarize: str = "nvidia"
     llm_model_summarize: str = "meta/llama-3.3-70b-instruct"
     llm_provider_collective_refine: str = "nvidia"
@@ -57,8 +57,8 @@ class Settings(BaseSettings):
     llm_model_siliconflow_reason: str = "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"
     nvidia_api_key: str | None = None
     llm_model_nvidia_fast: str = "meta/llama-3.3-70b-instruct"
-    # Agentic slot — GLM-5.1 on NIM; high latency variance; lore/collective only, not speak
-    llm_model_nvidia_agent: str = "z-ai/glm-5.1"
+    # Agentic NIM catalog slot (optional; leave empty when model EOL)
+    llm_model_nvidia_agent: str = ""
     llm_model_nvidia_large: str = "openai/gpt-oss-120b"
     llm_model_nvidia_nano: str = "nvidia/llama-3.1-nemotron-nano-8b-v1"
     llm_model_nvidia_lore: str = "nvidia/llama-3.3-nemotron-super-49b-v1.5"

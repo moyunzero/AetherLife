@@ -27,6 +27,9 @@ TIMEOUT_S = 25.0
 
 # Candidates: (label, provider, model)
 CANDIDATES = [
+    ("groq-llama-70b", "groq", "llama-3.3-70b-versatile"),
+    ("groq-gpt-oss-120b", "groq", "openai/gpt-oss-120b"),
+    ("nvidia-llama-70b", "nvidia", "meta/llama-3.3-70b-instruct"),
     ("deprecated-397b", "nvidia", "qwen/qwen3.5-397b-a17b"),
     ("nvidia-fast-80b", "nvidia", "qwen/qwen3-next-80b-a3b-instruct"),
     ("nvidia-mistral-nemotron", "nvidia", "mistralai/mistral-nemotron"),

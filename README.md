@@ -15,6 +15,7 @@ AI-driven multiplayer life-simulation web game: guide memory-bearing NPCs throug
 - [Features](#features)
 - [Tech Stack](#tech-stack)
 - [Quick Start](#quick-start)
+- [Map debugging](#map-debugging)
 - [Architecture](#architecture)
 - [Testing](#testing)
 - [Documentation](#documentation)
@@ -81,7 +82,7 @@ Monorepo: `apps/web` · `apps/game-server` · `apps/ai-gateway` · `workers/agen
 - [Supabase](https://supabase.com) project (Postgres + `CREATE EXTENSION vector`)
 - [Upstash](https://upstash.com) Redis
 - Python 3.12+, [uv](https://docs.astral.sh/uv/) (ai-gateway / worker)
-- LLM API keys (see `.env.example`; production defaults to **NVIDIA NIM** + OpenRouter embed)
+- LLM API keys (see `.env.example`; production defaults: **NVIDIA NIM** NPC primary, **Groq** social JSON, OpenRouter embed)
 
 ### Install & run
 
@@ -108,6 +109,63 @@ curl -sf http://127.0.0.1:5173/
 curl -sf http://127.0.0.1:2567/health
 curl -sf http://127.0.0.1:8000/health
 ```
+
+## Map debugging
+
+When tuning maps, spawn points, or collision, you need **grid coordinates `(gx, gy)` for each cell**. Convention: **1 Tiled tile = 1 game cell** (32px/cell); the Beginning Fields home region is **40×40** cells. See [docs/BEGINNING-FIELDS.md](./docs/BEGINNING-FIELDS.md).
+
+### In-game: current cell
+
+After `pnpm dev:stack` and joining a room, the strip above the canvas updates as you move:
+
+- **Cell `(gx, gy)`** — global grid coords (matches Tiled, `spawns.json`, server walkability)
+- **Chunk `(cx, cy)`** — procedural chunk index
+- **Biome / region** — terrain and WorldRegion label for that cell
+
+### Grid overlay: `?gridDebug=1` (recommended)
+
+Add the query param to the URL, e.g.:
+
+```text
+http://localhost:5173/?gridDebug=1
+```
+
+In-room you get:
+
+| Feature | Description |
+|---------|-------------|
+| **Grid lines** | Full 40×40 overlay on Beginning Fields |
+| **Hover** | Top HUD shows `格 (x, y)` plus **walkable / blocked / out of region**; cell tint (green / red / yellow) |
+| **Council spawns** | Green boxes for the 12 `councilSpawns` anchors |
+| **Shift + click** | Record spawn candidates (up to 12); full list logged to the console |
+
+Browser console helpers:
+
+```js
+window.__aetherlife_gridPicks          // picked coords
+window.__aetherlife_clearGridPicks()  // clear picks
+window.__aetherlife_spawnCellInfo(9, 21)  // walkability at a cell
+```
+
+Use this after editing `apps/game-server/data/world/beginning-fields@v1/spawns.json` or Tiled collision, then rebake with `node scripts/bake-beginning-fields.mjs`.
+
+### Chunk bounds: `?terrainDebug=1`
+
+For procedural terrain outside the home Tiled map:
+
+```text
+http://localhost:5173/?terrainDebug=1
+```
+
+Draws borders around loaded chunks. Combine with grid debug: `?gridDebug=1&terrainDebug=1`.
+
+### Reference coordinates
+
+| Use | `(gx, gy)` |
+|-----|------------|
+| Default player spawn | `(34, 13)` |
+| Home map bounds | `x, y ∈ [0, 39]` |
+| Council 12 spawn anchors | [BEGINNING-FIELDS.md § Council spawns](./docs/BEGINNING-FIELDS.md#议会-12-席出生点phase-26--村内多点分散) |
 
 ## Architecture
 

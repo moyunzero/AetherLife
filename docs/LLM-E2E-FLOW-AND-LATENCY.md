@@ -67,7 +67,7 @@ sequenceDiagram
 | 角色 | Provider / 模型 | 触发时机 | 是否阻塞 `done` |
 |------|-----------------|----------|-----------------|
 | **NPC 主对话** (tool calling) | NVIDIA `openai/gpt-oss-120b`（OpenRouter fallback 见 ROUTING） | 每 speak 回合 | **是** |
-| **Social JSON** | NVIDIA `meta/llama-3.3-70b-instruct`（fallback Agnes） | 每 speak 回合（图内节点） | **是** |
+| **Social JSON** | Groq `llama-3.3-70b-versatile`（fallback NVIDIA `meta/llama-3.3-70b-instruct`） | 每 speak 回合（图内节点） | **是** |
 | **Memory importance** | NVIDIA nano | memory tail | 否（异步） |
 | **Reflect / Lore** | Agnes | tail / 踏入新 chunk | 否 / 异步 |
 | **Embed** | OpenRouter Nemotron | 记忆写入 | 否 |
@@ -79,7 +79,7 @@ sequenceDiagram
 
 ## 2. E2E 自动化测试执行记录
 
-**环境：** `pnpm dev:stack`（Config B：NVIDIA primary + social）；macOS；2026-06-09。
+**环境：** `pnpm dev:stack`（NVIDIA NPC primary + Groq social）；macOS；2026-06-09（social 主路 2026-07-11 切 Groq，见 [LLM-ROUTING.md](./LLM-ROUTING.md)）。
 
 | 命令 | 结果 | 说明 |
 |------|------|------|
@@ -111,13 +111,14 @@ E2E 策略：[E2E-POLICY.md](./E2E-POLICY.md) — **禁止** `LLM_MOCK=1`；默�
 
 `pong` 探针 **不能**代表 social JSON 延迟；social 须用 `scripts/benchmark-social-providers.py`（生产 `SOCIAL_SYSTEM_PROMPT` + 叙事问句）。
 
-**Social JSON 实测（2026-06-15，`benchmark-social-providers.py`，25s timeout）：**
+**Social JSON 实测（2026-06-15，`benchmark-social-providers.py`，25s timeout；2026-07-11 主路切 Groq，见 [LLM-ROUTING.md](./LLM-ROUTING.md)）：**
 
 | 模型 | 延迟 | JSON | 备注 |
 |------|------|------|------|
-| `meta/llama-3.3-70b-instruct` | **894 ms** | ✅ | **当前 `LLM_MODEL_SOCIAL` 默认** |
+| `llama-3.3-70b-versatile` (Groq) | （待 bench） | — | **2026-07-11 起 `LLM_MODEL_SOCIAL` 默认** |
+| `meta/llama-3.3-70b-instruct` | **894 ms** | ✅ | 2026-06-15–2026-07-10 social 默认；现 **social fallback** |
 | `mistralai/mistral-nemotron` | 1737 ms | ✅ | 备选 |
-| `agnes-2.0-flash` | 5772 ms | ✅ | `LLM_PROVIDER_SOCIAL_FALLBACK` |
+| `agnes-2.0-flash` | 5772 ms | ✅ | 历史 social fallback（2026-07-11 前） |
 | `qwen/qwen3.5-397b-a17b` | 超时 | ❌ | 旧默认；`pong` ~2s 但 social JSON 不可靠 |
 
 Run 2026-06-09T04:58:46Z **`pong` 探针**（完整表格见 [LLM-MODEL-VERIFY.md § Run history](./LLM-MODEL-VERIFY.md)）：
@@ -284,11 +285,11 @@ Worker 日志摘录（SiliconFlow 配置）：
 
 | 优先级 | 问题 | 建议 |
 |--------|------|------|
-| P0 | ~~Social 397B 超时导致 ~80s + Agnes fallback~~ | **已切** `meta/llama-3.3-70b-instruct`；保留 Agnes 作 social fallback |
+| P0 | ~~Social 397B 超时导致 ~80s + Agnes fallback~~ | **已切** Groq `llama-3.3-70b-versatile` 主路；NVIDIA llama-3.3-70b 作 social fallback |
 | P1 | E2E 10–29s 仍高于 1–3s 目标 | 保持 thinking UI；考虑 social/main 并行；监控 NIM RPM |
 | P2 | `verify:phase5` 不 load `.env` | 与 phase6 对齐，脚本开头读 `.env` |
 | P2 | `llmCallSummary` 缺 main 角色 | worker `record_llm_call("main", …)` 纳入 done payload，便于监控 |
-| P3 | Cerebras / glm-5.1 agent 探测失败 | 预期：Cerebras 5 RPM；glm-5.1 仅 async agent，勿上 speak 热路径 |
+| P3 | Cerebras / glm-5.1 agent 探测失败 | 预期：Cerebras 5 RPM；`LLM_MODEL_NVIDIA_AGENT` 默认留空（glm-5.1 EOL 2026-07-02） |
 
 ---
 

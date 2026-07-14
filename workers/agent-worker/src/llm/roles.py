@@ -5,11 +5,12 @@ Platform-aware defaults (see docs/LLM-ROUTING.md §3.1):
 - OpenRouter gpt-oss-120b:free: NPC fallback
 - NVIDIA llama-3.3-70b: summarize + collective_refine
 - SiliconFlow Qwen3.5-4B: optional legacy primary / fallback
-- NVIDIA llama-3.3-70b: social JSON primary (~0.9s social JSON bench)
+- Groq llama-3.3-70b-versatile: social JSON primary (hot path; JSON mode)
+- NVIDIA llama-3.3-70b: social fallback + summarize/collective_refine
 - NVIDIA nano: importance JSON
 - Agnes: reflect + lore primary + auxiliary fallback
 - OpenRouter: NPC fallback + embeddings + gateway
-- Cerebras: optional lore/NPC quality fallback (low RPM)
+- Groq gpt-oss-120b: NPC fallback_2 (separate TPM bucket from social 70B)
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ def default_model_for_provider(settings: Settings, provider: str) -> str:
     if p == "agnes":
         return settings.llm_model_reflect
     if p == "groq":
-        return "llama-3.1-8b-instant"
+        return os.getenv("LLM_MODEL_GROQ", "openai/gpt-oss-120b")
     if p == "zhipu":
         return settings.llm_model
     if p == "cerebras":

@@ -15,6 +15,7 @@ AI 驱动的多人联机生活模拟 Web 游戏：与拥有记忆的 NPC 用自�
 - [特性](#特性)
 - [技术栈](#技术栈)
 - [快速开始](#快速开始)
+- [地图调试](#地图调试)
 - [架构](#架构)
 - [测试](#测试)
 - [文档](#文档)
@@ -81,7 +82,7 @@ Monorepo：`apps/web` · `apps/game-server` · `apps/ai-gateway` · `workers/age
 - [Supabase](https://supabase.com) 项目（Postgres + `CREATE EXTENSION vector`）
 - [Upstash](https://upstash.com) Redis
 - Python 3.12+、[uv](https://docs.astral.sh/uv/)（ai-gateway / worker）
-- LLM API Key（见 `.env.example`；生产默认 **NVIDIA NIM** + OpenRouter embed）
+- LLM API Key（见 `.env.example`；生产默认：**NVIDIA NIM** NPC 主路、**Groq** social JSON、OpenRouter embed）
 
 ### 安装与启动
 
@@ -108,6 +109,63 @@ curl -sf http://127.0.0.1:5173/
 curl -sf http://127.0.0.1:2567/health
 curl -sf http://127.0.0.1:8000/health
 ```
+
+## 地图调试
+
+调试地图、出生点或碰撞时，需要知道**每一格的游戏坐标 `(gx, gy)`**。坐标系约定：**1 个 Tiled 瓦片 = 1 个游戏格**（32px/格）；Beginning Fields 家园区为 **40×40** 格。详见 [docs/BEGINNING-FIELDS.md](./docs/BEGINNING-FIELDS.md)。
+
+### 日常：当前所在格
+
+启动 `pnpm dev:stack` 并进房后，画布上方的坐标条会随玩家移动实时显示：
+
+- **格 `(gx, gy)`** — 全局网格坐标（与 Tiled / `spawns.json` / 服务端 walkability 一致）
+- **chunk `(cx, cy)`** — 程序化区块坐标
+- **biome / 区域名** — 当前格地形与 WorldRegion 标签
+
+### 网格叠加：`?gridDebug=1`（推荐）
+
+在 URL 加上查询参数，例如：
+
+```text
+http://localhost:5173/?gridDebug=1
+```
+
+进房后会出现：
+
+| 功能 | 说明 |
+|------|------|
+| **网格线** | 覆盖 Beginning Fields 全图 40×40 格 |
+| **鼠标悬停** | 顶部 HUD 显示 `格 (x, y)` 及 **可走 / 阻挡 / 区外**；格子高亮（绿=可走，红=阻挡，黄=区外） |
+| **议会出生点** | 绿色方框标出 12 个 `councilSpawns` 锚点 |
+| **Shift + 点击** | 记录候选出生点（最多 12 个），控制台输出完整列表 |
+
+浏览器控制台可用：
+
+```js
+window.__aetherlife_gridPicks          // 已选坐标数组
+window.__aetherlife_clearGridPicks()  // 清空
+window.__aetherlife_spawnCellInfo(9, 21)  // 查询某格是否可走
+```
+
+改 `apps/game-server/data/world/beginning-fields@v1/spawns.json` 或 Tiled 碰撞层后，用此模式核对坐标再跑 `node scripts/bake-beginning-fields.mjs`。
+
+### 区块边界：`?terrainDebug=1`
+
+程序化 chunk 地形调试（家园 Tiled 区外）：
+
+```text
+http://localhost:5173/?terrainDebug=1
+```
+
+会在已加载 chunk 外围绘制边界框，便于核对 `(cx, cy)` 与 `(gx, gy)` 的对应关系。可与 `gridDebug` 同时使用：`?gridDebug=1&terrainDebug=1`。
+
+### 常用参考坐标
+
+| 用途 | 坐标 `(gx, gy)` |
+|------|-----------------|
+| 默认玩家出生 | `(34, 13)` |
+| 家园地图范围 | `x, y ∈ [0, 39]` |
+| 议会 12 席锚点 | 见 [BEGINNING-FIELDS.md §议会出生点](./docs/BEGINNING-FIELDS.md#议会-12-席出生点phase-26--村内多点分散) |
 
 ## 架构
 

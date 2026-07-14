@@ -575,9 +575,12 @@ async function main() {
   }
 
   // --- Social JSON (LLM_PROVIDER_SOCIAL, Phase 11.7) ---
-  const socialProvider = (env.LLM_PROVIDER_SOCIAL ?? "nvidia").toLowerCase();
+  const socialProvider = (env.LLM_PROVIDER_SOCIAL ?? "groq").toLowerCase();
   const socialModel =
-    env.LLM_MODEL_SOCIAL ?? env.LLM_MODEL_NVIDIA_FAST ?? "meta/llama-3.3-70b-instruct";
+    env.LLM_MODEL_SOCIAL ??
+    (socialProvider === "groq"
+      ? "llama-3.3-70b-versatile"
+      : env.LLM_MODEL_NVIDIA_FAST ?? "meta/llama-3.3-70b-instruct");
   const socialCfg = loreProviderConfig[socialProvider];
   if (!socialCfg) {
     push({
@@ -647,8 +650,10 @@ async function main() {
 
   // --- Production catalog (always probe when keys present; 2026-06-09) ---
   const nvidiaFastCatalog = env.LLM_MODEL_NVIDIA_FAST ?? "meta/llama-3.3-70b-instruct";
-  const nvidiaAgentCatalog = env.LLM_MODEL_NVIDIA_AGENT ?? "z-ai/glm-5.1";
+  const nvidiaAgentCatalog = (env.LLM_MODEL_NVIDIA_AGENT ?? "").trim();
   const orFallbackModel = env.LLM_MODEL_OPENROUTER_FALLBACK ?? "openai/gpt-oss-120b:free";
+  const fallback2Provider = (env.LLM_PROVIDER_FALLBACK_2 ?? "").trim().toLowerCase();
+  const groqFallbackModel = env.LLM_MODEL_GROQ ?? "openai/gpt-oss-120b";
 
   if (nvidiaKey) {
     push({
@@ -665,20 +670,22 @@ async function main() {
         timeoutMs: 120_000,
       })),
     });
-    push({
-      role: "NVIDIA agent (catalog)",
-      provider: "nvidia",
-      model: nvidiaAgentCatalog,
-      keyLabel: "NVIDIA_API_KEY",
-      consumer: "LLM_MODEL_NVIDIA_AGENT; async/agentic only",
-      ...(await probeChat({
-        baseUrl: "https://integrate.api.nvidia.com/v1",
-        apiKey: nvidiaKey,
+    if (nvidiaAgentCatalog) {
+      push({
+        role: "NVIDIA agent (catalog)",
+        provider: "nvidia",
         model: nvidiaAgentCatalog,
-        requirePong: true,
-        timeoutMs: 180_000,
-      })),
-    });
+        keyLabel: "NVIDIA_API_KEY",
+        consumer: "LLM_MODEL_NVIDIA_AGENT; async/agentic only",
+        ...(await probeChat({
+          baseUrl: "https://integrate.api.nvidia.com/v1",
+          apiKey: nvidiaKey,
+          model: nvidiaAgentCatalog,
+          requirePong: true,
+          timeoutMs: 180_000,
+        })),
+      });
+    }
   } else {
     push({
       role: "NVIDIA catalog",
@@ -707,6 +714,33 @@ async function main() {
         requirePong: true,
         timeoutMs: 120_000,
       })),
+    });
+  }
+
+  if (fallback2Provider === "groq" && groqKey) {
+    push({
+      role: "Groq NPC fallback (FALLBACK_2)",
+      provider: "groq",
+      model: groqFallbackModel,
+      keyLabel: "GROQ_API_KEY",
+      consumer: "LLM_PROVIDER_FALLBACK_2; npc_provider_attempts",
+      ...(await probeChat({
+        baseUrl: "https://api.groq.com/openai/v1",
+        apiKey: groqKey,
+        model: groqFallbackModel,
+        timeoutMs: 120_000,
+      })),
+    });
+  } else if (fallback2Provider === "groq") {
+    push({
+      role: "Groq NPC fallback (FALLBACK_2)",
+      provider: "groq",
+      model: groqFallbackModel,
+      keyLabel: "GROQ_API_KEY",
+      consumer: "LLM_PROVIDER_FALLBACK_2; npc_provider_attempts",
+      ok: false,
+      latencyMs: 0,
+      error: "missing GROQ_API_KEY",
     });
   }
 
