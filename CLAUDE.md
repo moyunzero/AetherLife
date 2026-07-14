@@ -43,7 +43,7 @@ AetherLife 是一款 AI 驱动的多人联机生活模拟 Web 游戏。玩家与
 | **React** | 18.x–19.x | HUD shell |
 | **Phaser** | 4.0+ | **当前 web 渲染**（`apps/web/src/game`） |
 | **TypeScript** | 5.6+ | 全栈类型 |
-| **Tailwind CSS** | 4.x | UI |
+| **Vite CSS** | — | HUD 样式（`apps/web/src/index.css`；无 Tailwind） |
 | **Docker + Compose** | latest | 本地/CI |
 
 详表（备选、禁选、模型分层、版本矩阵）：**[docs/STACK-REFERENCE.md](./docs/STACK-REFERENCE.md)**
@@ -53,8 +53,8 @@ AetherLife 是一款 AI 驱动的多人联机生活模拟 Web 游戏。玩家与
 | Tool | Purpose |
 |------|---------|
 | pnpm + Turborepo | Monorepo |
-| Vitest + Playwright | 单测 / E2E（`verify:phase*` 须真实 LLM） |
-| LangSmith / OpenTelemetry | eval / trace |
+| Vitest + Playwright | 单测（Vitest）；E2E/UAT 用 `scripts/.pw-deps` 的 Playwright（非根 `package.json`；`verify:phaseN` 须真实 LLM） |
+| LangSmith | LLM trace / eval（无 OpenTelemetry 依赖） |
 
 ## Installation (Monorepo)
 
@@ -79,9 +79,11 @@ GSD workflow (`/gsd-quick`, `/gsd-debug`, `/gsd-execute-phase`) applies to plann
 
 <!-- GSD:conventions-end -->
 
-<!-- GSD:architecture-start source:ARCHITECTURE.md -->
+<!-- GSD:architecture-start source:docs/ARCHITECTURE.md -->
 
 ## Architecture
+
+**SSOT:** [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) — layers, speak/move flows, monorepo layout.
 
 Web client: React HUD + Phaser 4 (`apps/web/src/game`). Game-server authoritative state via Colyseus. AI: FastAPI gateway + LangGraph worker.
 

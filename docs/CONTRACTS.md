@@ -36,9 +36,9 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 | **入口** | Colyseus `onMessage("speak")` 不阻塞；`startNpcChatTurn` → Redis job |
 | **npcId** | `validateChatNpcId` 仅接受 `COUNCIL_NPC_IDS`（Phase 26：12 席）；非法 id 拒绝 |
 | **schema 可见** | speak 进行中 `NpcEntityState.isThinking` / `isSpeaking` 经 `setNpcSpeakPhase` 广播全员（D-MAP-SCHEMA-08） |
-| **内容安全** | speak 与 `POST /chat` 在入队前经 `@aetherlife/shared` `checkContentBlocked`（与 gateway blocklist 同规则）；拒绝 `{ code: "content_blocked" }`。**不**替代 gateway Moderation API |
+| **内容安全** | speak 与 `POST /rooms/:roomId/chat`（gateway：`POST /v1/rooms/{room_id}/chat`）在入队前经 `@aetherlife/shared` `checkPlayerMessageContent`（与 gateway blocklist 同规则）；拒绝 `{ code: "content_blocked" }`。**不**替代 gateway Moderation API |
 | **队列** | 按 `npcId` 互斥（`npcSpeakJobs`），不同 NPC 可并行 |
-| **事件** | worker → `POST /internal/jobs/:id/events` → SSE / `speakAck`（`{ jobId, npcId }`）/ `speakIdle` / `speakPartial`（流式 reply 增量，非 terminal） |
+| **事件** | worker → `POST /internal/jobs/:jobId/emit` → SSE / `speakAck`（`{ jobId, npcId }`）/ `speakIdle` / `speakPartial`（流式 reply 增量，非 terminal） |
 | **done 安全** | worker `audit_reply` 为 speak 回复唯一 guard；**禁止** game-server `done` emit 同步调用 gateway `check-reply`（ISSUE-045 提速） |
 | **可观测（可选）** | job `done` 可含 `llmCallSummary: { calls[], total }`（Phase 12.2；客户端可忽略）；`speakIntent`、`phaseTimingMs`（Speak 提速 Slice 0/3） |
 | **记忆回调（可选）** | job `done` 可含 `memoryQuote?: string` — worker 从 `retrieved_memories` 最高分条目选取（PLAY-03）；无检索命中时不传 |

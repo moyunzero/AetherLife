@@ -37,10 +37,10 @@ Players explore a Stardew-inspired 2D world, discover LLM-generated lore, and sh
 | **v2** Playable AI town | 12.2–15 | ✅ Shipped | 2026-06-09 |
 | **v3** Intelligent ambient + Speak SLA | 16–17.1, 18 | ✅ Shipped | 2026-06-11 |
 | **v4** Solo life loop | 19–22 | ✅ Shipped | 2026-06-22 |
-| **v5** AI Society / Council Worldview | 23–27 | 🔨 In progress | Phase 23 ✅ (2026-06-25) |
+| **v5** AI Society / Council Worldview | 23–27 | 🔨 In progress | 23–26 ✅ · **27 next** |
 | **Deferred** Voice pipeline | 09 | ⏸ Deferred | — |
 
-Phases 24–27 (world chronicle, council vote/debate, 12-NPC map presence, personal life timeline) are planned.
+Phases 23–26 shipped (persona · chronicle · vote/debate · map + LPC). **Next:** Phase 27 Personal Life Timeline — see [`.planning/STATE.md`](./.planning/STATE.md).
 
 → **[Development History](./docs/DEVELOPMENT-HISTORY.md)** · [简体中文](./docs/DEVELOPMENT-HISTORY.zh-CN.md)
 
@@ -61,7 +61,7 @@ Phases 24–27 (world chronicle, council vote/debate, 12-NPC map presence, perso
 - **Intelligent ambient NPCs (v3)** — Schedule/zone wander, async LLM intent, Tiled collision
 - **Speak SLA (v3)** — worker-state cache, stale fallback, multi-tab speak
 - **Collective attitude** — NPC group attitude evolves with player behavior
-- **Council personas (v5)** — 12-NPC registry, `__council__` memory scope (Phase 23)
+- **Council (v5)** — 12-NPC personas, world chronicle, vote/debate, map presence (Phases 23–26); personal timeline next (27)
 
 ## Tech Stack
 
@@ -169,6 +169,8 @@ Draws borders around loaded chunks. Combine with grid debug: `?gridDebug=1&terra
 
 ## Architecture
 
+Full design (layers, speak/move data flows, monorepo layout): **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)**.
+
 ```mermaid
 flowchart LR
   Browser["Browser :5173"] --> Web["Vite web"]
@@ -213,7 +215,9 @@ Action schema: [packages/game-actions/README.md](./packages/game-actions/README.
 
 | Document | Description |
 |----------|-------------|
-| **[Development History](./docs/DEVELOPMENT-HISTORY.md)** | All 37 phases: timeline, rationale, status, verify gates |
+| **[docs/README.md](./docs/README.md)** | Docs index (SSOT vs topic vs E2E layers) |
+| **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** | System layers, data flows, monorepo map |
+| **[Development History](./docs/DEVELOPMENT-HISTORY.md)** | Phase synthesis (shipping status → STATE.md) |
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | Workflow, constraints, acceptance commands |
 | [docs/CONTRACTS.md](./docs/CONTRACTS.md) | game-server ↔ worker API contracts |
 | [docs/INVARIANTS-MULTIPLAYER.md](./docs/INVARIANTS-MULTIPLAYER.md) | Multiplayer spatial + NL invariants |

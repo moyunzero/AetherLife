@@ -6,7 +6,9 @@
 
 This document synthesizes all **37 development phases** (including sub-phases). Each entry covers goal, rationale, deliverables, verification, tech decisions, known debt, and related issues.
 
-**Last updated:** 2026-06-25
+**Last updated:** 2026-07-14  
+
+> **Status note:** Live milestone/phase pointer is [`.planning/STATE.md`](../.planning/STATE.md) (v5: Phases **23–26 shipped**, **27 next**). Sections below for Phases 24–26 may still read as “planned” in the narrative body — treat STATE/ROADMAP as authoritative for shipping status; this file remains the curated phase synthesis.
 
 ---
 
@@ -34,7 +36,7 @@ This document synthesizes all **37 development phases** (including sub-phases). 
 | **v3** Intelligent ambient + Speak SLA | 16–17.1 | ✅ Shipped | 2026-06-11 |
 | **v3.1** Code health | 18 | ✅ Shipped | 2026-06-12 |
 | **v4** Solo life loop | 19–22 | ✅ Shipped | 2026-06-22 |
-| **v5** AI Society / Council Worldview | 23–27 | 🔨 In progress | Phase 23 ✅ 2026-06-25 |
+| **v5** AI Society / Council Worldview | 23–27 | 🔨 In progress | 23–26 ✅ · 27 next (2026-07-14) |
 
 **v0→v4 arc:** Text-only Generative Agent loop → Colyseus multiplayer + Phaser world → visual polish + town play loop → ambient intelligence + speak reliability → immersive solo life with memory trust and world echo.
 

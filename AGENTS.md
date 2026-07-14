@@ -22,9 +22,11 @@ Behavioral baseline (Cursor): [`.cursor/rules/Guidelines.mdc`](.cursor/rules/Gui
 
 **Agent iteration (always):** [`.cursor/rules/agent-iteration.mdc`](.cursor/rules/agent-iteration.mdc) — Plan → scope → slice → `pnpm agent:verify` → `--e2e` golden flows → revert 不救场。
 
+**Phaser 4 (game canvas):** [`.cursor/rules/phaser-skills.mdc`](.cursor/rules/phaser-skills.mdc) — 改 `apps/web/src/game/**` / `PhaserGame.tsx` 前必须 Read 匹配 skill + 用 context7/官方 docs 核对 Phaser 4 API。索引：[docs/PHASER-SKILLS.md](./docs/PHASER-SKILLS.md)。
+
 Planned phase work: GSD commands in [CLAUDE.md](./CLAUDE.md) (`/gsd-quick`, `/gsd-debug`, `/gsd-execute-phase`). Do not bypass GSD unless the user explicitly asks.
 
-**Phase 9 语音暂缓：** 勿实现 STT/TTS；恢复前读 [.planning/phases/09-voice-pipeline/09-STATUS.md](./.planning/phases/09-voice-pipeline/09-STATUS.md)，下一活跃阶段为 Phase 10。
+**Phase 9 语音暂缓：** 勿实现 STT/TTS；恢复前读 [.planning/phases/09-voice-pipeline/09-STATUS.md](./.planning/phases/09-voice-pipeline/09-STATUS.md)。**当前活跃：** v5 **Phase 27**（Personal Life Timeline）— 见 [.planning/STATE.md](./.planning/STATE.md)；勿默认接 Phase 10。
 
 ---
 
@@ -95,6 +97,7 @@ Plan → scope → `pnpm agent:verify` → `pnpm agent:verify --e2e`（golden fl
 
 - Follow [Guidelines.mdc](.cursor/rules/Guidelines.mdc), [phase-evolution.mdc](.cursor/rules/phase-evolution.mdc), and [agent-iteration.mdc](.cursor/rules/agent-iteration.mdc): Plan → scope → `pnpm agent:verify` before claiming done.
 - Match patterns in the nearest code (read before writing).
+- **Phaser 改动：** Write/Edit 前 Read 匹配的 [Phaser skill](./docs/PHASER-SKILLS.md)，并用 context7 / 官方 docs 核对 **Phaser 4** 最新 API — 见 **Phaser 4 skills**。
 - Unsubscribe Colyseus listeners via `room.onMessage(...)` return value — see **Colyseus** below.
 - After fixing a non-trivial bug: update [docs/ISSUE-LOG.md](./docs/ISSUE-LOG.md) (status, root cause, verification, Guardrails).
 - Prefer `pnpm` over npm/yarn.
@@ -173,6 +176,8 @@ Ledger: [docs/ISSUE-LOG.md](./docs/ISSUE-LOG.md) — open → fixed + verificati
 | [README.md](./README.md) | Human setup, dev stack, verify |
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | Humans + agents: PR/issue workflow |
 | [CLAUDE.md](./CLAUDE.md) | GSD project brief, stack versions, workflow |
+| [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | 系统分层、Speak/移动数据流、Monorepo 地图 |
+| [docs/README.md](./docs/README.md) | docs/ 索引（SSOT vs 专题 vs E2E 分层） |
 | [docs/ISSUE-LOG.md](./docs/ISSUE-LOG.md) | Bug ledger + guardrails |
 | [docs/PHASE-EVOLUTION.md](./docs/PHASE-EVOLUTION.md) | 阶段演进防债务 + GSD skill 映射 |
 | [docs/COUNCIL-PERSONAS.md](./docs/COUNCIL-PERSONAS.md) | 12 席议会人设 SSOT + export/audit |
@@ -184,7 +189,7 @@ Ledger: [docs/ISSUE-LOG.md](./docs/ISSUE-LOG.md) — open → fixed + verificati
 | [docs/LLM-MODEL-VERIFY.md](./docs/LLM-MODEL-VERIFY.md) | LLM/embed 连通性探测 Run history |
 | [docs/PHASER-SKILLS.md](./docs/PHASER-SKILLS.md) | Phaser 4 skills 索引与任务路由 |
 | [docs/STACK-REFERENCE.md](./docs/STACK-REFERENCE.md) | 栈详表（备选、禁选、模型分层） |
-| [.planning/EVOLUTION-AUDIT-TEMPLATE.md](./.planning/EVOLUTION-AUDIT-TEMPLATE.md) | 新 phase 审计模板 |
+| [.planning/EVOLUTION-AUDIT-TEMPLATE.md](./.planning/templates/EVOLUTION-AUDIT-TEMPLATE.md) | 新 phase 审计模板 |
 | [apps/game-server/AGENTS.md](./apps/game-server/AGENTS.md) | game-server + worker 状态边界 |
 | [.planning/](./.planning/) | Phases, UAT, PATTERNS, RESEARCH |
 | [packages/game-actions/README.md](./packages/game-actions/README.md) | Action schema |
@@ -208,6 +213,9 @@ When editing under `apps/web/`, also read [apps/web/AGENTS.md](./apps/web/AGENTS
 
 ## Phaser 4 skills
 
-**Write/Edit** `apps/web/src/game/**` 或 `PhaserGame.tsx` 前：**Read** `.cursor/skills/<name>/SKILL.md`（Phaser **4**，非 v3）。
+修改 Phaser 相关代码前（`apps/web/src/game/**`、`PhaserGame.tsx`，以及直接影响 canvas 的 React 桥接），**必须同时**：
 
-完整 28-skill 索引与任务路由 → **[docs/PHASER-SKILLS.md](./docs/PHASER-SKILLS.md)** · Web 边界 → [apps/web/AGENTS.md](./apps/web/AGENTS.md) · 移动同步 → [MOVEMENT-ARCHITECTURE.md](./docs/MOVEMENT-ARCHITECTURE.md).
+1. **调用匹配的 Phaser skill** — 按任务 **Read** `.cursor/skills/<name>/SKILL.md`（引擎是 **Phaser 4**，不是 v3；勿凭 v3 记忆写 API）。索引与路由：**[docs/PHASER-SKILLS.md](./docs/PHASER-SKILLS.md)**（28 skills）。
+2. **查阅最新官方文档** — 用 **context7**（或 Phaser 官方 docs）核对当前 API / 生命周期 / 弃用项；skill 是项目惯例，**不替代**官方 docs。API 不确定时先查再写。
+
+补充：Web 边界 → [apps/web/AGENTS.md](./apps/web/AGENTS.md) · 移动同步 → [MOVEMENT-ARCHITECTURE.md](./docs/MOVEMENT-ARCHITECTURE.md)。

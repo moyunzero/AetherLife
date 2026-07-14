@@ -85,7 +85,7 @@
 14. Worker `fetch_state` 必须带 `X-Player-Id`；`apply-actions` 必须带 `initiatorPlayerId`（非 `__legacy__`）。
 15. NPC 相对移动吸附优先 **发起者四邻**，禁止仅全局 BFS 落到他人身后纵列。
 16. Worker `apply-actions` 前必须 `tool_calls_to_actions`（剥离 LLM 多余字段、跳过幻觉 `objectId`）；见 MP-10、[CONTRACTS.md](./CONTRACTS.md) C-03。
-17. 新 phase / 扩展多人·NL·记忆·同步：开工前完成 [Evolution Audit](../.planning/EVOLUTION-AUDIT-TEMPLATE.md)，并对照 [PHASE-EVOLUTION.md](./PHASE-EVOLUTION.md) + 相关 C-xx。
+17. 新 phase / 扩展多人·NL·记忆·同步：开工前完成 [Evolution Audit](../.planning/templates/EVOLUTION-AUDIT-TEMPLATE.md)，并对照 [PHASE-EVOLUTION.md](./PHASE-EVOLUTION.md) + 相关 C-xx。
 18. 跨层变更（game-server + worker + shared）须 **同一 PR/任务** 改齐并跑双侧测试；禁止只修一端留契约断裂。
 
 ### E2E / UAT（真实 LLM）
@@ -124,7 +124,7 @@
 47. **晕影须屏幕空间，禁止世界锚定 Graphics 压实体**：边缘 archival 晕影仅用 CSS `.room-scene-panel__canvas` inset shadow（UI-SPEC D-20）；**禁止**在 `RoomScene` 用固定世界坐标 `Graphics` + 高 `depth` 当 vignette（往北 `gridY` 小时会盖住玩家）。回归：`pnpm uat:vignette:playwright`。
 48. **`entityDepth` 须对负 `gridY` 保持正值**：探索北向（`gy < 0`）时 `10 + gy*10` 会变负，玩家沉到 `floorGfx`（depth 0）下面；使用 `ENTITY_DEPTH_BASE`（`entityLayout.entityDepth`）。回归：`pnpm --filter @aetherlife/web test` `entityLayout.test.ts`。
 49. **Colyseus 521 不一定是 Cloudflare**：matchmake `join` 在 shard 未创建时返回 **code 521**（`no rooms found`）；Web 客户端应 **`joinOrCreate` 优先**。`resolveColyseusWsUrl()`：**localhost 直连 `ws://127.0.0.1:2567`**（room WS 不经 Vite）；**非 localhost** 走页面同源 + Vite `/matchmake` proxy。禁止隧道场景硬编码 `:2567`。`pnpm dev:stack` 未跑时任何 join 都会失败。
-50. **Phaser registry 首次写入是 `setdata` 不是 `changedata`**：`exploreGrid` 等 UI 监听须同时订阅 `setdata` + `changedata`；`RoomScene.syncEntities` 末尾应 `tickExploreGrid()` 以便进房即有坐标条。回归：`pnpm uat:phase10:playwright` + [UAT-CASES.md](../.planning/phases/11-llm-world-lore/UAT-CASES.md)。
+50. **Phaser registry 首次写入是 `setdata` 不是 `changedata`**：`exploreGrid` 等 UI 监听须同时订阅 `setdata` + `changedata`；`RoomScene.syncEntities` 末尾应 `tickExploreGrid()` 以便进房即有坐标条。回归：`pnpm uat:phase10:playwright` + [UAT-CASES.md](../.planning/milestones/v1-phases/11-llm-world-lore/UAT-CASES.md)。
 51. **Lore discover toast 在 ready loreSync 触发，不在 pending**：服务端 `isFirstDiscover` 与 `storyHook` 分两条 `loreSync`（pending → ready）；`useChunkLore` 须用 session 级 Set 记住 pending+isFirstDiscover，ready 时再入 toast 队列。禁止 `isFirstDiscover && lore.storyHook` 同条判断。**禁止**在 `useEffect` 里用 `setState` updater 的同步返回值消费 toast 队列；展示用 `toastQueue[0]`，dismiss 再 dequeue。回归：`useChunkLore.test.ts` + `node scripts/debug-lore-toast.mjs`。
 52. **NPC speak `done` 不得等 memory tail**：worker `process_job` 在 `run_npc_turn_interactive`（LLM + apply-actions + reply）后立即 emit `done`；`persist_turn_memory` / reflect / summarize 走 `run_npc_memory_tail`，失败只打 stderr，不得拖长 UI「正在思考…」。
 53. **Phase 13 实体渲染改动须双 gate**：改 `apps/web/src/game/**` 实体/sprite/decor/nameplate 时 merge 前跑 `pnpm verify:phase6:move-only` + `pnpm verify:phase13`（`pnpm dev:stack`，禁止 `LLM_MOCK`）；`?visualFallback=1` 与 `?phaserFallback=1` 是不同开关。13-02+ 须确保 `FloorRenderer` 等 renderer import 完整（ISSUE-034）。
@@ -201,7 +201,7 @@
 - **发现:** 2026-06-03
 - **阶段/范围:** Phase 06 · `apps/web` · Colyseus + NPC 对话
 - **严重性:** major
-- **关联:** `.planning/phases/06-colyseus-movement/06-UAT.md`
+- **关联:** `.planning/milestones/v1-phases/06-colyseus-movement/06-UAT.md`
 
 **复现**
 
@@ -236,7 +236,7 @@
 - **发现:** 2026-06-04
 - **阶段/范围:** Phase 07 · `apps/web` · Phaser `RoomScene` + `ChatPage` 重置
 - **严重性:** major
-- **关联:** `.planning/phases/07-2-5d-renderer/07-UAT.md` Test 5
+- **关联:** `.planning/milestones/v1-phases/07-2-5d-renderer/07-UAT.md` Test 5
 
 **复现**
 
@@ -622,7 +622,7 @@
 
 - `pnpm dev:stack` → 进房无持久「正在连接 Colyseus…」；DevTools 偶发 521 可忽略。
 - `pnpm uat:phase10:playwright` + `pnpm uat:phase11:playwright`（2026-06-06 PASS）
-- Cursor Browser API：见 `.planning/phases/11-llm-world-lore/UAT-CASES.md` §C
+- Cursor Browser API：见 `.planning/milestones/v1-phases/11-llm-world-lore/UAT-CASES.md` §C
 
 **防复发**
 
@@ -1368,7 +1368,7 @@ Worker 主循环仅在 npc-turn 队列 **连续 5s 为空** 时才 `BLPOP` chunk
 **验证**
 - `pnpm agent:verify` — game-server 95 + web 23 + worker 130 passed
 - `pnpm verify:phase8` — OK（~142s，parallel + dual NL + memory FACT）
-- `pnpm agent:verify --e2e` — **连续 3 次** exit 0（2026-06-07，`.planning/phases/12.2-speak-reliability/e2e-triple-run.log`）
+- `pnpm agent:verify --e2e` — **连续 3 次** exit 0（2026-06-07，`.planning/milestones/v2-phases/12.2-speak-reliability/e2e-triple-run.log`）
 - `pnpm verify:llm-models` — 8/9 pass（Cerebras reserved probe HTML 403 已知非阻塞）
 
 ---
@@ -1718,7 +1718,7 @@ Worker 主循环仅在 npc-turn 队列 **连续 5s 为空** 时才 `BLPOP` chunk
 - `pnpm --filter @aetherlife/game-server test -- npc-ambient-intent` → 3 passed
 - `cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_ambient_intent.py -q` → 5 passed
 - `pnpm dev:stack`（确认 worker 日志含 ambient-intent BRPOP）→ `pnpm verify:phase16` → P16-00…P16-08 全绿
-- 报告：`.planning/phases/16-intelligent-ambient-npcs/verify-screenshots/verify-report.json`（`pass: true`，2026-06-10）；P16-07：`reasonZhById.npc-1` =「在果园区域巡视，观察作物生长情况」（玩家距 NPC >2 格，`visibleIntent`/`dom` 为空符合设计）
+- 报告：`.planning/milestones/v3-phases/16-intelligent-ambient-npcs/verify-screenshots/verify-report.json`（`pass: true`，2026-06-10）；P16-07：`reasonZhById.npc-1` =「在果园区域巡视，观察作物生长情况」（玩家距 NPC >2 格，`visibleIntent`/`dom` 为空符合设计）
 
 **防复发**
 

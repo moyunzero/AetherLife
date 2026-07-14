@@ -2,8 +2,12 @@
 
 Engine: **Phaser 4** (not v3). Canonical path: `.cursor/skills/<name>/SKILL.md` (28 skills).
 
-**Before Write/Edit** `apps/web/src/game/**` or `PhaserGame.tsx`: **Read** the matching skill.  
-**Does not replace:** [MOVEMENT-ARCHITECTURE.md](./MOVEMENT-ARCHITECTURE.md) · [apps/web/AGENTS.md](../apps/web/AGENTS.md).
+**Agent gate:** [`.cursor/rules/phaser-skills.mdc`](../.cursor/rules/phaser-skills.mdc) — before Write/Edit on `apps/web/src/game/**` or `PhaserGame.tsx`:
+
+1. **Read** the matching skill(s) below.
+2. **Check latest Phaser 4 official docs** (context7 MCP or docs.phaser.io) for APIs you touch — skills are project conventions, not a docs substitute.
+
+**Does not replace:** [MOVEMENT-ARCHITECTURE.md](./MOVEMENT-ARCHITECTURE.md) · [apps/web/AGENTS.md](../apps/web/AGENTS.md) · root [AGENTS.md](../AGENTS.md).
 
 ---
 

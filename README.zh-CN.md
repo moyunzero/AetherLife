@@ -37,10 +37,10 @@ AI 驱动的多人联机生活模拟 Web 游戏：与拥有记忆的 NPC 用自�
 | **v2** 可玩的 AI 小镇 | 12.2–15 | ✅ 已交付 | 2026-06-09 |
 | **v3** 智能 Ambient + Speak SLA | 16–17.1, 18 | ✅ 已交付 | 2026-06-11 |
 | **v4** 自主人生闭环 | 19–22 | ✅ 已交付 | 2026-06-22 |
-| **v5** AI 议会 / 世界观 | 23–27 | 🔨 进行中 | Phase 23 ✅（2026-06-25） |
+| **v5** AI 议会 / 世界观 | 23–27 | 🔨 进行中 | 23–26 ✅ · **27 next** |
 | **暂缓** 语音管线 | 09 | ⏸ 暂缓 | — |
 
-Phase 24–27（世界编年史、议会辩论表决、12 NPC 上地图、个人人生时间线）规划中。
+Phase 23–26 已交付（人设 · 编年史 · 辩论表决 · 地图 + LPC）。**下一步：** Phase 27 个人人生时间线 — 见 [`.planning/STATE.md`](./.planning/STATE.md)。
 
 → **[开发历程](./docs/DEVELOPMENT-HISTORY.zh-CN.md)** · [English](./docs/DEVELOPMENT-HISTORY.md)
 
@@ -61,7 +61,7 @@ Phase 24–27（世界编年史、议会辩论表决、12 NPC 上地图、个人
 - **智能 Ambient NPC（v3）** — schedule/zone 漫游、异步 LLM intent、Tiled 碰撞
 - **Speak SLA（v3）** — worker-state / memory-context 缓存、stale fallback、多 Tab speak
 - **集体态度** — NPC 对玩家/群体的态度随行为演化
-- **议会人格（v5）** — 12 人 registry、`__council__` 记忆 scope（Phase 23）
+- **议会（v5）** — 12 人设、世界编年史、辩论表决、地图在场（Phase 23–26）；下一步个人人生时间线（27）
 
 ## 技术栈
 
@@ -169,6 +169,8 @@ http://localhost:5173/?terrainDebug=1
 
 ## 架构
 
+完整设计（分层、Speak/移动数据流、目录结构）：**[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)**。
+
 ```mermaid
 flowchart LR
   Browser["浏览器 :5173"] --> Web["Vite web"]
@@ -214,7 +216,9 @@ Action schema：[packages/game-actions/README.md](./packages/game-actions/README
 
 | 文档 | 说明 |
 |------|------|
-| **[开发历程](./docs/DEVELOPMENT-HISTORY.zh-CN.md)** | 全部 37 Phase：时间线、思路、状态、验收命令 |
+| **[docs/README.md](./docs/README.md)** | 文档索引（SSOT / 专题 / E2E 分层） |
+| **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** | 系统分层、数据流、Monorepo 地图 |
+| **[开发历程](./docs/DEVELOPMENT-HISTORY.zh-CN.md)** | 分阶段合成记录（交付状态以 STATE 为准） |
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | 协作流程、约束与验收命令 |
 | [docs/CONTRACTS.md](./docs/CONTRACTS.md) | game-server ↔ worker API 契约 |
 | [docs/INVARIANTS-MULTIPLAYER.md](./docs/INVARIANTS-MULTIPLAYER.md) | 多人空间与 NL 不变量 |

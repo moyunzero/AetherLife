@@ -14,7 +14,7 @@ Agent 操作规则见 [AGENTS.md](../AGENTS.md)。本文档为 CLAUDE.md / GSD �
 | Drizzle ORM | 0.38+ | Postgres 访问 |
 | Zod | 3.x | LLM → 游戏 API schema gate |
 | @colyseus/schema | 3.x | Room state 同步 |
-| howler.js | 2.x | 浏览器音频（Phase 9 语音暂缓） |
+| howler.js | — | **未接入**（非当前依赖）；Phase 9 语音恢复时再评估 |
 
 ---
 

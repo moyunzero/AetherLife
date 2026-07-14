@@ -51,7 +51,12 @@ Replace `PATH` with a file under `apps/web/`.
 
 ## Phaser skills
 
-Before **Write/Edit** on `src/game/**` or `PhaserGame.tsx`, **Read** the matching skill — index & routing: **[docs/PHASER-SKILLS.md](../../docs/PHASER-SKILLS.md)**. Does **not** replace Colyseus sync ([MOVEMENT-ARCHITECTURE.md](../../docs/MOVEMENT-ARCHITECTURE.md)).
+Before **Write/Edit** on `src/game/**` or `PhaserGame.tsx` (or React bridges that drive the canvas), **must**:
+
+1. **Read** the matching Phaser skill — index & routing: **[docs/PHASER-SKILLS.md](../../docs/PHASER-SKILLS.md)** (Phaser **4**, not v3).
+2. **Check latest official Phaser docs** via **context7** (or phaser.io docs) for the APIs you touch — skills encode project conventions; they do **not** replace upstream docs.
+
+Does **not** replace Colyseus sync ([MOVEMENT-ARCHITECTURE.md](../../docs/MOVEMENT-ARCHITECTURE.md)). Parent: [root AGENTS.md — Phaser 4 skills](../../AGENTS.md).
 
 ## Boundaries
 
@@ -59,6 +64,7 @@ Before **Write/Edit** on `src/game/**` or `PhaserGame.tsx`, **Read** the matchin
 
 - One Colyseus `Room`: `onStateChange` only in `hooks/useColyseusRoom.ts`.
 - `useNpcChat` (and any hook): cleanup with `off()` from `room.onMessage`; never `removeAllListeners`.
+- **Phaser edits:** Read matching skill ([PHASER-SKILLS.md](../../docs/PHASER-SKILLS.md)) + verify **Phaser 4** APIs against latest official docs (context7) before Write.
 - **Phaser path:** WASD + click → `RoomScene` → `MovementSyncController` (`registry` key `movementSync`); no `onMove` / `onMoveTo` on `PhaserGame`.
 - **Fallback:** `MovementPanel` uses `sendMove` / `sendMoveTo` from `useColyseusRoom`.
 - `MovementPanel`: do **not** disable movement when `status === "thinking"`; only disable composer.
