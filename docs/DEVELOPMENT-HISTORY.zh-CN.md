@@ -855,7 +855,7 @@
 
 **产品决策:** **全员 LPC** — 玩家不再用 Stardew `characters.png` 四色 palette；议会 **`npc-1`…`npc-12`** 均用烘焙 `lpc-npc-*.png`（`npcs.png` 仅 legacy fallback）。
 
-**交付物:** `scripts/sync-npc-lpc-assets.mjs` · `lpc-player-1.png` + `lpc-npc-{1…12}.png` · `lpcNpc1Sheet.ts` · 铭牌刷新（`sceneLabelLayout.ts`、宋体、无描边/底条）。
+**交付物:** `scripts/sync-npc-lpc-assets.mjs` · `lpc-player-1.png` + `lpc-npc-{1…12}.png` · `lpcNpc1Sheet.ts` · `entitySprites` LPC 路径 · 铭牌刷新（`sceneLabelLayout.ts`、宋体、无描边/底条）。
 
 **2026-07-14 扩展:** 12 席议会 LPC 全量烘焙并接入运行时；`pnpm assets:sync:lpc-npcs`；`HomeMapBackground` Object Shadows depth 带 + `MAP_TILE_DEPTH_*`。
 
