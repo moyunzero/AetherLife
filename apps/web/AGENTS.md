@@ -86,13 +86,13 @@ Home Tiled map (40×40 @ 16px → **32px/grid** in-game). Full bake / collision 
 
 ## Character visuals（全员 LPC · 2026-07）
 
-**产品决策：** 所有玩家 + `npc-1` → LPC `sprites/lpc-npc-1.png`；议会其余 NPC → Stardew `sprites/npcs.png`。
+**产品决策：** 所有玩家 + `npc-1`…`npc-12` → LPC `sprites/lpc-player-1.png` + `sprites/lpc-npc-{1…12}.png`。
 
 | Task | Command / path |
 |------|----------------|
-| 烘焙 LPC 皮 | `pnpm assets:sync:lpc-npc1`（源 `npc-asset/npc-1.png`） |
+| 烘焙 LPC 皮 | `pnpm assets:sync:lpc-npcs`（别名 `assets:sync:lpc-npc1`；源 `npc-asset/player-1.png` + `npc-asset/npc-{1…12}.png`） |
 | 常量 | `gridLayout.CELL_PX=32` · `entityLayout.CHAR_DISPLAY_PX=64` |
-| 运行时 | `lpcNpc1Sheet.ts` · `entitySprites.ts` · `sceneLabelLayout.ts` |
+| 运行时 | `lpcNpc1Sheet.ts` · `entitySprites.ts`（`registerLpcNpcAnims`）· `sceneLabelLayout.ts` |
 | 文档 | [BEGINNING-FIELDS.md](../../docs/BEGINNING-FIELDS.md) §角色视觉 |
 | 回归 | `pnpm verify:phase6:move-only` + `pnpm verify:phase13` |
 

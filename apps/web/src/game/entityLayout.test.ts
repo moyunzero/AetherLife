@@ -4,6 +4,8 @@ import {
   entityFootSortPoint,
   entityYSortDepth,
   entityYSortDepthFromCenter,
+  MAP_TILE_DEPTH_BASE,
+  MAP_TILE_DEPTH_STEP,
   tiledObjectYSortDepth,
   ySortDepth,
   YSORT_LAYER,
@@ -80,5 +82,12 @@ describe("tiledObjectYSortDepth", () => {
 
   it("keeps ENTITY_DEPTH_BASE as documented baseline", () => {
     expect(ySortDepth(0, 0, 0)).toBe(ENTITY_DEPTH_BASE);
+  });
+});
+
+describe("MAP tile depth bands", () => {
+  it("keeps tile + object-shadow bands below entity Y-sort", () => {
+    const objectShadowBand = MAP_TILE_DEPTH_BASE + 4 * MAP_TILE_DEPTH_STEP;
+    expect(objectShadowBand).toBeLessThan(ENTITY_DEPTH_BASE);
   });
 });

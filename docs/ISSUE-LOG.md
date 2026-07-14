@@ -189,7 +189,7 @@
 
 ### Character visuals — LPC & CELL_PX（产品决策 · 2026-07）
 
-106. **全员 LPC 角色皮**：本地/远端**所有玩家**与 **`npc-1`** 使用烘焙 `sprites/lpc-npc-1.png`（`createPlayerSprite` → `createLpcNpc1Sprite`）；**禁止**恢复 `sprites/characters.png` 四色 palette 作玩家皮除非新开 phase 决策。`useSpriteEntities()` 门槛：`spritesLpcNpc1` + `spritesNpcs` 均须存在。烘焙：`pnpm assets:sync:lpc-npc1`（源 `npc-asset/npc-1.png`）。文档：[BEGINNING-FIELDS.md](./BEGINNING-FIELDS.md) §角色视觉。回归：`pnpm --filter @aetherlife/web test` + `pnpm verify:phase6:move-only`。
+106. **全员 LPC 角色皮**：本地/远端**所有玩家**与 **`npc-1`…`npc-12`** 使用烘焙 `sprites/lpc-player-1.png` + `sprites/lpc-npc-{1…12}.png`（`createPlayerSprite` → `createLpcNpcSprite`；`spriteProfileForNpc` 映射 npc-1…12）；**禁止**恢复 `sprites/characters.png` 四色 palette 作玩家皮除非新开 phase 决策。`useSpriteEntities()` 门槛：`spritesLpcNpc1` + `spritesNpcs` 均须存在（全部 `lpc-npc-*` 随 `CORE_AREA_ASSETS` 加载）。烘焙：`pnpm assets:sync:lpc-npcs`（源 `npc-asset/player-1.png` + `npc-asset/npc-{1…12}.png`）。文档：[BEGINNING-FIELDS.md](./BEGINNING-FIELDS.md) §角色视觉。回归：`pnpm --filter @aetherlife/web test` + `pnpm verify:phase6:move-only`。
 107. **显示格 CELL_PX=32**：`gridLayout.CELL_PX=32`（16px 源 ×2）；角色显示高 `CHAR_DISPLAY_PX=64`（占 2 逻辑格）。改 `CELL_PX` 须同步 `entityLayout.LABEL_SCALE`、`GRID_STEP_MS`、地图注释与 [BEGINNING-FIELDS.md](./BEGINNING-FIELDS.md)。Phase 13.3 历史仍为 48px 校准记录，**当前运行时以 32px 为准**。
 108. **Phase 26+ verify 禁止断言 bg-villager**：`verify:phase16` / UAT 脚本 **禁止** 要求房间存在 `bg-villager-*`（ISSUE-101）；ambient/铭牌回归用 12 席 council + `verify:phase26`。
 
@@ -2642,19 +2642,21 @@ Worker 主循环仅在 npc-turn 队列 **连续 5s 为空** 时才 `BLPOP` chunk
 
 **决策**
 
-- **全员 LPC**：所有玩家（含远端）+ `npc-1` 使用 `sprites/lpc-npc-1.png`；废弃 `sprites/characters.png` 四色 palette 作玩家皮。
+- **全员 LPC**：所有玩家（含远端）+ **`npc-1`…`npc-12`** 使用 `sprites/lpc-player-1.png` + `sprites/lpc-npc-{1…12}.png`；废弃 `sprites/characters.png` 四色 palette 作玩家皮。
 - **显示格**：`CELL_PX=32`（16×2）；角色高 64px（2 格）；`GRID_STEP_MS=200`。
 
 **交付**
 
-- `scripts/sync-npc-lpc-assets.mjs` · `pnpm assets:sync:lpc-npc1`
-- `lpcNpc1Sheet.ts` · `entitySprites` LPC 路径 · `sceneLabelLayout.ts` 铭牌堆叠
+- `scripts/sync-npc-lpc-assets.mjs` · `pnpm assets:sync:lpc-npcs`（源 `npc-asset/player-1.png` + `npc-{1…12}.png` → 13 张烘焙 atlas）
+- `lpcNpc1Sheet.ts`（`LPC_NPC_PROFILES` · `spriteProfileForNpc`）· `entitySprites` LPC 路径 · `sceneLabelLayout.ts` 铭牌堆叠
+- `HomeMapBackground.ts` Object Shadows → Phaser `Layer`（`MULTIPLY`）；`entityLayout.MAP_TILE_DEPTH_*` 瓦片 depth 带
 - 文档：[BEGINNING-FIELDS.md](./BEGINNING-FIELDS.md) §角色视觉 · Guardrails #106–#107
 
 **验证**
 
+- `pnpm assets:sync:lpc-npcs`（13× 704×256）
+- `pnpm --filter @aetherlife/web exec vitest run src/game/lpcNpc1Sheet.test.ts`
 - `pnpm --filter @aetherlife/web test`
-- `pnpm agent:verify`
 - `pnpm verify:phase6:move-only` · `pnpm verify:phase13`（须 `pnpm dev:stack`）
 
 **防复发**

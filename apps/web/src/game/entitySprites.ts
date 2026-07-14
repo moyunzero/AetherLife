@@ -21,17 +21,17 @@ import { CELL_PX, CHAR_DISPLAY_PX, LABEL_SCALE, MARKER_CY, labelOffset } from ".
 import {
   LPC_NPC1_IDLE_FRAMES,
   LPC_NPC1_SCALE,
-  LPC_NPC1_STEPS_PER_CYCLE,
-  LPC_NPC1_WALK_FRAMES,
   LPC_NPC1_IDLE_FRAME_RATE,
-  lpcNpc1AnimKey,
+  isLpcProfile,
+  lpcNpcAnimKey,
   lpcNpc1FrameIndex,
   lpcNpc1NameplateY,
-  lpcNpc1WalkStepAnimKey,
-  lpcNpc1WalkStepFrameRate,
-  lpcNpc1WalkStepRange,
+  lpcNpc1WalkFrameRate,
+  lpcNpc1WalkLoopFrameRange,
+  LPC_NPC_PROFILES,
   spriteProfileForNpc,
-  type LpcNpc1SpriteProfile,
+  spriteProfileForPlayer,
+  type LpcNpcSpriteProfile,
 } from "./lpcNpc1Sheet.js";
 import { theme } from "./theme.js";
 
@@ -46,7 +46,7 @@ const SPRITE_TOP_Y = SPRITE_FOOT_Y - CHAR_FRAME_H * CHAR_SPRITE_SCALE;
 export const SPRITE_NAMEPLATE_Y = SPRITE_TOP_Y + labelOffset(5);
 
 export function spriteNameplateY(profile: SpriteProfile = "stardew"): number {
-  if (profile === "lpc-npc-1") return lpcNpc1NameplateY(SPRITE_FOOT_Y);
+  if (isLpcProfile(profile)) return lpcNpc1NameplateY(SPRITE_FOOT_Y);
   return SPRITE_NAMEPLATE_Y;
 }
 
@@ -71,7 +71,23 @@ const CHAT_BUBBLE_BASE_Y_KEY = "chatBubbleBaseY";
 
 const CARDINALS: CardinalFacing[] = ["down", "left", "right", "up"];
 
-export type SpriteProfile = LpcNpc1SpriteProfile | "stardew";
+const LPC_NPC_TEXTURE: Record<LpcNpcSpriteProfile, string> = {
+  "lpc-player-1": ASSET_KEYS.spritesLpcPlayer1,
+  "lpc-npc-1": ASSET_KEYS.spritesLpcNpc1,
+  "lpc-npc-2": ASSET_KEYS.spritesLpcNpc2,
+  "lpc-npc-3": ASSET_KEYS.spritesLpcNpc3,
+  "lpc-npc-4": ASSET_KEYS.spritesLpcNpc4,
+  "lpc-npc-5": ASSET_KEYS.spritesLpcNpc5,
+  "lpc-npc-6": ASSET_KEYS.spritesLpcNpc6,
+  "lpc-npc-7": ASSET_KEYS.spritesLpcNpc7,
+  "lpc-npc-8": ASSET_KEYS.spritesLpcNpc8,
+  "lpc-npc-9": ASSET_KEYS.spritesLpcNpc9,
+  "lpc-npc-10": ASSET_KEYS.spritesLpcNpc10,
+  "lpc-npc-11": ASSET_KEYS.spritesLpcNpc11,
+  "lpc-npc-12": ASSET_KEYS.spritesLpcNpc12,
+};
+
+export type SpriteProfile = LpcNpcSpriteProfile | "stardew";
 
 export type AnimatableEntity = {
   avatar?: Phaser.GameObjects.Sprite;
@@ -81,8 +97,6 @@ export type AnimatableEntity = {
   facingDir?: CardinalFacing;
   isNpc?: boolean;
   spriteProfile?: SpriteProfile;
-  /** LPC plan A: which 3-frame walk segment (0–2) plays on the next step. */
-  lpcWalkPhase?: number;
 };
 
 export function animKey(
@@ -102,7 +116,7 @@ export function applyFacingFlip(
   profile: SpriteProfile = "stardew",
 ): void {
   if (!avatar) return;
-  if (profile === "lpc-npc-1") {
+  if (isLpcProfile(profile)) {
     avatar.setFlipX(false);
     return;
   }
@@ -167,29 +181,26 @@ export function registerNpcAnims(scene: Phaser.Scene): void {
   }
 }
 
-export function registerLpcNpc1Anims(scene: Phaser.Scene): void {
-  if (scene.anims.exists("lpc1-walk-down-s0")) return;
-  const texture = ASSET_KEYS.spritesLpcNpc1;
-  const stepRate = lpcNpc1WalkStepFrameRate();
+function registerLpcNpcAnimsForProfile(scene: Phaser.Scene, profile: LpcNpcSpriteProfile): void {
+  const probeKey = lpcNpcAnimKey(profile, "walk", "down");
+  if (scene.anims.exists(probeKey)) return;
+  const texture = LPC_NPC_TEXTURE[profile];
+  const walkRate = lpcNpc1WalkFrameRate();
   for (let fi = 0; fi < FACING_COUNT; fi += 1) {
     const facing = CARDINALS[fi]!;
-    for (let phase = 0; phase < LPC_NPC1_STEPS_PER_CYCLE; phase += 1) {
-      const range = lpcNpc1WalkStepRange(phase);
-      const frameStart = lpcNpc1FrameIndex(facing, "walk", range.start);
-      const frameEnd = lpcNpc1FrameIndex(facing, "walk", range.end);
-      scene.anims.create({
-        key: lpcNpc1WalkStepAnimKey(facing, phase),
-        frames: scene.anims.generateFrameNumbers(texture, {
-          start: frameStart,
-          end: frameEnd,
-        }),
-        frameRate: stepRate,
-        repeat: 0,
-      });
-    }
+    const walkRange = lpcNpc1WalkLoopFrameRange(facing, profile);
+    scene.anims.create({
+      key: lpcNpcAnimKey(profile, "walk", facing),
+      frames: scene.anims.generateFrameNumbers(texture, {
+        start: walkRange.start,
+        end: walkRange.end,
+      }),
+      frameRate: walkRate,
+      repeat: -1,
+    });
     const idleBase = lpcNpc1FrameIndex(facing, "idle", 0);
     scene.anims.create({
-      key: lpcNpc1AnimKey("idle", facing),
+      key: lpcNpcAnimKey(profile, "idle", facing),
       frames: scene.anims.generateFrameNumbers(texture, {
         start: idleBase,
         end: idleBase + LPC_NPC1_IDLE_FRAMES - 1,
@@ -198,6 +209,17 @@ export function registerLpcNpc1Anims(scene: Phaser.Scene): void {
       repeat: -1,
     });
   }
+}
+
+export function registerLpcNpcAnims(scene: Phaser.Scene): void {
+  for (const profile of LPC_NPC_PROFILES) {
+    registerLpcNpcAnimsForProfile(scene, profile);
+  }
+}
+
+/** @deprecated Use registerLpcNpcAnims */
+export function registerLpcNpc1Anims(scene: Phaser.Scene): void {
+  registerLpcNpcAnims(scene);
 }
 
 export function paletteRowForPlayerId(
@@ -235,19 +257,28 @@ export function npcTintForId(npcId: string): number {
   );
 }
 
-export function createLpcNpc1Sprite(scene: Phaser.Scene): Phaser.GameObjects.Sprite {
+export function createLpcNpcSprite(
+  scene: Phaser.Scene,
+  profile: LpcNpcSpriteProfile = "lpc-npc-1",
+): Phaser.GameObjects.Sprite {
   const frame = lpcNpc1FrameIndex("down", "idle", 0);
-  const sprite = scene.add.sprite(0, SPRITE_FOOT_Y, ASSET_KEYS.spritesLpcNpc1, frame);
+  const texture = LPC_NPC_TEXTURE[profile];
+  const sprite = scene.add.sprite(0, SPRITE_FOOT_Y, texture, frame);
   sprite.setOrigin(0.5, 1);
   sprite.setScale(LPC_NPC1_SCALE);
   return sprite;
+}
+
+/** @deprecated Use createLpcNpcSprite */
+export function createLpcNpc1Sprite(scene: Phaser.Scene): Phaser.GameObjects.Sprite {
+  return createLpcNpcSprite(scene, "lpc-npc-1");
 }
 
 export function createPlayerSprite(
   scene: Phaser.Scene,
   _paletteRow: number,
 ): Phaser.GameObjects.Sprite {
-  return createLpcNpc1Sprite(scene);
+  return createLpcNpcSprite(scene, spriteProfileForPlayer());
 }
 
 export function createNpcSprite(
@@ -255,8 +286,9 @@ export function createNpcSprite(
   npcId: string,
   tintOverride?: number,
 ): Phaser.GameObjects.Sprite {
-  if (npcId === "npc-1") {
-    return createLpcNpc1Sprite(scene);
+  const profile = spriteProfileForNpc(npcId);
+  if (isLpcProfile(profile)) {
+    return createLpcNpcSprite(scene, profile);
   }
   const variant = npcVariantForId(npcId);
   const frame = npcFrameIndex(variant, facingToIndex("down"), WALK_FRAMES);
@@ -329,20 +361,22 @@ export function createDoorSprite(scene: Phaser.Scene, closed: boolean): Phaser.G
 
 function playLpcWalkAnim(ent: AnimatableEntity, facing: CardinalFacing): void {
   if (!ent.avatar) return;
-  if (ent.facingDir !== facing) {
-    ent.lpcWalkPhase = 0;
-  }
-  const phase = ent.lpcWalkPhase ?? 0;
-  ent.lpcWalkPhase = (phase + 1) % LPC_NPC1_STEPS_PER_CYCLE;
+  const profile = ent.spriteProfile;
+  if (!profile || !isLpcProfile(profile)) return;
+  const key = lpcNpcAnimKey(profile, "walk", facing);
   ent.facingDir = facing;
-  applyFacingFlip(ent.avatar, facing, "lpc-npc-1");
-  ent.avatar.play(lpcNpc1WalkStepAnimKey(facing, phase), false);
+  applyFacingFlip(ent.avatar, facing, profile);
+  const current = ent.avatar.anims.currentAnim;
+  if (current?.key === key && ent.avatar.anims.isPlaying) {
+    return;
+  }
+  ent.avatar.play(key, true);
 }
 
 export function playWalkAnim(ent: AnimatableEntity, facing: CardinalFacing): void {
   if (!ent.avatar) return;
   const profile = ent.spriteProfile ?? "stardew";
-  if (profile === "lpc-npc-1") {
+  if (isLpcProfile(profile)) {
     playLpcWalkAnim(ent, facing);
     return;
   }
@@ -356,13 +390,10 @@ export function playIdleAnim(ent: AnimatableEntity, facing?: CardinalFacing): vo
   if (!ent.avatar) return;
   const dir = facing ?? ent.facingDir ?? "down";
   const profile = ent.spriteProfile ?? "stardew";
-  if (profile === "lpc-npc-1") {
-    ent.lpcWalkPhase = 0;
-  }
   ent.facingDir = dir;
   applyFacingFlip(ent.avatar, dir, profile);
-  if (profile === "lpc-npc-1") {
-    ent.avatar.play(lpcNpc1AnimKey("idle", dir), true);
+  if (isLpcProfile(profile)) {
+    ent.avatar.play(lpcNpcAnimKey(profile, "idle", dir), true);
     return;
   }
   const row = ent.paletteRow ?? 0;

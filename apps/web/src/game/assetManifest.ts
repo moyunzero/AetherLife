@@ -42,8 +42,20 @@ export const ASSET_KEYS = {
   tilesDecor: "tiles/decor",
   spritesCharacters: "sprites/characters",
   spritesNpcs: "sprites/npcs",
-  /** Baked walk+idle from npc-asset/npc-1.png (scripts/sync-npc-lpc-assets.mjs). */
+  /** Baked walk+idle from npc-asset LPC composites (scripts/sync-npc-lpc-assets.mjs). */
+  spritesLpcPlayer1: "sprites/lpc-player-1",
   spritesLpcNpc1: "sprites/lpc-npc-1",
+  spritesLpcNpc2: "sprites/lpc-npc-2",
+  spritesLpcNpc3: "sprites/lpc-npc-3",
+  spritesLpcNpc4: "sprites/lpc-npc-4",
+  spritesLpcNpc5: "sprites/lpc-npc-5",
+  spritesLpcNpc6: "sprites/lpc-npc-6",
+  spritesLpcNpc7: "sprites/lpc-npc-7",
+  spritesLpcNpc8: "sprites/lpc-npc-8",
+  spritesLpcNpc9: "sprites/lpc-npc-9",
+  spritesLpcNpc10: "sprites/lpc-npc-10",
+  spritesLpcNpc11: "sprites/lpc-npc-11",
+  spritesLpcNpc12: "sprites/lpc-npc-12",
   spritesUiSpeech: "sprites/ui-speech",
   tilesScrubPack: "tiles/biome-scrub",
   tilesWetlandPack: "tiles/biome-wetland",
@@ -82,11 +94,20 @@ export const CORE_AREA_ASSETS: AssetSheetDef[] = [
   },
   {
     kind: "spritesheet",
-    key: ASSET_KEYS.spritesLpcNpc1,
-    url: `${BASE}/sprites/lpc-npc-1.png`,
+    key: ASSET_KEYS.spritesLpcPlayer1,
+    url: `${BASE}/sprites/lpc-player-1.png`,
     frameWidth: 64,
     frameHeight: 64,
   },
+  ...([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const).map(
+    (n): AssetSheetDef => ({
+      kind: "spritesheet",
+      key: ASSET_KEYS[`spritesLpcNpc${n}` as keyof typeof ASSET_KEYS],
+      url: `${BASE}/sprites/lpc-npc-${n}.png`,
+      frameWidth: 64,
+      frameHeight: 64,
+    }),
+  ),
   { kind: "image", key: ASSET_KEYS.spritesUiSpeech, url: `${BASE}/sprites/ui-speech.png` },
 ];
 

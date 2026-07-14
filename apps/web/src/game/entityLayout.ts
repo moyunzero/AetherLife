@@ -48,6 +48,10 @@ export const MARKER_STROKE = 2;
 
 export const MARKER_LABEL_MAX_WIDTH = labelOffset(44);
 
+/** Tiled tile bands (Ground … Water) — sequential depth in map layer order. */
+export const MAP_TILE_DEPTH_BASE = 0;
+export const MAP_TILE_DEPTH_STEP = 0.01;
+
 /** Floor/tile layers use depth below this; entities & Tiled objects sit above. */
 export const ENTITY_DEPTH_BASE = 10_000;
 
