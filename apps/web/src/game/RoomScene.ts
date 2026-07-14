@@ -411,6 +411,7 @@ export class RoomScene extends Phaser.Scene {
   private useSpriteEntities(): boolean {
     return (
       !isVisualFallbackActive(this)
+      && this.textures.exists(ASSET_KEYS.spritesLpcPlayer1)
       && this.textures.exists(ASSET_KEYS.spritesLpcNpc1)
       && this.textures.exists(ASSET_KEYS.spritesNpcs)
     );

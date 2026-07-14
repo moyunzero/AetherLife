@@ -125,7 +125,7 @@ Plan → scope → `pnpm agent:verify` → `pnpm agent:verify --e2e`（golden fl
 | 路径 | 契约 | 回归 gate |
 |------|------|-----------|
 | `apps/web/src/game/entityLabels.ts` | Proximity 铭牌：宋体、`LABEL_SCALE` 字号、无描边/无底条、轻投影（Guardrail #57） | `pnpm verify:phase13` + UAT #6/#7 |
-| `apps/web/src/game/entitySprites.ts` | `spriteNameplateY` + **全员 LPC**（Guardrail #106） | 同上 + `pnpm verify:phase6:move-only` |
+| `apps/web/src/game/entitySprites.ts` | `spriteNameplateY` + **全员 LPC**（玩家 + `npc-1`…`npc-12`；Guardrail #106） | 同上 + `pnpm verify:phase6:move-only` |
 | `apps/web/src/game/ProximityNameplate.ts` | ≤2 格 fade；speak/thinking 强制显示 | 同上 |
 | `apps/web/src/hooks/useNpcChat.ts` | 方案 A composer busy；`onSpeakBusy` 清 `sendingNpcId`（ISSUE-037） | `uat:phase8` Test 4 + web test |
 

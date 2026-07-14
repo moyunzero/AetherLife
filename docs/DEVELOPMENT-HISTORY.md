@@ -851,11 +851,13 @@ This document synthesizes all **37 development phases** (including sub-phases). 
 |---|---|
 | **Status** | ✅ Shipped (2026-07-01) |
 
-**Goal:** Unify **all players** + **npc-1** on LPC walk/idle sprite; rescale grid to **CELL_PX=32** with **64px** character height (2 cells).
+**Goal:** Unify **all players** + **`npc-1`…`npc-12`** on LPC walk/idle sprites; rescale grid to **CELL_PX=32** with **64px** character height (2 cells).
 
-**Product decision:** **全员 LPC** — no Stardew `characters.png` palette rows for players; council NPCs `npc-2`…`npc-12` remain on `npcs.png`.
+**Product decision:** **全员 LPC** — no Stardew `characters.png` palette rows for players; council seats **`npc-1`…`npc-12`** use baked `lpc-npc-*.png` (Stardew `npcs.png` is legacy fallback only).
 
-**Key deliverables:** `scripts/sync-npc-lpc-assets.mjs` · `lpc-npc-1.png` · `lpcNpc1Sheet.ts` · `entitySprites` LPC path · nameplate refresh (`sceneLabelLayout.ts`, Songti, no stroke/backdrop).
+**Key deliverables:** `scripts/sync-npc-lpc-assets.mjs` · `lpc-player-1.png` + `lpc-npc-{1…12}.png` · `lpcNpc1Sheet.ts` · `entitySprites` LPC path · nameplate refresh (`sceneLabelLayout.ts`, Songti, no stroke/backdrop).
+
+**2026-07-14 extension:** bake + runtime wire for all 12 council NPC LPC skins; `pnpm assets:sync:lpc-npcs`; Object Shadows depth band in `HomeMapBackground` + `MAP_TILE_DEPTH_*`.
 
 **Verification:** `pnpm --filter @aetherlife/web test` · `pnpm verify:phase6:move-only` · `pnpm verify:phase13`
 

@@ -1,7 +1,12 @@
 import { HOME_MAP_TILE_H, HOME_MAP_TILE_W, isHomeMapRegionCell } from "@aetherlife/shared";
-import type * as Phaser from "phaser";
+import * as Phaser from "phaser";
 import { ASSET_KEYS, TILE_PX } from "./assetManifest.js";
-import { tiledObjectYSortDepth, YSORT_LAYER } from "./entityLayout.js";
+import {
+  MAP_TILE_DEPTH_BASE,
+  MAP_TILE_DEPTH_STEP,
+  tiledObjectYSortDepth,
+  YSORT_LAYER,
+} from "./entityLayout.js";
 import { CELL_PX } from "./gridLayout.js";
 import { isVisualFallbackActive } from "./visualFallback.js";
 
@@ -169,6 +174,7 @@ function applyObjectTileAnimation(
  */
 export class HomeMapBackground {
   private layers: Phaser.GameObjects.GameObject[] = [];
+  private objectShadowLayer: Phaser.GameObjects.Layer | null = null;
   private map: Phaser.Tilemaps.Tilemap | null = null;
   private tilesets: Phaser.Tilemaps.Tileset[] = [];
 
@@ -192,7 +198,7 @@ export class HomeMapBackground {
     const layerMetas = (cacheEntry.data as { layers: TiledLayerMeta[] }).layers;
     const bakedTilesets = (cacheEntry.data as { tilesets: TiledTilesetDef[] }).tilesets ?? [];
 
-    let depth = -1;
+    let tileBandDepth = MAP_TILE_DEPTH_BASE;
     for (const meta of layerMetas) {
       if (meta.visible === false) continue;
       if (SKIP_LAYER_NAMES.has(meta.name)) continue;
@@ -204,8 +210,11 @@ export class HomeMapBackground {
         if (meta.opacity !== undefined && meta.opacity < 1) {
           layer.setAlpha(meta.opacity);
         }
-        layer.setDepth(depth);
-        depth += 0.01;
+        if (meta.name === "Shadows") {
+          layer.setBlendMode(Phaser.BlendModes.MULTIPLY);
+        }
+        layer.setDepth(tileBandDepth);
+        tileBandDepth += MAP_TILE_DEPTH_STEP;
         this.layers.push(layer);
         continue;
       }
@@ -215,6 +224,15 @@ export class HomeMapBackground {
         if (!rawLayer) continue;
 
         const isShadowLayer = meta.name === "Object Shadows";
+        if (isShadowLayer && !this.objectShadowLayer) {
+          this.objectShadowLayer = scene.add.layer();
+          this.objectShadowLayer.setDepth(tileBandDepth);
+          this.objectShadowLayer.setAlpha(meta.opacity ?? 0.25);
+          this.objectShadowLayer.setBlendMode(Phaser.BlendModes.MULTIPLY);
+          this.layers.push(this.objectShadowLayer);
+          tileBandDepth += MAP_TILE_DEPTH_STEP;
+        }
+
         const sortedObjects =
           meta.draworder === "topdown"
             ? [...rawLayer.objects].sort((a, b) => {
@@ -225,6 +243,7 @@ export class HomeMapBackground {
               })
             : rawLayer.objects;
 
+        let shadowIndex = 0;
         for (const rawObj of sortedObjects) {
           if (!rawObj.gid) continue;
 
@@ -235,24 +254,25 @@ export class HomeMapBackground {
             : scene.add.sprite(0, 0, "__MISSING");
 
           placeTiledTileObject(sprite, rawObj);
-          if (meta.opacity !== undefined && meta.opacity < 1) {
-            sprite.setAlpha(meta.opacity);
+
+          if (isShadowLayer) {
+            sprite.setDepth(shadowIndex++);
+            this.objectShadowLayer!.add(sprite);
+          } else {
+            if (meta.opacity !== undefined && meta.opacity < 1) {
+              sprite.setAlpha(meta.opacity);
+            }
+            const bottomWorldX = (rawObj.x ?? 0) * TILE_SCALE;
+            const bottomWorldY = (rawObj.y ?? 0) * TILE_SCALE;
+            sprite.setDepth(
+              tiledObjectYSortDepth(bottomWorldX, bottomWorldY, YSORT_LAYER.OBJECT),
+            );
+            this.layers.push(sprite);
           }
-          const bottomWorldX = (rawObj.x ?? 0) * TILE_SCALE;
-          const bottomWorldY = (rawObj.y ?? 0) * TILE_SCALE;
-          sprite.setDepth(
-            tiledObjectYSortDepth(
-              bottomWorldX,
-              bottomWorldY,
-              isShadowLayer ? YSORT_LAYER.SHADOW : YSORT_LAYER.OBJECT,
-            ),
-          );
 
           if (resolved) {
             applyObjectTileAnimation(scene, sprite, rawObj.gid);
           }
-
-          this.layers.push(sprite);
         }
       }
     }
@@ -291,6 +311,7 @@ export class HomeMapBackground {
     }
     this.map?.destroy();
     this.layers = [];
+    this.objectShadowLayer = null;
     this.map = null;
     this.tilesets = [];
   }

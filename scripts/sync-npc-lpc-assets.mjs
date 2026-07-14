@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 /**
- * Bake walk + idle from npc-asset/npc-1.png (Universal LPC composite) into a compact
- * runtime spritesheet: apps/web/public/assets/sprites/lpc-npc-1.png
+ * Bake walk + idle from npc-asset LPC composites into compact runtime spritesheets.
  *
  * Layout: 4 facings × (9 walk + 2 idle) frames, 64×64 each → 704×256 PNG.
  * Facing row order: down, left, right, up (matches facing.ts CARDINALS).
+ *
+ * Sources: npc-asset/player-1.png + npc-asset/npc-{1..12}.png
+ * Output:  apps/web/public/assets/sprites/lpc-player-1.png + lpc-npc-{1..12}.png
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -12,8 +14,22 @@ import { fileURLToPath } from "node:url";
 import { PNG } from "pngjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const SRC = resolve(root, "npc-asset/npc-1.png");
-const OUT = resolve(root, "apps/web/public/assets/sprites/lpc-npc-1.png");
+const LPC_NPC_COUNT = 12;
+
+/** @type {{ src: string; out: string }[]} */
+const TARGETS = [
+  {
+    src: resolve(root, "npc-asset/player-1.png"),
+    out: resolve(root, "apps/web/public/assets/sprites/lpc-player-1.png"),
+  },
+  ...Array.from({ length: LPC_NPC_COUNT }, (_, i) => {
+    const n = i + 1;
+    return {
+      src: resolve(root, `npc-asset/npc-${n}.png`),
+      out: resolve(root, `apps/web/public/assets/sprites/lpc-npc-${n}.png`),
+    };
+  }),
+];
 
 const LPC_FRAME = 64;
 const WALK_FRAMES = 9;
@@ -78,8 +94,16 @@ function blitFrame(dst, dstCol, dstRow, rgba) {
   }
 }
 
-function bake() {
-  const src = loadPng(SRC);
+function bakeOne({ src: srcPath, out: outPath }) {
+  const src = loadPng(srcPath);
+  const minW = WALK_FRAMES * LPC_FRAME;
+  const minH = (IDLE_BASE_ROW + FACING_COUNT) * LPC_FRAME;
+  if (src.width < minW || src.height < minH) {
+    throw new Error(
+      `LPC sheet too small: ${srcPath} is ${src.width}×${src.height}, need ≥${minW}×${minH}`,
+    );
+  }
+
   const atlasW = FRAMES_PER_FACING * LPC_FRAME;
   const atlasH = FACING_COUNT * LPC_FRAME;
   const atlas = new PNG({ width: atlasW, height: atlasH });
@@ -98,9 +122,11 @@ function bake() {
     }
   }
 
-  mkdirSync(dirname(OUT), { recursive: true });
-  writeFileSync(OUT, PNG.sync.write(atlas));
-  console.log(`wrote ${OUT} (${atlasW}×${atlasH}, ${FACING_COUNT * FRAMES_PER_FACING} frames)`);
+  mkdirSync(dirname(outPath), { recursive: true });
+  writeFileSync(outPath, PNG.sync.write(atlas));
+  console.log(`wrote ${outPath} (${atlasW}×${atlasH}, ${FACING_COUNT * FRAMES_PER_FACING} frames)`);
 }
 
-bake();
+for (const target of TARGETS) {
+  bakeOne(target);
+}

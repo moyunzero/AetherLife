@@ -12,10 +12,9 @@ Web agent 摘要：[apps/web/AGENTS.md](../apps/web/AGENTS.md) · 回归 ISSUE-0
 |------|------|
 | **显示格** | `CELL_PX = 32`（`gridLayout.ts`）；瓦片 16px 源图 ×2 |
 | **角色身高** | `CHAR_DISPLAY_PX = 64`（占 **2 逻辑格**；脚底仍锚在格心南缘） |
-| **全员 LPC** | **所有玩家 + `npc-1`** 使用烘焙 LPC 皮 `sprites/lpc-npc-1.png`（walk + idle）；**不再**用 `sprites/characters.png` 的 Stardew 四色 palette 区分玩家 |
-| **其他 NPC** | `npc-2`…`npc-12` 等仍用 `sprites/npcs.png`（Stardew 16×32 @ 2×） |
-| **资源管线** | 源图 `npc-asset/npc-1.png` → `pnpm assets:sync:lpc-npc1` → `public/assets/sprites/lpc-npc-1.png` |
-| **运行时** | `lpcNpc1Sheet.ts` + `entitySprites.ts`；`useSpriteEntities()` 须同时存在 `spritesLpcNpc1` 与 `spritesNpcs` |
+| **全员 LPC** | **所有玩家** + **`npc-1`…`npc-12`** 使用烘焙 LPC 皮 `sprites/lpc-player-1.png` + `sprites/lpc-npc-{1…12}.png`（walk + idle）；**不再**用 `sprites/characters.png` 的 Stardew 四色 palette 区分玩家 |
+| **资源管线** | 源图 `npc-asset/player-1.png` + `npc-asset/npc-{1…12}.png` → `pnpm assets:sync:lpc-npcs` → `public/assets/sprites/lpc-*.png` |
+| **运行时** | `lpcNpc1Sheet.ts` + `entitySprites.ts`（`registerLpcNpcAnims` · `createLpcNpcSprite`）；`useSpriteEntities()` 门槛：`spritesLpcNpc1` + `spritesNpcs`（全部 `lpc-npc-*` 随 `CORE_AREA_ASSETS` 同批加载） |
 | **铭牌** | 宋体（`Noto Serif SC`）、无描边/无底条、轻投影；名字/状态垂直堆叠见 `sceneLabelLayout.ts` |
 
 **回归：** `pnpm --filter @aetherlife/web test` · `pnpm verify:phase13` · `pnpm verify:phase6:move-only`（改 `RoomScene` / 实体 sprite 时）
@@ -45,7 +44,7 @@ Web agent 摘要：[apps/web/AGENTS.md](../apps/web/AGENTS.md) · 回归 ISSUE-0
 | `scripts/bake-beginning-fields.mjs` | 烘焙 TSX → `public/assets/one-city/` + `oneCityTilesetManifest.ts` |
 | `apps/web/src/game/oneCityTilesetManifest.ts` | **自动生成**；atlas = `spritesheet`，collection PNG = `image` |
 | `apps/web/src/game/areaLoader.ts` | `queueHomeMapAssets` → `queueAsset`（禁止 atlas 用 `loader.image`） |
-| `apps/web/src/game/HomeMapBackground.ts` | Object layer 手动 sprite；**禁止** `createFromObjects` 替代 collection 路径 |
+| `apps/web/src/game/HomeMapBackground.ts` | Object layer 手动 sprite；**Object Shadows** 归入 Phaser `Layer`（`MULTIPLY`）；**禁止** `createFromObjects` 替代 collection 路径 |
 
 ---
 
@@ -53,7 +52,14 @@ Web agent 摘要：[apps/web/AGENTS.md](../apps/web/AGENTS.md) · 回归 ISSUE-0
 
 统一用 `entityLayout.ts` 的 `ySortDepth` / `entityYSortDepth` / `tiledObjectYSortDepth`。
 
-- Tiled tile object：**左下角** 锚点
+| 带 | depth | 说明 |
+|----|-------|------|
+| 瓦片层 | `MAP_TILE_DEPTH_BASE` 起按 Tiled 顺序递增 | Ground … Shadows … Water |
+| **Object Shadows** | 插入 Tiled 图层序（Shadows 瓦片后、Water 前） | Phaser 4 `Layer`；`MULTIPLY` + α=0.25；**不参与** Y-sort |
+| Object Layer 1 | `ENTITY_DEPTH_BASE` + Y-sort | `tiledObjectYSortDepth` |
+| 玩家 / NPC | 同上 + `YSORT_LAYER` | `entityYSortDepth` |
+
+- Tiled tile object（Object Layer 1）：**左下角** 锚点
 - 玩家 / NPC：**格心 X + 格南缘 Y**（与 sprite 脚底一致）
 - 高大物件（树冠）：将来走 Tiled **Overhead** 层 + `YSORT_OVERHEAD_DEPTH`，不单点 Y-sort
 
