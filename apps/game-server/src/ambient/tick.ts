@@ -1,5 +1,11 @@
 import type { GridCell, NpcState, RoomState } from "@aetherlife/shared";
-import { COUNCIL_NPC_IDS, isCouncilNpcId, isTargetIntent, isZoneIntent } from "@aetherlife/shared";
+import {
+  COUNCIL_NPC_IDS,
+  isCouncilNpcId,
+  isTargetIntent,
+  isZoneIntent,
+  stableStringHash,
+} from "@aetherlife/shared";
 import { collectPlayerCells, findPlayerCellByPlayerId } from "../colyseus/bridge.js";
 import { buildMoveGrid, findNearestWalkableCell } from "../colyseus/move-handler.js";
 import type { GameRoomState } from "../colyseus/schema.js";
@@ -7,7 +13,12 @@ import { applyMapAndBumpVersion } from "../colyseus/version.js";
 import type { ChunkLoader } from "../world/chunk-loader.js";
 import { getIntent, isIntentExpired } from "./intent-cache.js";
 import { buildOtherNpcCells, stepNpcTowardTarget } from "./move.js";
-import { resolveScheduleSegment, shouldSkipMovement, type ScheduleSegment } from "./schedule.js";
+import {
+  resolveScheduleSegment,
+  shouldSkipMovement,
+  type Mobility,
+  type ScheduleSegment,
+} from "./schedule.js";
 import { pickZoneTarget } from "./zone-wander.js";
 
 export const MAIN_AMBIENT_NPC_IDS = COUNCIL_NPC_IDS;
@@ -28,6 +39,16 @@ export function hashNpcBucket(npcId: string): number {
     hash = (hash * 31 + npcId.charCodeAt(i)) | 0;
   }
   return Math.abs(hash) % AMBIENT_BUCKET_COUNT;
+}
+
+/** Per-tick step probability (0–100) by mobility — wander ~55%, linger (stationary/poi) ~30% (D-23). */
+export function stepPercentForMobility(mobility: Mobility): number {
+  return mobility === "wander" ? 55 : 30;
+}
+
+/** Deterministic per-NPC-per-minute step gate (D-23/D-24). Resting/idle never reach here. */
+export function shouldStepThisTick(npcId: string, gameMinute: number, mobility: Mobility): boolean {
+  return stableStringHash(`ambient-step:${npcId}:${gameMinute}`) % 100 < stepPercentForMobility(mobility);
 }
 
 export type AmbientTickContext = {
