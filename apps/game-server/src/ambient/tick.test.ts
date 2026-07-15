@@ -10,9 +10,26 @@ import {
 } from "@aetherlife/shared";
 import { GameRoomState } from "../colyseus/schema.js";
 import { clearAllIntentsForTests, setIntent } from "./intent-cache.js";
-import { hashNpcBucket, MAIN_AMBIENT_NPC_IDS, pickJoinVicinityTarget, runAmbientTick, applySoftLeashTarget } from "./tick.js";
+import type { Mobility } from "./schedule.js";
+import {
+  applySoftLeashTarget,
+  hashNpcBucket,
+  MAIN_AMBIENT_NPC_IDS,
+  pickJoinVicinityTarget,
+  runAmbientTick,
+  shouldStepThisTick,
+  stepPercentForMobility,
+} from "./tick.js";
 import { clearChunkDeltaMemory } from "../world/chunk-repository.js";
 import { ChunkLoader } from "../world/chunk-loader.js";
+
+/** First minute in 0..1439 where the B2 step gate passes (plan 03 integration helper). */
+function stepActiveMinute(npcId: string, mobility: Mobility): number {
+  for (let m = 0; m < 1440; m++) {
+    if (shouldStepThisTick(npcId, m, mobility)) return m;
+  }
+  throw new Error(`no passing minute for ${npcId}/${mobility} — hash key wrong?`);
+}
 
 const TICK_SOURCE = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), "tick.ts"),
@@ -361,5 +378,54 @@ describe("runAmbientTick", () => {
     expect(code).not.toMatch(/\bllm\b/i);
     expect(code).not.toMatch(/\bisBackgroundNpc\b/);
     expect(code).not.toMatch(/\brunBackgroundNpcTick\b/);
+  });
+});
+
+describe("shouldStepThisTick (B2 gate)", () => {
+  it("wander gate passes ~55% of minutes (deterministic count)", () => {
+    let pass = 0;
+    for (let m = 0; m < 1440; m++) {
+      if (shouldStepThisTick("npc-3", m, "wander")) pass++;
+    }
+    const ratio = pass / 1440;
+    expect(ratio).toBeGreaterThan(0.5);
+    expect(ratio).toBeLessThan(0.6);
+    expect(stepActiveMinute("npc-3", "wander")).toBeGreaterThanOrEqual(0);
+  });
+
+  it("linger gate passes ~30% of minutes (deterministic count)", () => {
+    expect(stepPercentForMobility("wander")).toBe(55);
+    expect(stepPercentForMobility("stationary")).toBe(30);
+    expect(stepPercentForMobility("poi")).toBe(30);
+    let pass = 0;
+    for (let m = 0; m < 1440; m++) {
+      if (shouldStepThisTick("npc-3", m, "stationary")) pass++;
+    }
+    const ratio = pass / 1440;
+    expect(ratio).toBeGreaterThan(0.25);
+    expect(ratio).toBeLessThan(0.35);
+  });
+
+  it("multiple NPCs can pass the gate on the same minute (B2, D-22/D-24)", () => {
+    let coPassMinutes = 0;
+    for (let m = 0; m < 1440; m++) {
+      const movers = COUNCIL_NPC_IDS.filter((id) => shouldStepThisTick(id, m, "wander"));
+      if (movers.length >= 2) coPassMinutes++;
+    }
+    expect(coPassMinutes).toBeGreaterThan(0);
+  });
+
+  it("per-NPC jitter desynchronizes gate minutes (D-24)", () => {
+    let npc1Only = false;
+    let npc2Only = false;
+    for (let m = 0; m < 1440; m++) {
+      const a = shouldStepThisTick("npc-1", m, "wander");
+      const b = shouldStepThisTick("npc-2", m, "wander");
+      if (a && !b) npc1Only = true;
+      if (b && !a) npc2Only = true;
+      if (npc1Only && npc2Only) break;
+    }
+    expect(npc1Only).toBe(true);
+    expect(npc2Only).toBe(true);
   });
 });
