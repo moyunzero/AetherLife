@@ -77,6 +77,7 @@ from src.graph.worker_state_fetch import (  # noqa: F401
     _hot_worker_snapshot,
     _player_id,
     _remember_worker_snapshot,
+    _remember_worker_snapshot_all_projections,
     _stale_worker_snapshot,
     _stale_worker_snapshots,
     _worker_state_stale_key,
@@ -302,7 +303,7 @@ def apply_tools(state: GraphState, *, settings: Settings, client: httpx.Client) 
     updated_snapshot = body.get("state")
     if not isinstance(updated_snapshot, dict):
         updated_snapshot = state.get("room_snapshot") or {}
-    _remember_worker_snapshot(room_id, player_id, updated_snapshot)
+    _remember_worker_snapshot_all_projections(room_id, player_id, updated_snapshot)
     record_phase_ms("t_apply_ms", int((time.perf_counter() - t0) * 1000))
     return {
         **state,

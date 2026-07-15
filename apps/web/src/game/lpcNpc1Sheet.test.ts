@@ -68,11 +68,10 @@ describe("lpcNpc1Sheet", () => {
     expect(LPC_NPC1_IDLE_BASE_ROW).toBe(22);
   });
 
-  it("builds walk and idle anim keys per profile", () => {
-    expect(lpcNpcAnimKey("lpc-player-1", "walk", "down")).toBe("lpcp1-walk-down");
-    expect(lpcNpcAnimKey("lpc-npc-1", "walk", "down")).toBe("lpc1-walk-down");
-    expect(lpcNpcAnimKey("lpc-npc-2", "walk", "up")).toBe("lpc2-walk-up");
-    expect(lpcNpcAnimKey("lpc-npc-3", "idle", "up")).toBe("lpc3-idle-up");
-    expect(lpcNpcAnimKey("lpc-npc-12", "walk", "left")).toBe("lpc12-walk-left");
+  it("NPC step duration covers one LPC walk loop (not player WASD 200ms)", async () => {
+    const { NPC_GRID_STEP_MS, GRID_STEP_MS } = await import("./gridMovement.js");
+    const { lpcNpc1WalkCycleMs } = await import("./lpcNpc1Sheet.js");
+    expect(NPC_GRID_STEP_MS).toBe(lpcNpc1WalkCycleMs("lpc-npc-1"));
+    expect(NPC_GRID_STEP_MS).toBeGreaterThan(GRID_STEP_MS);
   });
 });

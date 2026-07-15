@@ -366,11 +366,8 @@ function playLpcWalkAnim(ent: AnimatableEntity, facing: CardinalFacing): void {
   const key = lpcNpcAnimKey(profile, "walk", facing);
   ent.facingDir = facing;
   applyFacingFlip(ent.avatar, facing, profile);
-  const current = ent.avatar.anims.currentAnim;
-  if (current?.key === key && ent.avatar.anims.isPlaying) {
-    return;
-  }
-  ent.avatar.play(key, true);
+  // Always (re)start walk — ignoreIfPlaying=false so idle→walk always swaps frames.
+  ent.avatar.play(key, false);
 }
 
 export function playWalkAnim(ent: AnimatableEntity, facing: CardinalFacing): void {

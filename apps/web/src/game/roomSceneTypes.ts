@@ -48,6 +48,9 @@ export type EntitySprite = AnimatableEntity & {
   intentLabelTween?: Phaser.Tweens.Tween;
   intentLabelWantShow?: boolean;
   moveTween?: Phaser.Tweens.Tween;
+  /** While a step tween plays, queue the next ambient/schema dest (1 cell). */
+  pendingGridX?: number;
+  pendingGridY?: number;
   npcId?: string;
   playerSessionId?: string;
   spriteMode?: boolean;

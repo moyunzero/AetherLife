@@ -220,8 +220,8 @@ def test_fetch_state_uses_stale_snapshot_after_timeout():
     settings = Settings(game_server_url="http://127.0.0.1:2567")
     state = {"room_id": "default", "player_id": "p1", "room_snapshot": {}}
     stale_body = {"npcs": [{"id": "npc-1", "x": 1, "y": 2}]}
-    wsf._remember_worker_snapshot("default", "p1", stale_body)
-    key = wsf._worker_state_stale_key("default", "p1")
+    wsf._remember_worker_snapshot("default", "p1", stale_body, skip_nearby_lore=True)
+    key = wsf._worker_state_stale_key("default", "p1", skip_nearby_lore=True)
     snap, ts = wsf._stale_worker_snapshots[key]
     wsf._stale_worker_snapshots[key] = (snap, ts - wsf._FETCH_STATE_HOT_CACHE_TTL_S - 1.0)
 
@@ -240,7 +240,7 @@ def test_fetch_state_hot_cache_skips_http():
     settings = Settings(game_server_url="http://127.0.0.1:2567")
     state = {"room_id": "default", "player_id": "p1", "room_snapshot": {}}
     fresh_body = {"npcs": [{"id": "npc-1", "x": 1, "y": 2}]}
-    wsf._remember_worker_snapshot("default", "p1", fresh_body)
+    wsf._remember_worker_snapshot("default", "p1", fresh_body, skip_nearby_lore=True)
 
     client = MagicMock()
 
@@ -255,6 +255,32 @@ def test_fetch_state_hot_cache_skips_http():
     client.get.assert_not_called()
     assert out["room_snapshot"]["npcs"][0]["x"] == 1
     record_phase.assert_any_call("t_fetch_state_ms", 0)
+
+
+def test_skip_lore_cache_does_not_satisfy_full_fetch():
+    from src.graph import worker_state_fetch as wsf
+
+    wsf._stale_worker_snapshots.clear()
+    settings = Settings(game_server_url="http://127.0.0.1:2567")
+    state = {"room_id": "default", "player_id": "p1", "room_snapshot": {}}
+    skip_body = {"npcs": [{"id": "npc-1", "x": 1, "y": 2}]}
+    wsf._remember_worker_snapshot("default", "p1", skip_body, skip_nearby_lore=True)
+
+    ok = MagicMock()
+    ok.status_code = 200
+    ok.raise_for_status = MagicMock()
+    ok.json.return_value = {
+        "state": {"npcs": [{"id": "npc-1", "x": 1, "y": 2}]},
+        "nearbyLore": [{"chunkKey": "0,0", "text": "lore"}],
+    }
+    client = MagicMock()
+    client.get.return_value = ok
+
+    with patch("src.graph.worker_state_fetch.safe_response_json", side_effect=lambda r: r.json()):
+        out = wsf.fetch_state(state, settings=settings, client=client, skip_nearby_lore=False)
+
+    client.get.assert_called_once()
+    assert out["room_snapshot"].get("nearbyLore") == [{"chunkKey": "0,0", "text": "lore"}]
 
 
 def test_apply_tools_refreshes_hot_snapshot_cache():
@@ -285,7 +311,7 @@ def test_apply_tools_refreshes_hot_snapshot_cache():
         "tool_calls": [{"name": "move", "args": {"type": "move", "x": 10, "y": 20}}],
         "allowed_tools": ["move", "speak", "wait"],
     }
-    wsf._remember_worker_snapshot("default", "p1", old_room)
+    wsf._remember_worker_snapshot_all_projections("default", "p1", old_room)
 
     ok_response = MagicMock()
     ok_response.status_code = 200
@@ -299,3 +325,6 @@ def test_apply_tools_refreshes_hot_snapshot_cache():
     assert hot is not None
     assert hot["npcs"][0]["x"] == 10
     assert hot["npcs"][0]["y"] == 20
+    hot_skip = npc_loop._hot_worker_snapshot("default", "p1", skip_nearby_lore=True)
+    assert hot_skip is not None
+    assert hot_skip["npcs"][0]["x"] == 10

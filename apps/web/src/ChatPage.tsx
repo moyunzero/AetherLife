@@ -217,7 +217,6 @@ export function ChatPage() {
     openDrawer,
     handleDrawerTabChange,
     closeDrawer,
-    openChronicle,
   } = useShellDrawerState({
     clearChronicleUnread,
     mapRoomId,
@@ -240,10 +239,10 @@ export function ChatPage() {
         openDrawer("council");
         return;
       }
-      openChronicle();
+      openDrawer("chronicle");
       void openMinutesForEntry(toast.resultEntryId);
     },
-    [openDrawer, openChronicle, openMinutesForEntry],
+    [openDrawer, openMinutesForEntry],
   );
 
   useEffect(() => {
@@ -388,28 +387,30 @@ export function ChatPage() {
   useEffect(() => subscribeTabPresence(() => setDuplicateTab(true)), []);
 
   useEffect(() => {
-    if (!roomState) return;
-    const moves: string[] = [];
-    if (npcWorldLive) {
-      for (const npc of roomState.npcs) {
-        const prev = prevNpcPosRef.current.get(npc.id);
-        if (prev && (prev.x !== npc.x || prev.y !== npc.y)) {
-          moves.push(`${npc.name} 移动到 (${npc.x}, ${npc.y})`);
+    // Prefer Colyseus live grids for hints/moveMap; HTTP roomState is secondary.
+    if (roomState) {
+      const moves: string[] = [];
+      if (npcWorldLive) {
+        for (const npc of roomState.npcs) {
+          const prev = prevNpcPosRef.current.get(npc.id);
+          if (prev && (prev.x !== npc.x || prev.y !== npc.y)) {
+            moves.push(`${npc.name} 移动到 (${npc.x}, ${npc.y})`);
+          }
         }
       }
+      for (const npc of roomState.npcs) {
+        prevNpcPosRef.current.set(npc.id, { x: npc.x, y: npc.y });
+      }
+      if (moves.length > 0) setNpcMoveHint(moves.join("；"));
+      setMoveMap((prev) => mergeRoomStateIntoMoveMap(roomState, prev, colyseusNpcGrids));
     }
-    for (const npc of roomState.npcs) {
-      prevNpcPosRef.current.set(npc.id, { x: npc.x, y: npc.y });
-    }
-    if (moves.length > 0) setNpcMoveHint(moves.join("；"));
-    setMoveMap((prev) => {
-      if (!npcWorldLive) return roomState;
-      return mergeRoomStateIntoMoveMap(roomState, prev, colyseusNpcGrids);
-    });
 
     if (npcWorldLive) return;
     if (awaitingResetRef.current) return;
     if (initialNpcLiveDoneRef.current) return;
+    // Enable walk tweens once Colyseus NPCs exist — do not wait for HTTP roomState
+    // (that left early ambient steps on snapNpcTo = no walk frames).
+    if (roomNpcs.length === 0 && !roomState) return;
 
     const id = requestAnimationFrame(() =>
       requestAnimationFrame(() => {
@@ -418,7 +419,7 @@ export function ChatPage() {
       }),
     );
     return () => cancelAnimationFrame(id);
-  }, [roomState, npcWorldLive, colyseusNpcGrids]);
+  }, [roomState, roomNpcs.length, npcWorldLive, colyseusNpcGrids]);
 
   const performResetGame = useCallback(async () => {
     prevNpcPosRef.current.clear();

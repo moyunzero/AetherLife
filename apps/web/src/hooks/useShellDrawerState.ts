@@ -77,17 +77,11 @@ export function useShellDrawerState({
     setDrawerOpen(false);
   }, []);
 
-  const openChronicle = useCallback(() => {
-    setDrawerTab("chronicle");
-    setDrawerOpen(true);
-  }, []);
-
   return {
     drawerOpen,
     drawerTab,
     openDrawer,
     handleDrawerTabChange,
     closeDrawer,
-    openChronicle,
   };
 }

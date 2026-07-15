@@ -12,16 +12,19 @@ import { GameRoomState } from "../colyseus/schema.js";
 import { clearAllIntentsForTests, setIntent } from "./intent-cache.js";
 import {
   resolveScheduleSegment,
+  segmentKey,
   shouldSkipMovement,
   type Mobility,
 } from "./schedule.js";
 import {
   applySoftLeashTarget,
+  collectWalkingReservedTargets,
   MAIN_AMBIENT_NPC_IDS,
   pickJoinVicinityTarget,
   runAmbientTick,
   shouldStepThisTick,
   stepPercentForMobility,
+  WALK_TIMEOUT_TICKS,
 } from "./tick.js";
 import { clearChunkDeltaMemory } from "../world/chunk-repository.js";
 import { ChunkLoader } from "../world/chunk-loader.js";
@@ -248,6 +251,183 @@ describe("runAmbientTick", () => {
     expect(Math.max(Math.abs(npc.x - target!.x), Math.abs(npc.y - target!.y))).toBeLessThan(
       Math.max(Math.abs(npc.x - 31), Math.abs(npc.y - 12)),
     );
+  });
+
+  it("collectWalkingReservedTargets seeds held walk destinations", () => {
+    const motion = new Map([
+      [
+        "npc-1",
+        {
+          mode: "walking" as const,
+          targetGx: 22,
+          targetGy: 12,
+          pauseTicksLeft: 0,
+          walkTicksLeft: 10,
+          segmentKey: "orchard|reading|stationary|360-480",
+        },
+      ],
+      [
+        "npc-2",
+        {
+          mode: "pausing" as const,
+          targetGx: 5,
+          targetGy: 5,
+          pauseTicksLeft: 3,
+          walkTicksLeft: 0,
+          segmentKey: "orchard|tending_crops|stationary|360-480",
+        },
+      ],
+    ]);
+    expect(collectWalkingReservedTargets(motion)).toEqual([{ x: 22, y: 12 }]);
+  });
+
+  it("held walk destination stays reserved so a later NPC does not claim it", async () => {
+    clearAllIntentsForTests();
+    const map = createDefaultRoom("tick-reserve-hold");
+    const gameState = new GameRoomState();
+    // orchard stationary linger for npc-1 (picker) and npc-2 (walker holder)
+    gameState.gameMinute = 400;
+
+    const picker = map.npcs.find((n) => n.id === "npc-1")!;
+    const walker = map.npcs.find((n) => n.id === "npc-2")!;
+    // Process picker before walker so only seeded reservations protect the held dest.
+    map.npcs = [
+      picker,
+      walker,
+      ...map.npcs.filter((n) => n.id !== "npc-1" && n.id !== "npc-2"),
+    ];
+
+    const reservedDest = { x: 12, y: 10 };
+    picker.x = 10;
+    picker.y = 10;
+    picker.homeX = 10;
+    picker.homeY = 10;
+    picker.maxRadius = 40;
+    walker.x = 8;
+    walker.y = 10;
+    walker.homeX = 8;
+    walker.homeY = 10;
+    walker.maxRadius = 40;
+
+    // Park the rest so they do not consume zone cells or reclaim reservedDest.
+    const speakJobs = new Map<string, string>();
+    for (const npc of map.npcs) {
+      if (npc.id === "npc-1" || npc.id === "npc-2") continue;
+      speakJobs.set(npc.id, "park");
+      npc.x = 2;
+      npc.y = 2;
+    }
+    map.player.x = 1;
+    map.player.y = 1;
+
+    const walkerSeg = resolveScheduleSegment(walker.id, 401)!;
+    const motion = new Map([
+      [
+        walker.id,
+        {
+          mode: "walking" as const,
+          targetGx: reservedDest.x,
+          targetGy: reservedDest.y,
+          pauseTicksLeft: 0,
+          walkTicksLeft: WALK_TIMEOUT_TICKS,
+          segmentKey: segmentKey(walkerSeg),
+        },
+      ],
+    ]);
+
+    // Linger pool around (10,10) ≤2 includes reservedDest (12,10). Fill recent so
+    // the non-reserved alternative peers are less sticky; reservation must still win.
+    const recentNpcCells = new Map<string, { x: number; y: number }[]>();
+    recentNpcCells.set(picker.id, [
+      { x: 10, y: 10 },
+      { x: 11, y: 10 },
+      { x: 9, y: 10 },
+      { x: 10, y: 11 },
+      { x: 10, y: 9 },
+      { x: 11, y: 11 },
+      { x: 9, y: 9 },
+      { x: 11, y: 9 },
+      { x: 9, y: 11 },
+    ]);
+
+    const loader = await loaderForMap(map);
+    runAmbientTick({
+      roomId: "tick-reserve-hold",
+      gameState,
+      map,
+      loader,
+      npcSpeakJobs: speakJobs,
+      recentNpcCells,
+      ambientMotion: motion,
+    });
+
+    const pickerMotion = motion.get(picker.id);
+    expect(pickerMotion?.mode).toBe("walking");
+    expect(pickerMotion?.targetGx === reservedDest.x && pickerMotion?.targetGy === reservedDest.y).toBe(
+      false,
+    );
+  });
+
+  it("invalidates held walk when the schedule segment changes", async () => {
+    clearAllIntentsForTests();
+    const map = createDefaultRoom("tick-segment-invalidate");
+    const gameState = new GameRoomState();
+    // npc-1: orchard stationary ends at 480 → home patrol wander
+    gameState.gameMinute = 479;
+
+    const npc = map.npcs.find((n) => n.id === "npc-1")!;
+    npc.x = 10;
+    npc.y = 10;
+    npc.homeX = 10;
+    npc.homeY = 10;
+    npc.maxRadius = 40;
+
+    const speakJobs = new Map<string, string>();
+    for (const other of map.npcs) {
+      if (other.id === npc.id) continue;
+      speakJobs.set(other.id, "park");
+      other.x = 2;
+      other.y = 2;
+    }
+    map.player.x = 1;
+    map.player.y = 1;
+
+    const staleSeg = resolveScheduleSegment(npc.id, 400)!;
+    const staleTarget = { x: 14, y: 10 };
+    const motion = new Map([
+      [
+        npc.id,
+        {
+          mode: "walking" as const,
+          targetGx: staleTarget.x,
+          targetGy: staleTarget.y,
+          pauseTicksLeft: 0,
+          walkTicksLeft: WALK_TIMEOUT_TICKS,
+          segmentKey: segmentKey(staleSeg),
+        },
+      ],
+    ]);
+
+    const loader = await loaderForMap(map);
+    runAmbientTick({
+      roomId: "tick-segment-invalidate",
+      gameState,
+      map,
+      loader,
+      npcSpeakJobs: speakJobs,
+      recentNpcCells: new Map(),
+      ambientMotion: motion,
+    });
+
+    expect(gameState.gameMinute).toBe(480);
+    const active = resolveScheduleSegment(npc.id, 480)!;
+    expect(segmentKey(active)).not.toBe(segmentKey(staleSeg));
+    const next = motion.get(npc.id);
+    expect(next?.segmentKey).toBe(segmentKey(active));
+    // Continued hold would only decrement walkTicksLeft; invalidate + re-pick resets it.
+    if (next?.mode === "walking") {
+      expect(next.walkTicksLeft).toBe(WALK_TIMEOUT_TICKS);
+    }
   });
 
   it("arrives then pauses before picking a new walk", async () => {

@@ -1,5 +1,28 @@
 /** Shared grid locomotion timing — Phaser tweens + keyboard repeat. */
 export const GRID_STEP_MS = 200;
+/**
+ * NPC ambient visual step (ms). Must cover a readable LPC gait.
+ * Player WASD uses GRID_STEP_MS (200); NPCs only move every ambient tick (~6s), so
+ * reusing 200ms only shows ~2–3 walk frames → frozen-pose slide (“漂移”).
+ * 8 frames × 75ms = 600ms = one full NPC walk loop.
+ */
+export const NPC_GRID_STEP_MS = 600;
+/**
+ * Max Manhattan distance for animated NPC catch-up. Larger gaps snap
+ * (cold start / batched Colyseus packs) — avoids multi-cell Linear "drift".
+ */
+export const NPC_ANIMATE_CATCHUP_MAX_CELLS = 2;
+
+/** True when animated walk would look like multi-cell drift — snap instead. */
+export function shouldSnapNpcCatchup(
+  fromX: number,
+  fromY: number,
+  toX: number,
+  toY: number,
+  maxCells: number = NPC_ANIMATE_CATCHUP_MAX_CELLS,
+): boolean {
+  return Math.abs(fromX - toX) + Math.abs(fromY - toY) > maxCells;
+}
 export const STEP_OVERLAP = 0.72;
 export const MAX_PREDICT_AHEAD = 8;
 /** Visual-only steps while network pending is full (keeps sprite moving at chunk boundaries). */

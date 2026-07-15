@@ -310,11 +310,10 @@ def load_memory_context(
                         file=sys.stderr,
                     )
                 else:
-                    preview = (recent[0].get("text") or "")[:80] if recent else ""
                     print(
                         f"memory-context recall recent-only miss room={state['room_id']} "
                         f"npc={npc_id} player={_player_id(state)} recent={len(recent)} "
-                        f"preview={preview!r}",
+                        "matched=false",
                         file=sys.stderr,
                     )
         except Exception as exc:

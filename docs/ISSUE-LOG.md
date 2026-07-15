@@ -73,6 +73,7 @@
 
 9. **禁止** 在 `POST /reset` 完成前递增 `npcResetEpoch`：否则会用**旧** `mapNpcs` 重建 sprite，再在 `npcWorldLive=true` 时从远格 tween 回默认格（「走回」）。
 10. 重置顺序：`flushSync` 关闭 animate → `await resetGame()` → `flushSync` 同步 `moveMap` + `npcResetEpoch` → 双 `rAF` 再开启 live。
+10b. **NPC 步进时长必须覆盖 LPC gait**：`NPC_GRID_STEP_MS`（600 = 8×75ms）≠ 玩家 `GRID_STEP_MS`（200）。200ms 格间 tween 只能露出 ~2–3 走帧 → 站立姿势滑动（「漂移」）。`npcAnimateMoves` false→true 首帧 snap；曼哈顿/路径 >2 snap；禁止同格 schema 打断进行中步；`moveMap` 始终合并 Colyseus；**`npcWorldLive` 可在 `roomNpcs` 就绪后开启**（勿只等 HTTP roomState）。回归：`lpcNpc1Sheet.test.ts` · `gridMovement.npcCatchup.test.ts`。
 11. 回归：`pnpm uat:phase7:reset-snap`（需 `pnpm --filter @aetherlife/shared build` + dev web/gs）。
 12. **`window.__aetherlife_npcDebug` 仅允许在 `import.meta.env.DEV` 下挂载**；生产构建不得暴露网格/tween 内省。
 
@@ -2695,6 +2696,42 @@ Worker 主循环仅在 npc-turn 队列 **连续 5s 为空** 时才 `BLPOP` chunk
 **防复发**
 
 - Guardrail #110
+
+---
+
+### ISSUE-104 — Ambient NPC 冷启动/步进呈 idle「漂移」（无可读走帧）
+
+- **状态:** fixed
+- **发现:** 2026-07-15（Phase 26.2 World Alive 实机）
+- **阶段/范围:** Phase 26.2 · `apps/web/src/game/**` · `ChatPage` `npcWorldLive`
+- **严重性:** major（世界「活着」体感）
+
+**复现**
+
+1. `pnpm dev:stack`，硬刷新进房（新 roomId 更易见）。
+2. 观察议会 NPC ambient 前几步：角色滑动到邻格，几乎不见 LPC walk 帧；稍后偶发可见走帧。
+
+**根因**
+
+- NPC 格间 tween 误用玩家 WASD 的 `GRID_STEP_MS=200`；LPC walk 循环为 **8×75ms≈600ms** → 200ms 仅露 ~2–3 帧，观感 = 站立姿势滑动（「漂移」）。
+- `npcWorldLive` 曾只等 HTTP `roomState`：Colyseus 已有格时 early ambient 仍走 `snapNpcTo`（无 walk）。
+- 叠加：live 边沿未 snap、远距 catch-up tween、同格 schema 打断进行中步、`moveMap` 被滞后 HTTP 盖写。
+
+**修复**
+
+- 新增 `NPC_GRID_STEP_MS=600`；步进时 `anims.timeScale = cycleMs / stepMs` 对齐 gait。
+- LPC `play(key, false)` 强制 idle→walk；同目标中途不打断；远距/多格 snap（`NPC_ANIMATE_CATCHUP_MAX_CELLS=2`）。
+- `npcWorldLive` 在 `roomNpcs` 就绪即可开；`moveMap` 始终合并 Colyseus；live 边沿首帧 snap。
+
+**验证**
+
+- `pnpm --filter @aetherlife/web exec vitest run src/game/lpcNpc1Sheet.test.ts src/game/gridMovement.npcCatchup.test.ts`
+- `pnpm --filter @aetherlife/web exec vitest run src/game/`
+- 实机硬刷新：ambient 每步有清晰 walk 循环（非 idle 滑行）
+
+**防复发**
+
+- Guardrail **10b**（NPC 步进须覆盖 LPC gait / live 门禁）
 
 ---
 

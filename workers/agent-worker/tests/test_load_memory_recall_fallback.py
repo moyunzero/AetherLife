@@ -33,3 +33,34 @@ def test_load_memory_context_uses_recent_only_when_embed_misses_seed():
     picked = pick_recall_memory(state["player_message"], out["retrieved_memories"])
     assert picked is not None
     assert "FACT-P21-ABC" in (picked.get("text") or "")
+
+
+def test_recall_recent_only_miss_stderr_omits_memory_text(capsys):
+    """Miss path must log counts only — never dump recalled memory contents."""
+    secret = "player: 门锁密码是 SECRET-PASS-42"
+    state = {
+        "room_id": "verify-mem-privacy",
+        "player_message": "我叫什么名字？",
+        "npc_id": "npc-1",
+        "player_id": "playerprivacy001",
+        "recent_turns": [],
+    }
+    settings = Settings(game_server_url="http://127.0.0.1:2567")
+
+    with patch(
+        "src.graph.speak_fetch.fetch_memory_context",
+        return_value={"memoryCount": 0, "retrieved": []},
+    ):
+        with patch(
+            "src.graph.speak_fetch.fetch_recent_memories",
+            return_value=[{"text": secret}],
+        ):
+            client = MagicMock(spec=httpx.Client)
+            load_memory_context(state, settings=settings, client=client)
+
+    err = capsys.readouterr().err
+    assert "recent-only miss" in err
+    assert "matched=false" in err
+    assert "preview=" not in err
+    assert "SECRET-PASS-42" not in err
+    assert secret not in err

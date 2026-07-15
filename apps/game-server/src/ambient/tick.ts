@@ -15,6 +15,7 @@ import { getIntent, isIntentExpired } from "./intent-cache.js";
 import { buildOtherNpcCells, stepNpcTowardTarget } from "./move.js";
 import {
   resolveScheduleSegment,
+  segmentKey,
   shouldSkipMovement,
   type Mobility,
   type ScheduleSegment,
@@ -49,6 +50,8 @@ export type AmbientMotion = {
   pauseTicksLeft: number;
   /** Ticks remaining before walk timeout forces re-pick. */
   walkTicksLeft: number;
+  /** Schedule segment that started this hold — invalidate when the active segment changes. */
+  segmentKey: string;
 };
 
 export type AmbientTickContext = {
@@ -244,11 +247,25 @@ function resolveMovementTarget(
   };
 }
 
+/** Destinations already claimed by held walks — seed before per-NPC target picks (never-stack). */
+export function collectWalkingReservedTargets(
+  ambientMotion: ReadonlyMap<string, AmbientMotion>,
+): GridCell[] {
+  const reserved: GridCell[] = [];
+  for (const motion of ambientMotion.values()) {
+    if (motion.mode === "walking") {
+      reserved.push({ x: motion.targetGx, y: motion.targetGy });
+    }
+  }
+  return reserved;
+}
+
 function beginWalk(
   motionMap: Map<string, AmbientMotion>,
   npcId: string,
   targetGx: number,
   targetGy: number,
+  holdSegmentKey: string,
 ): void {
   motionMap.set(npcId, {
     mode: "walking",
@@ -256,6 +273,7 @@ function beginWalk(
     targetGy,
     pauseTicksLeft: 0,
     walkTicksLeft: WALK_TIMEOUT_TICKS,
+    segmentKey: holdSegmentKey,
   });
 }
 
@@ -265,6 +283,7 @@ function beginPause(
   gameMinute: number,
   x: number,
   y: number,
+  holdSegmentKey: string,
 ): void {
   motionMap.set(npcId, {
     mode: "pausing",
@@ -272,6 +291,7 @@ function beginPause(
     targetGy: y,
     pauseTicksLeft: ambientPauseTicks(npcId, gameMinute),
     walkTicksLeft: 0,
+    segmentKey: holdSegmentKey,
   });
 }
 
@@ -290,7 +310,7 @@ export function runAmbientTick(ctx: AmbientTickContext): {
   const gameMinute = gameState.gameMinute;
 
   const playerCells = collectPlayerCells(roomId, map);
-  const reservedTargets: GridCell[] = [];
+  const reservedTargets: GridCell[] = collectWalkingReservedTargets(ambientMotion);
 
   for (const npc of map.npcs) {
     if (!isCouncilNpcId(npc.id)) {
@@ -323,7 +343,12 @@ export function runAmbientTick(ctx: AmbientTickContext): {
       continue;
     }
 
+    const activeSegmentKey = segmentKey(segment);
     let motion = ambientMotion.get(npc.id);
+    if (motion && motion.segmentKey !== activeSegmentKey) {
+      ambientMotion.delete(npc.id);
+      motion = undefined;
+    }
 
     // join_vicinity interrupts pause/walk hold
     if (npc.joinVicinityActive) {
@@ -380,7 +405,7 @@ export function runAmbientTick(ctx: AmbientTickContext): {
       recentNpcCells.set(npc.id, resolved.nextRecent);
       if (resolved.source !== "join") {
         reservedTargets.push({ x: resolved.targetGx, y: resolved.targetGy });
-        beginWalk(ambientMotion, npc.id, resolved.targetGx, resolved.targetGy);
+        beginWalk(ambientMotion, npc.id, resolved.targetGx, resolved.targetGy, activeSegmentKey);
       }
     }
 
@@ -415,7 +440,7 @@ export function runAmbientTick(ctx: AmbientTickContext): {
     }
 
     if (resolved.source !== "join" && npc.x === leashed.targetGx && npc.y === leashed.targetGy) {
-      beginPause(ambientMotion, npc.id, gameMinute, npc.x, npc.y);
+      beginPause(ambientMotion, npc.id, gameMinute, npc.x, npc.y, activeSegmentKey);
     }
   }
 

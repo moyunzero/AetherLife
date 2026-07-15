@@ -31,20 +31,51 @@ def _player_id(state: GraphState) -> str:
     return state.get("player_id") or "__legacy__"
 
 
-def _worker_state_stale_key(room_id: str, player_id: str) -> str:
-    return f"{room_id}:{player_id}"
+def _worker_state_stale_key(
+    room_id: str,
+    player_id: str,
+    *,
+    skip_nearby_lore: bool = False,
+) -> str:
+    proj = "skipLore" if skip_nearby_lore else "full"
+    return f"{room_id}:{player_id}:{proj}"
 
 
-def _remember_worker_snapshot(room_id: str, player_id: str, snapshot: dict[str, Any]) -> None:
+def _remember_worker_snapshot(
+    room_id: str,
+    player_id: str,
+    snapshot: dict[str, Any],
+    *,
+    skip_nearby_lore: bool = False,
+) -> None:
     clean = {k: v for k, v in snapshot.items() if not str(k).startswith("_")}
-    _stale_worker_snapshots[_worker_state_stale_key(room_id, player_id)] = (
+    _stale_worker_snapshots[
+        _worker_state_stale_key(room_id, player_id, skip_nearby_lore=skip_nearby_lore)
+    ] = (
         clean,
         time.time(),
     )
 
 
-def _stale_worker_snapshot(room_id: str, player_id: str) -> dict[str, Any] | None:
-    entry = _stale_worker_snapshots.get(_worker_state_stale_key(room_id, player_id))
+def _remember_worker_snapshot_all_projections(
+    room_id: str,
+    player_id: str,
+    snapshot: dict[str, Any],
+) -> None:
+    """Action writes: refresh both full and skipNearbyLore projections."""
+    _remember_worker_snapshot(room_id, player_id, snapshot, skip_nearby_lore=False)
+    _remember_worker_snapshot(room_id, player_id, snapshot, skip_nearby_lore=True)
+
+
+def _stale_worker_snapshot(
+    room_id: str,
+    player_id: str,
+    *,
+    skip_nearby_lore: bool = False,
+) -> dict[str, Any] | None:
+    entry = _stale_worker_snapshots.get(
+        _worker_state_stale_key(room_id, player_id, skip_nearby_lore=skip_nearby_lore)
+    )
     if not entry:
         return None
     snap, ts = entry
@@ -54,9 +85,16 @@ def _stale_worker_snapshot(room_id: str, player_id: str) -> dict[str, Any] | Non
     return {**snap, "_stale": True, "_stale_age_ms": age_ms}
 
 
-def _hot_worker_snapshot(room_id: str, player_id: str) -> dict[str, Any] | None:
+def _hot_worker_snapshot(
+    room_id: str,
+    player_id: str,
+    *,
+    skip_nearby_lore: bool = False,
+) -> dict[str, Any] | None:
     """Fresh worker-state snapshot within hot TTL — skip HTTP on back-to-back speaks."""
-    entry = _stale_worker_snapshots.get(_worker_state_stale_key(room_id, player_id))
+    entry = _stale_worker_snapshots.get(
+        _worker_state_stale_key(room_id, player_id, skip_nearby_lore=skip_nearby_lore)
+    )
     if not entry:
         return None
     snap, ts = entry
@@ -82,7 +120,7 @@ def fetch_state(
     url = f"{settings.game_server_url}/internal/rooms/{room_id}/worker-state"
     if skip_nearby_lore:
         url = f"{url}?skipNearbyLore=1"
-    hot = _hot_worker_snapshot(room_id, player_id)
+    hot = _hot_worker_snapshot(room_id, player_id, skip_nearby_lore=skip_nearby_lore)
     if hot is not None:
         age_ms = int(hot.pop("_cache_age_ms", 0))
         hot.pop("_cache_hit", None)
@@ -99,7 +137,12 @@ def fetch_state(
             nearby = body.get("nearbyLore")
             if nearby is not None:
                 snapshot = {**snapshot, "nearbyLore": nearby}
-            _remember_worker_snapshot(room_id, player_id, snapshot)
+            _remember_worker_snapshot(
+                room_id,
+                player_id,
+                snapshot,
+                skip_nearby_lore=skip_nearby_lore,
+            )
             return {**state, "room_snapshot": snapshot}
         except httpx.TimeoutException as exc:
             last_exc = exc
@@ -110,7 +153,11 @@ def fetch_state(
             if attempt + 1 < _FETCH_STATE_ATTEMPTS:
                 time.sleep(0.5 + attempt)
                 continue
-            stale = _stale_worker_snapshot(room_id, player_id)
+            stale = _stale_worker_snapshot(
+                room_id,
+                player_id,
+                skip_nearby_lore=skip_nearby_lore,
+            )
             if stale is not None:
                 age_ms = int(stale.get("_stale_age_ms") or 0)
                 print(

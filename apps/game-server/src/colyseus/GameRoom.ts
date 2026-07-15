@@ -65,6 +65,7 @@ export class GameRoom extends Room {
       targetGy: number;
       pauseTicksLeft: number;
       walkTicksLeft: number;
+      segmentKey: string;
     }
   >();
   private lastAckedSeq = new Map<string, number>();

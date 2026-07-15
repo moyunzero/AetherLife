@@ -257,6 +257,10 @@ export function syncRoomEntities(host: RoomSceneSyncHost): void {
 
   const seenNpcs = new Set<string>();
   const animateNpcMoves = host.registry.get("npcAnimateMoves") === true;
+  // Cold start / post-reset: first frame after animate turns on → snap-align (no long tween catch-up).
+  const wasAnimateMoves = host.registry.get("_npcAnimateMovesLatch") === true;
+  host.registry.set("_npcAnimateMovesLatch", animateNpcMoves);
+  const snapLiveEdge = animateNpcMoves && !wasAnimateMoves;
   for (const npc of mapNpcs) {
     seenNpcs.add(npc.id);
     let ent = host.npcSprites.get(npc.id);
@@ -264,8 +268,13 @@ export function syncRoomEntities(host: RoomSceneSyncHost): void {
       ent = host.createNpcEntity(npcDisplayName(npc.name), npc.x, npc.y, npc.id, 1);
       host.npcSprites.set(npc.id, ent);
     }
-    if (animateNpcMoves) {
-      host.tweenNpcTo(ent, npc.x, npc.y, npc.id);
+    if (animateNpcMoves && !snapLiveEdge) {
+      const atCell = ent.gridX === npc.x && ent.gridY === npc.y;
+      const idle =
+        atCell && !ent.moveTween?.isPlaying() && ent.pendingGridX == null;
+      if (!idle) {
+        host.tweenNpcTo(ent, npc.x, npc.y, npc.id);
+      }
     } else {
       host.snapNpcTo(ent, npc.x, npc.y);
     }

@@ -968,7 +968,7 @@ export class RoomScene extends Phaser.Scene {
     snapNpcToImpl(this.npcMotionCtx(), ent, gx, gy);
   }
 
-  /** NPC moves step-by-step (~140ms/cell), matching player sendMoveTo animation. */
+  /** NPC moves step-by-step (~NPC_GRID_STEP_MS/cell = one LPC gait). */
   private tweenNpcTo(ent: EntitySprite, gx: number, gy: number, npcId: string): void {
     tweenNpcToImpl(this.npcMotionCtx(), ent, gx, gy, npcId);
   }
