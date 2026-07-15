@@ -4,7 +4,7 @@ from typing import Any
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from src.graph.action_intent import player_requests_physical_action
-from src.graph.persona import build_persona_block
+from src.graph.speak_system_context import build_speak_system_context
 from src.graph.state import GraphState
 from src.collective.constants import BAND_LABEL_ZH
 
@@ -136,33 +136,16 @@ def format_attitude_context(
 
 
 def build_turn_messages(state: GraphState) -> list[SystemMessage | HumanMessage | AIMessage]:
-    memory = (state.get("memory_summary") or "").strip()
     room = state.get("room_snapshot") or {}
     room_json = json.dumps(room, ensure_ascii=False)
     if len(room_json) > 1500:
         room_json = room_json[:1500] + "…"
 
-    attitude = format_attitude_context(
-        band=state.get("attitude_band"),
-        effective_score=state.get("effective_score"),
-        summaries=state.get("collective_summaries"),
-        just_happened=state.get("just_happened_summary"),
+    system_text = build_speak_system_context(
+        state,
+        base_prompt=NPC_SYSTEM_PROMPT,
+        include_just_happened=True,
     )
-
-    npc_id = state.get("npc_id") or "npc-1"
-    persona_block = build_persona_block(
-        npc_id,
-        runtime_relationships=state.get("runtime_relationships"),
-    )
-    base_prompt = NPC_SYSTEM_PROMPT
-    if persona_block:
-        base_prompt = f"{base_prompt}\n\n{persona_block}"
-    system_text = f"{base_prompt}\n{build_room_constraints(room)}\n\n{attitude}"
-    if memory:
-        system_text = f"{system_text}\n\nMemory summary:\n{memory}"
-    canon = (state.get("canon_context") or "").strip()
-    if canon:
-        system_text = f"{system_text}\n\n{canon}"
 
     messages: list[SystemMessage | HumanMessage | AIMessage] = [
         SystemMessage(content=system_text)

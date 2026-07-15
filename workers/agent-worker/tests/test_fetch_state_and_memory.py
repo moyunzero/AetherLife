@@ -9,11 +9,11 @@ from src.graph.npc_loop import fetch_state_and_memory
 
 @pytest.fixture(autouse=True)
 def _clear_worker_snapshot_cache():
-    from src.graph import npc_loop
+    from src.graph import worker_state_fetch as wsf
 
-    npc_loop._stale_worker_snapshots.clear()
+    wsf._stale_worker_snapshots.clear()
     yield
-    npc_loop._stale_worker_snapshots.clear()
+    wsf._stale_worker_snapshots.clear()
 
 
 def test_physical_action_skips_full_memory_but_loads_collective_gate():
@@ -38,16 +38,16 @@ def test_physical_action_skips_full_memory_but_loads_collective_gate():
         },
     }
 
-    with patch("src.graph.npc_loop.httpx.Client") as client_cls:
+    with patch("src.graph.speak_fetch.create_http_client") as client_cls:
         client = MagicMock()
         client.__enter__ = MagicMock(return_value=client)
         client.__exit__ = MagicMock(return_value=False)
         client.get.return_value = fake_response
         client_cls.return_value = client
 
-        with patch("src.graph.npc_loop.load_memory_context") as load_memory:
+        with patch("src.graph.speak_fetch.load_memory_context") as load_memory:
             with patch(
-                "src.graph.npc_loop.fetch_memory_context",
+                "src.graph.speak_fetch.fetch_memory_context",
                 return_value={
                     "collective": {
                         "band": "hostile",
@@ -77,8 +77,8 @@ def test_casual_action_skips_memory_context():
     }
     settings = Settings(game_server_url="http://127.0.0.1:2567")
 
-    with patch("src.graph.npc_loop.fetch_state") as fetch_state:
-        with patch("src.graph.npc_loop.load_memory_context") as load_memory:
+    with patch("src.graph.speak_fetch.fetch_state") as fetch_state:
+        with patch("src.graph.speak_fetch.load_memory_context") as load_memory:
             fetch_state.side_effect = lambda s, **_: {
                 **s,
                 "room_snapshot": {"npcs": []},
@@ -103,11 +103,11 @@ def test_narrative_action_loads_memory_with_skip_embed():
     }
     settings = Settings(game_server_url="http://127.0.0.1:2567")
 
-    with patch("src.graph.npc_loop.fetch_state") as fetch_state:
-        with patch("src.graph.npc_loop.fetch_nearby_lore_into_snapshot") as lazy_lore:
-            with patch("src.graph.npc_loop.load_memory_context") as load_memory:
+    with patch("src.graph.speak_fetch.fetch_state") as fetch_state:
+        with patch("src.graph.speak_fetch.fetch_nearby_lore_into_snapshot") as lazy_lore:
+            with patch("src.graph.speak_fetch.load_memory_context") as load_memory:
                 with patch(
-                    "src.graph.npc_loop._fetch_speak_enrichment",
+                    "src.graph.speak_fetch._fetch_speak_enrichment",
                     return_value={},
                 ):
                     fetch_state.return_value = {**state, "room_snapshot": {"npcs": []}}
@@ -143,10 +143,10 @@ def test_recall_action_loads_memory_with_full_embed():
     }
     settings = Settings(game_server_url="http://127.0.0.1:2567")
 
-    with patch("src.graph.npc_loop.fetch_state") as fetch_state:
-        with patch("src.graph.npc_loop.load_memory_context") as load_memory:
+    with patch("src.graph.speak_fetch.fetch_state") as fetch_state:
+        with patch("src.graph.speak_fetch.load_memory_context") as load_memory:
             with patch(
-                "src.graph.npc_loop._fetch_speak_enrichment",
+                "src.graph.speak_fetch._fetch_speak_enrichment",
                 return_value={},
             ):
                 fetch_state.return_value = {**state, "room_snapshot": {"npcs": []}}
@@ -160,7 +160,7 @@ def test_recall_action_loads_memory_with_full_embed():
 
 
 def test_fetch_speak_enrichment_fetches_edges_for_npc12():
-    from src.graph.npc_loop import _fetch_speak_enrichment
+    from src.graph.speak_fetch import _fetch_speak_enrichment
 
     state = {
         "room_id": "default",
@@ -171,7 +171,7 @@ def test_fetch_speak_enrichment_fetches_edges_for_npc12():
     settings = Settings(game_server_url="http://127.0.0.1:2567")
     client = MagicMock()
 
-    with patch("src.graph.npc_loop.fetch_runtime_relationship_edges") as edges:
+    with patch("src.graph.speak_fetch.fetch_runtime_relationship_edges") as edges:
         edges.return_value = [
             {
                 "npcAId": "npc-12",
@@ -182,7 +182,7 @@ def test_fetch_speak_enrichment_fetches_edges_for_npc12():
                 "baseTag": "peer",
             },
         ]
-        with patch("src.graph.npc_loop.fetch_dual_rag_context") as dual:
+        with patch("src.graph.speak_fetch.fetch_dual_rag_context") as dual:
             dual.return_value = {"canon_context": ""}
             out = _fetch_speak_enrichment(state, settings=settings, client=client, skip_dual_rag=False)
 
@@ -191,7 +191,7 @@ def test_fetch_speak_enrichment_fetches_edges_for_npc12():
 
 
 def test_casual_fast_lane_skips_relationship_edges_fetch():
-    from src.graph.npc_loop import _fetch_speak_enrichment
+    from src.graph.speak_fetch import _fetch_speak_enrichment
 
     state = {
         "room_id": "default",
@@ -203,8 +203,8 @@ def test_casual_fast_lane_skips_relationship_edges_fetch():
     settings = Settings(game_server_url="http://127.0.0.1:2567")
     client = MagicMock()
 
-    with patch("src.graph.npc_loop.fetch_runtime_relationship_edges") as edges:
-        with patch("src.graph.npc_loop.fetch_dual_rag_context") as dual:
+    with patch("src.graph.speak_fetch.fetch_runtime_relationship_edges") as edges:
+        with patch("src.graph.speak_fetch.fetch_dual_rag_context") as dual:
             dual.return_value = {"canon_context": ""}
             out = _fetch_speak_enrichment(state, settings=settings, client=client, skip_dual_rag=True)
 
@@ -215,50 +215,42 @@ def test_casual_fast_lane_skips_relationship_edges_fetch():
 
 
 def test_fetch_state_uses_stale_snapshot_after_timeout():
-    from src.graph import npc_loop
+    from src.graph import worker_state_fetch as wsf
 
     settings = Settings(game_server_url="http://127.0.0.1:2567")
     state = {"room_id": "default", "player_id": "p1", "room_snapshot": {}}
     stale_body = {"npcs": [{"id": "npc-1", "x": 1, "y": 2}]}
-    npc_loop._remember_worker_snapshot("default", "p1", stale_body)
-    key = npc_loop._worker_state_stale_key("default", "p1")
-    snap, ts = npc_loop._stale_worker_snapshots[key]
-    npc_loop._stale_worker_snapshots[key] = (snap, ts - npc_loop._FETCH_STATE_HOT_CACHE_TTL_S - 1.0)
+    wsf._remember_worker_snapshot("default", "p1", stale_body)
+    key = wsf._worker_state_stale_key("default", "p1")
+    snap, ts = wsf._stale_worker_snapshots[key]
+    wsf._stale_worker_snapshots[key] = (snap, ts - wsf._FETCH_STATE_HOT_CACHE_TTL_S - 1.0)
 
-    with patch("src.graph.npc_loop.httpx.Client") as client_cls:
-        client = MagicMock()
-        client.__enter__ = MagicMock(return_value=client)
-        client.__exit__ = MagicMock(return_value=False)
-        client.get.side_effect = httpx.TimeoutException("timeout")
-        client_cls.return_value = client
+    client = MagicMock()
+    client.get.side_effect = httpx.TimeoutException("timeout")
 
-        out = npc_loop.fetch_state(state, settings=settings, client=client, skip_nearby_lore=True)
+    out = wsf.fetch_state(state, settings=settings, client=client, skip_nearby_lore=True)
 
     assert out["room_snapshot"]["npcs"][0]["x"] == 1
     assert out["room_snapshot"].get("_stale") is True
 
 
 def test_fetch_state_hot_cache_skips_http():
-    from src.graph import npc_loop
+    from src.graph import worker_state_fetch as wsf
 
     settings = Settings(game_server_url="http://127.0.0.1:2567")
     state = {"room_id": "default", "player_id": "p1", "room_snapshot": {}}
     fresh_body = {"npcs": [{"id": "npc-1", "x": 1, "y": 2}]}
-    npc_loop._remember_worker_snapshot("default", "p1", fresh_body)
+    wsf._remember_worker_snapshot("default", "p1", fresh_body)
 
-    with patch("src.graph.npc_loop.httpx.Client") as client_cls:
-        client = MagicMock()
-        client.__enter__ = MagicMock(return_value=client)
-        client.__exit__ = MagicMock(return_value=False)
-        client_cls.return_value = client
+    client = MagicMock()
 
-        with patch("src.graph.npc_loop.record_phase_ms") as record_phase:
-            out = npc_loop.fetch_state(
-                state,
-                settings=settings,
-                client=client,
-                skip_nearby_lore=True,
-            )
+    with patch("src.graph.worker_state_fetch.record_phase_ms") as record_phase:
+        out = wsf.fetch_state(
+            state,
+            settings=settings,
+            client=client,
+            skip_nearby_lore=True,
+        )
 
     client.get.assert_not_called()
     assert out["room_snapshot"]["npcs"][0]["x"] == 1
@@ -267,9 +259,10 @@ def test_fetch_state_hot_cache_skips_http():
 
 def test_apply_tools_refreshes_hot_snapshot_cache():
     from src.graph import npc_loop
+    from src.graph import worker_state_fetch as wsf
     from src.graph.npc_loop import apply_tools
 
-    npc_loop._stale_worker_snapshots.clear()
+    wsf._stale_worker_snapshots.clear()
     settings = Settings(game_server_url="http://127.0.0.1:2567")
     old_room = {
         "width": 40,
@@ -292,7 +285,7 @@ def test_apply_tools_refreshes_hot_snapshot_cache():
         "tool_calls": [{"name": "move", "args": {"type": "move", "x": 10, "y": 20}}],
         "allowed_tools": ["move", "speak", "wait"],
     }
-    npc_loop._remember_worker_snapshot("default", "p1", old_room)
+    wsf._remember_worker_snapshot("default", "p1", old_room)
 
     ok_response = MagicMock()
     ok_response.status_code = 200

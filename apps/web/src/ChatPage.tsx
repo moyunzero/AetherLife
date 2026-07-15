@@ -11,10 +11,10 @@ import { CollectiveAttitudeOverlay } from "./components/CollectiveAttitudeOverla
 import { CollectiveDebugPanel } from "./components/CollectiveDebugPanel.js";
 import { CornerMenu } from "./components/CornerMenu.js";
 import { DialogueOverlay } from "./components/DialogueOverlay.js";
-import type { DrawerTab } from "./components/DialogueBar.js";
 import { OnboardingCoach } from "./components/OnboardingCoach.js";
 import { ShellDrawer } from "./components/ShellDrawer.js";
 import { useCollectiveAttitude } from "./hooks/useCollectiveAttitude.js";
+import { useShellDrawerState } from "./hooks/useShellDrawerState.js";
 import {
   CHRONICLE_TOAST_MESSAGE,
   useWorldHistory,
@@ -31,7 +31,6 @@ import {
 import { getMapRoomId } from "./lib/mapRoomId.js";
 import { stripNpcsForViewport } from "./lib/stripNpcsForViewport.js";
 import {
-  resolveCollectiveInitiatorPlayerId,
   shouldShowCollectiveFeedbackBanner,
 } from "./lib/collectiveInitiator.js";
 import { getOrCreatePlayerId } from "./lib/playerSession.js";
@@ -179,8 +178,6 @@ export function ChatPage() {
     [fetchWorldHistoryEntry],
   );
   const [draft, setDraft] = useState("");
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [drawerTab, setDrawerTab] = useState<DrawerTab>("history");
   const [npcMoveHint, setNpcMoveHint] = useState<string | null>(null);
   /** After first roomState sync, NPC live moves may animate; load/reset always snap. */
   const [npcWorldLive, setNpcWorldLive] = useState(false);
@@ -214,6 +211,21 @@ export function ChatPage() {
     useCollectiveAttitude(mapRoomId, activeNpcId, connected);
   onCollectiveUpdatedRef.current = refetchCollective;
 
+  const {
+    drawerOpen,
+    drawerTab,
+    openDrawer,
+    handleDrawerTabChange,
+    closeDrawer,
+    openChronicle,
+  } = useShellDrawerState({
+    clearChronicleUnread,
+    mapRoomId,
+    activeNpcId,
+    playerId,
+    collectiveRecentEvents: collectiveSnapshot?.recentEvents,
+  });
+
   const latestCollectiveEvent = collectiveSnapshot?.recentEvents[0];
   const collectiveFeedbackKind =
     latestCollectiveEvent &&
@@ -222,61 +234,16 @@ export function ChatPage() {
       ? latestCollectiveEvent.kind
       : null;
 
-  const pendingCollectiveAutoOpenRef = useRef(false);
-
-  useEffect(() => {
-    const event = collectiveSnapshot?.recentEvents[0];
-    if (!event || event.kind !== "rude") return;
-    if (resolveCollectiveInitiatorPlayerId(event) !== playerId) return;
-    const key = `collective-auto-open:${mapRoomId}:${activeNpcId}`;
-    if (sessionStorage.getItem(key)) return;
-    pendingCollectiveAutoOpenRef.current = true;
-    setDrawerTab("collective");
-    setDrawerOpen(true);
-  }, [collectiveSnapshot?.recentEvents, mapRoomId, activeNpcId, playerId]);
-
-  // Defer sessionStorage until drawer stays open — Strict Mode remount clears the timer
-  // before storage is set, so the second mount can still auto-open (dev + Playwright UAT).
-  useEffect(() => {
-    if (!pendingCollectiveAutoOpenRef.current) return;
-    if (!drawerOpen || drawerTab !== "collective") return;
-    const key = `collective-auto-open:${mapRoomId}:${activeNpcId}`;
-    const t = window.setTimeout(() => {
-      sessionStorage.setItem(key, "1");
-      pendingCollectiveAutoOpenRef.current = false;
-    }, 100);
-    return () => window.clearTimeout(t);
-  }, [drawerOpen, drawerTab, mapRoomId, activeNpcId]);
-
-  const openDrawer = useCallback((tab: DrawerTab) => {
-    setDrawerTab(tab);
-    setDrawerOpen(true);
-    if (tab === "chronicle") {
-      clearChronicleUnread();
-    }
-  }, [clearChronicleUnread]);
-
-  const handleDrawerTabChange = useCallback(
-    (tab: DrawerTab) => {
-      setDrawerTab(tab);
-      if (tab === "chronicle") {
-        clearChronicleUnread();
-      }
-    },
-    [clearChronicleUnread],
-  );
-
   const handleCouncilVoteToastClick = useCallback(
     (toast: CouncilVoteToastPayload) => {
       if (toast.kind === "deliberation_start") {
         openDrawer("council");
         return;
       }
-      setDrawerTab("chronicle");
-      setDrawerOpen(true);
+      openChronicle();
       void openMinutesForEntry(toast.resultEntryId);
     },
-    [openDrawer, openMinutesForEntry],
+    [openDrawer, openChronicle, openMinutesForEntry],
   );
 
   useEffect(() => {
@@ -553,7 +520,7 @@ export function ChatPage() {
             open={drawerOpen}
             tab={drawerTab}
             onTabChange={handleDrawerTabChange}
-            onClose={() => setDrawerOpen(false)}
+            onClose={closeDrawer}
             messages={messages}
             thinkingNpcId={thinkingNpcId}
             activeNpcId={activeNpcId}

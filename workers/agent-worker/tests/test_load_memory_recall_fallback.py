@@ -19,11 +19,11 @@ def test_load_memory_context_uses_recent_only_when_embed_misses_seed():
     seed_row = {"text": "player: 请记住 FACT-P21-ABC 门禁密码是 7"}
 
     with patch(
-        "src.graph.npc_loop.fetch_memory_context",
+        "src.graph.speak_fetch.fetch_memory_context",
         return_value={"memoryCount": 0, "retrieved": []},
     ):
         with patch(
-            "src.graph.npc_loop.fetch_recent_memories",
+            "src.graph.speak_fetch.fetch_recent_memories",
             return_value=[seed_row],
         ) as fetch_recent:
             client = MagicMock(spec=httpx.Client)
