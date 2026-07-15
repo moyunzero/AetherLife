@@ -29,11 +29,13 @@ Phase 16 权威 ambient 逻辑：`schedule.ts`（日程）→ `tick.ts`（6s tic
 
 ### `mobility` 与移动行为
 
+走步资格（Phase **26.2 / B2**）：`tick.ts` 导出 `shouldStepThisTick` / `stepPercentForMobility`——哈希键 `ambient-step:{npcId}:{gameMinute}`（deterministic，**非**加密随机，仅节奏抖动）。**同 tick 可多名 NPC 移动**；Phase 26 独占 12 分桶（每 tick 仅 1 人）已移除。`resting` / `idle` 仍经上游 `shouldSkipMovement`，不进本门。
+
 | 值 | 选目标策略 | 是否每 tick 都动 |
 |----|------------|------------------|
-| `wander` | 在 `zoneId` 内随机可走格；社交段见下方 bias | 每 tick 尝试（仍受 speak 占用、碰撞、玩家格阻挡） |
-| `stationary` | **Linger**：当前位置 Chebyshev **≤ `LINGER_RADIUS`** 格内微 wander | 约 **`100 - LINGER_PAUSE_PERCENT`%** tick 会选新目标；其余 tick 原地停 |
-| `poi` | 优先走向区域内 **social POI**（如 well）；若已在 POI 或未找到，则同 `stationary` 的 linger | 同 linger |
+| `wander` | 在 `zoneId` 内随机可走格；社交段见下方 bias | 每 tick 以 **~55%** 概率（`shouldStepThisTick`，hash `ambient-step:{npcId}:{gameMinute}`）尝试走步；多名 NPC 可同 tick 移动（仍受 speak 占用、碰撞、玩家格阻挡） |
+| `stationary` | **Linger**：当前位置 Chebyshev **≤ `LINGER_RADIUS`** 格内微 wander | 两段独立合成（D-23 + D-09）：B2 门 **~30%** × linger 不停 **`(100 - LINGER_PAUSE_PERCENT)%`** ⇒ 有效移动 ≈ **25.5%**/tick |
+| `poi` | 优先走向区域内 **social POI**（如 well）；若已在 POI 或未找到，则同 `stationary` 的 linger | 同 linger（B2 30% × linger pause） |
 
 ### 完全不移动的 activity
 
@@ -55,7 +57,7 @@ Phase 16 权威 ambient 逻辑：`schedule.ts`（日程）→ `tick.ts`（6s tic
 | 参数 | 导出 | 默认 | 含义 |
 |------|------|------|------|
 | `LINGER_RADIUS` | 是 | `2` | Chebyshev 距离（格）。`stationary` / `poi` 模式下，目标格必须在 NPC 当前位置 **≤ 此半径** 内。越大越像「在区域里闲逛」，越小越像「原地小动作」。 |
-| `LINGER_PAUSE_PERCENT` | 是 | `30` | 每个 tick、每名 NPC **原地不动** 的概率（%）。哈希键：`linger:{npcId}:{gameMinute}`，同一游戏分钟 deterministic，不同 NPC/分钟错开。调高 → 更常停住；调低 → 更碎步。 |
+| `LINGER_PAUSE_PERCENT` | 是 | `15` | 每个 tick、每名 NPC **原地不动** 的概率（%）。哈希键：`linger:{npcId}:{gameMinute}`，同一游戏分钟 deterministic，不同 NPC/分钟错开。与 B2 `ambient-step:` 门独立（两段 knobs）。调高 → 更常停住；调低 → 更碎步。 |
 | `MAX_RECENT` | 否 | `8` | 最近访问格 deque 长度，避免 linger/wander 在 2–3 格间来回抖。 |
 
 ---
@@ -73,7 +75,7 @@ Phase 16 权威 ambient 逻辑：`schedule.ts`（日程）→ `tick.ts`（6s tic
 
 | 类型 | ID 模式 | 移动来源 |
 |------|---------|----------|
-| 主 NPC | `npc-1`…`npc-3` | `data/schedules/npc-*.json` + 可选 worker **intent cache** |
+| 主 NPC | `npc-1`…`npc-12`（议会 12 席） | `data/schedules/npc-*.json` + 可选 worker **intent cache** |
 | 背景 NPC | `bg-villager-*` | 合成段 `backgroundWanderSegment`：恒 `mobility: wander`，`activityKey: wandering` |
 
 主 NPC 在 `npcSpeakJobs` 中有 job 时 **整 tick 跳过**（对话优先）。
@@ -107,5 +109,5 @@ Phase 16 权威 ambient 逻辑：`schedule.ts`（日程）→ `tick.ts`（6s tic
 ```bash
 pnpm --filter @aetherlife/game-server test -- src/ambient/
 pnpm agent:verify
-# 实机：pnpm dev:stack → 06:00 进房，观察 npc-1/2/3 在 reading/cooking 段内 2 格内微动
+# 实机：pnpm dev:stack → 06:00 进房，观察议会席在 reading/cooking 段内 linger 微动（B2 多 NPC 同 tick）
 ```
