@@ -19,7 +19,7 @@ const SOCIAL_BIAS_ACTIVITIES = new Set(["socializing", "patrol"]);
 /** Chebyshev radius (cells) for stationary/poi linger — 动森/星露谷式「在工位附近晃」. See ambient/README.md */
 export const LINGER_RADIUS = 2;
 /** Per-tick probability (0–100) to stand still during linger; hash-stable per npcId+gameMinute. */
-export const LINGER_PAUSE_PERCENT = 30;
+export const LINGER_PAUSE_PERCENT = 15;
 /** Max walkable cells sampled per zone per tick — caps DoS from huge zone rects (T-16-02). */
 export const MAX_ZONE_SAMPLE_CELLS = 256;
 
