@@ -416,6 +416,83 @@ describe("runAmbientTick", () => {
     expect(leashed.targetGx).not.toBe(50);
   });
 
+  it("join_vicinity bypasses the step gate and the soft leash (D-11)", async () => {
+    clearAllIntentsForTests();
+    const map = createDefaultRoom("tick-join-bypass");
+    const gameState = new GameRoomState();
+    const npc = map.npcs[0]!;
+    // Player ~4 cells west on walkable cells; home far so soft leash would pull home.
+    npc.x = 32;
+    npc.y = 12;
+    npc.homeX = 5;
+    npc.homeY = 9;
+    npc.maxRadius = 2;
+    map.player.x = 28;
+    map.player.y = 12;
+    npc.joinVicinityActive = true;
+    npc.joinVicinityStartedAt = Date.now();
+    npc.joinVicinityUntil = Date.now() + 8000;
+
+    let failMinute = -1;
+    for (let m = 0; m < 1440; m++) {
+      const seg = resolveScheduleSegment(npc.id, m);
+      if (!seg || shouldSkipMovement(seg)) continue;
+      if (!shouldStepThisTick(npc.id, m, seg.mobility)) {
+        failMinute = m;
+        break;
+      }
+    }
+    expect(failMinute).toBeGreaterThanOrEqual(0);
+    gameState.gameMinute = failMinute === 0 ? 1439 : failMinute - 1;
+
+    // Park non-movers; pin diagonals so join target is uniquely (29,12) — first step west.
+    map.npcs.forEach((other, i) => {
+      if (other.id === npc.id) return;
+      if (i === 1) {
+        other.x = 29;
+        other.y = 11;
+      } else if (i === 2) {
+        other.x = 29;
+        other.y = 13;
+      } else {
+        other.x = 2;
+        other.y = 2 + i;
+      }
+    });
+
+    const distBefore = Math.max(Math.abs(npc.x - map.player.x), Math.abs(npc.y - map.player.y));
+    expect(distBefore).toBeGreaterThan(2);
+    const loader = await loaderForMap(map);
+
+    runAmbientTick({
+      roomId: "tick-join-bypass",
+      gameState,
+      map,
+      loader,
+      npcSpeakJobs: new Map(),
+      recentNpcCells: new Map(),
+    });
+
+    const distAfter = Math.max(Math.abs(npc.x - map.player.x), Math.abs(npc.y - map.player.y));
+    expect(distAfter).toBeLessThan(distBefore);
+  });
+
+  it("applySoftLeashTarget never clamps in-region zone targets at radius 40", () => {
+    const npc = {
+      id: "npc-11",
+      name: "test",
+      x: 5,
+      y: 9,
+      homeX: 5,
+      homeY: 9,
+      maxRadius: 40,
+      status: "idle",
+      inventory: [],
+    };
+    const leashed = applySoftLeashTarget(npc, 39, 39);
+    expect(leashed).toEqual({ targetGx: 39, targetGy: 39 });
+  });
+
   it("contains no fetch/axios/worker/llm imports (LIFE-03)", () => {
     const code = TICK_SOURCE.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
     expect(code).not.toMatch(/\bfetch\s*\(/);

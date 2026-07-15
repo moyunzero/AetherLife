@@ -158,13 +158,14 @@ function resolveMovementTarget(
   grid: ReturnType<typeof buildMoveGrid>,
   playerCells: GridCell[],
   recent: GridCell[],
-): { targetGx: number; targetGy: number; nextRecent: GridCell[] } {
+): { targetGx: number; targetGy: number; nextRecent: GridCell[]; source: "join" | "intent" | "zone" } {
   const joinTarget = pickJoinVicinityTarget(npc, roomId, playerCells, grid);
   if (joinTarget) {
     return {
       targetGx: joinTarget.x,
       targetGy: joinTarget.y,
       nextRecent: recent,
+      source: "join",
     };
   }
 
@@ -176,6 +177,7 @@ function resolveMovementTarget(
         targetGx: cached.intent.target.gx,
         targetGy: cached.intent.target.gy,
         nextRecent: recent,
+        source: "intent",
       };
     }
     if (isZoneIntent(cached.intent)) {
@@ -192,6 +194,7 @@ function resolveMovementTarget(
         targetGx: picked.targetGx,
         targetGy: picked.targetGy,
         nextRecent: picked.nextRecent,
+        source: "zone",
       };
     }
   }
@@ -208,6 +211,7 @@ function resolveMovementTarget(
     targetGx: picked.targetGx,
     targetGy: picked.targetGy,
     nextRecent: picked.nextRecent,
+    source: "zone",
   };
 }
 
@@ -271,7 +275,10 @@ export function runAmbientTick(ctx: AmbientTickContext): {
     );
     recentNpcCells.set(npc.id, resolved.nextRecent);
 
-    const leashed = applySoftLeashTarget(npc, resolved.targetGx, resolved.targetGy);
+    const leashed =
+      resolved.source === "join"
+        ? { targetGx: resolved.targetGx, targetGy: resolved.targetGy }
+        : applySoftLeashTarget(npc, resolved.targetGx, resolved.targetGy);
 
     const step = stepNpcTowardTarget({
       npcX: npc.x,
