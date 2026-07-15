@@ -250,6 +250,58 @@ describe("runAmbientTick", () => {
     );
   });
 
+  it("arrives then pauses before picking a new walk", async () => {
+    clearAllIntentsForTests();
+    const map = createDefaultRoom("tick-pause");
+    const gameState = new GameRoomState();
+    gameState.gameMinute = 479;
+    const npc = map.npcs.find((n) => n.id === "npc-12")!;
+    npc.x = 20;
+    npc.y = 12;
+    npc.homeX = 20;
+    npc.homeY = 12;
+    npc.maxRadius = 40;
+    setIntent("tick-pause", npc.id, {
+      intent: parseAmbientIntent({
+        target: { gx: 21, gy: 12 },
+        reasonZh: "走一步",
+        untilGameMinute: 600,
+      }),
+      trigger: "segment_change",
+      gameMinute: 480,
+    });
+    const loader = await loaderForMap(map);
+    const motion = new Map();
+    runAmbientTick({
+      roomId: "tick-pause",
+      gameState,
+      map,
+      loader,
+      npcSpeakJobs: new Map(),
+      recentNpcCells: new Map(),
+      ambientMotion: motion,
+    });
+    expect(npc.x).toBe(21);
+    expect(npc.y).toBe(12);
+    expect(motion.get(npc.id)?.mode).toBe("pausing");
+    expect(motion.get(npc.id)!.pauseTicksLeft).toBeGreaterThanOrEqual(2);
+
+    const xDuringPause = npc.x;
+    const yDuringPause = npc.y;
+    runAmbientTick({
+      roomId: "tick-pause",
+      gameState,
+      map,
+      loader,
+      npcSpeakJobs: new Map(),
+      recentNpcCells: new Map(),
+      ambientMotion: motion,
+    });
+    expect(npc.x).toBe(xDuringPause);
+    expect(npc.y).toBe(yDuringPause);
+    expect(motion.get(npc.id)?.mode).toBe("pausing");
+  });
+
   it("MAIN_AMBIENT_NPC_IDS covers all 12 council seats", () => {
     expect(MAIN_AMBIENT_NPC_IDS.length).toBe(12);
     expect([...MAIN_AMBIENT_NPC_IDS].sort()).toEqual([...COUNCIL_NPC_IDS].sort());

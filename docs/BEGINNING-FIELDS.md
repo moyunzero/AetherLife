@@ -121,3 +121,20 @@ atlas 整图加载 → object `setTexture(key, frame)` 无效 → 重复 tile / 
 | 11 | 17, 22 | s | west-central | 40 |
 
 **约束：** 全点 collision 可走；与玩家默认 spawn (34,13) Chebyshev ≥3；任意两点 ≥3；x 跨度 ≥20、y 跨度 ≥20（见 `region-walkability.test.ts`）；`maxRadius` 全席 40（`===0` 仍钉死）。
+
+---
+
+## Ambient zones（NPC 日程选目标矩形）
+
+双 SSOT：`apps/game-server/data/world/beginning-fields@v1/zones.json` ↔ `packages/shared` `defaultBeginningFieldsBundle`。
+
+| localId | 中文 | 全局格范围 (含起不含终) | 用途 |
+|---------|------|-------------------------|------|
+| `home` | 起始田野（全图） | (0,0)–(39,39) | 白天 `wander` 主段：可在整张 home **可走格**闲逛 |
+| `orchard` | 果园 | (18,6)–(29,15) | 劳作 / 晨读等短时 linger |
+| `plaza` | 村口广场 | (28,8)–(39,19) | 社交 / POI（井） |
+| `pond` | 池塘 | (22,22)–(35,33) | 钓鱼 / 休整 |
+
+**调试可视化：** `http://localhost:5173/?gridDebug=1` 叠加着色 zone 框 + 标签；悬停格 HUD 显示所属 zone。
+
+**日程约定：** 长漫游用 `…:home` + `wander`；人物定位用短 `stationary`/`poi` 绑 orchard/plaza/pond；睡觉用 `resting`。

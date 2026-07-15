@@ -1,9 +1,12 @@
 import * as Phaser from "phaser";
 import type { ChunkView, RoomState } from "@aetherlife/shared";
 import {
+  BEGINNING_FIELDS_ID,
   getCouncilSpawnSlots,
+  getWorldRegistry,
   HOME_MAP_TILE_H,
   HOME_MAP_TILE_W,
+  toGlobal,
 } from "@aetherlife/shared";
 import { clientFindPath } from "../lib/chunkWalkability.js";
 import { isGlobalFloorBlocked } from "./floorBlocked.js";
@@ -48,6 +51,33 @@ function isGridDebugEnabled(): boolean {
 /** Above all Y-sorted map sprites + Tiled overhead (screen-fixed HUD). */
 const GRID_DEBUG_HUD_DEPTH = YSORT_OVERHEAD_DEPTH + 2_000;
 
+/** Theme colors for Beginning Fields ambient zones (gridDebug overlay). */
+const ZONE_DEBUG_STYLE: Record<string, { fill: number; stroke: number; alpha: number }> = {
+  home: { fill: 0x88aacc, stroke: 0xaaddff, alpha: 0.08 },
+  orchard: { fill: 0x44aa55, stroke: 0x66ff88, alpha: 0.22 },
+  plaza: { fill: 0xcc9944, stroke: 0xffcc66, alpha: 0.22 },
+  pond: { fill: 0x3377bb, stroke: 0x66aaff, alpha: 0.22 },
+};
+
+function zonesAtCell(gx: number, gy: number): string[] {
+  void getCouncilSpawnSlots();
+  const registry = getWorldRegistry();
+  if (!registry) return [];
+  const region = registry.regions.find((r) => r.id === BEGINNING_FIELDS_ID);
+  const zones = registry.zonesByRegion.get(BEGINNING_FIELDS_ID);
+  if (!region || !zones) return [];
+  const hit: string[] = [];
+  for (const zone of zones) {
+    const { gx: x0, gy: y0 } = toGlobal(region, zone.rect.lx, zone.rect.ly);
+    const x1 = x0 + zone.rect.w;
+    const y1 = y0 + zone.rect.h;
+    if (gx >= x0 && gx < x1 && gy >= y0 && gy < y1) {
+      hit.push(`${zone.localId}(${zone.labelZh})`);
+    }
+  }
+  return hit;
+}
+
 function gridDebugHudText(
   x: number,
   y: number,
@@ -55,7 +85,9 @@ function gridDebugHudText(
 ): string {
   const walk = regionWalkabilityAt(x, y);
   const walkLabel = walk === true ? "可走" : walk === false ? "阻挡" : "区外";
-  return `gridDebug · 格 (${x}, ${y}) · ${walkLabel}\n已选 ${pickCount}/12 · Shift+点击记录出生点`;
+  const zones = zonesAtCell(x, y);
+  const zoneLine = zones.length > 0 ? zones.join(" · ") : "（无 zone）";
+  return `gridDebug · 格 (${x}, ${y}) · ${walkLabel}\nzone: ${zoneLine}\n已选 ${pickCount}/12 · Shift+点击记录出生点`;
 }
 
 /** Dev: ?gridDebug=1 — grid overlay, hover cell, Shift+click records spawn candidates. */
@@ -74,8 +106,59 @@ function setupGridDebugPicker(ctx: RoomSceneInputCtx): void {
   w.__aetherlife_gridPicks = w.__aetherlife_gridPicks ?? [];
 
   const overlayGfx = ctx.scene.add.graphics().setDepth(YSORT_OVERHEAD_DEPTH - 200);
+  const zoneGfx = ctx.scene.add.graphics().setDepth(YSORT_OVERHEAD_DEPTH - 220);
   const hoverGfx = ctx.scene.add.graphics().setDepth(YSORT_OVERHEAD_DEPTH - 150);
   const markerGfx = ctx.scene.add.graphics().setDepth(YSORT_OVERHEAD_DEPTH - 100);
+  const zoneLabels: Phaser.GameObjects.Text[] = [];
+
+  const drawZoneOverlay = () => {
+    zoneGfx.clear();
+    for (const label of zoneLabels) label.destroy();
+    zoneLabels.length = 0;
+    try {
+      // Same boot path as getCouncilSpawnSlots — registry may be cold on first paint.
+      void getCouncilSpawnSlots();
+      const registry = getWorldRegistry();
+      const region = registry?.regions.find((r) => r.id === BEGINNING_FIELDS_ID);
+      const zones = registry?.zonesByRegion.get(BEGINNING_FIELDS_ID) ?? [];
+      if (!region) return;
+      // Draw home first (full map wash), then nested activity zones on top.
+      const ordered = [...zones].sort((a, b) => {
+        if (a.localId === "home") return -1;
+        if (b.localId === "home") return 1;
+        return a.localId.localeCompare(b.localId);
+      });
+      for (const zone of ordered) {
+        const style = ZONE_DEBUG_STYLE[zone.localId] ?? {
+          fill: 0xffffff,
+          stroke: 0xffffff,
+          alpha: 0.15,
+        };
+        const { gx, gy } = toGlobal(region, zone.rect.lx, zone.rect.ly);
+        const px = gx * CELL_PX;
+        const py = gy * CELL_PX;
+        const pw = zone.rect.w * CELL_PX;
+        const ph = zone.rect.h * CELL_PX;
+        zoneGfx.fillStyle(style.fill, style.alpha);
+        zoneGfx.fillRect(px, py, pw, ph);
+        zoneGfx.lineStyle(zone.localId === "home" ? 2 : 3, style.stroke, 0.9);
+        zoneGfx.strokeRect(px + 1, py + 1, pw - 2, ph - 2);
+        const label = ctx.scene.add
+          .text(px + 6, py + 4, `${zone.localId} · ${zone.labelZh}\n(${gx},${gy})–(${gx + zone.rect.w - 1},${gy + zone.rect.h - 1})`, {
+            fontSize: "14px",
+            fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+            color: "#ffffff",
+            backgroundColor: "#000000b3",
+            padding: { x: 6, y: 4 },
+          })
+          .setDepth(YSORT_OVERHEAD_DEPTH - 210)
+          .setOrigin(0, 0);
+        zoneLabels.push(label);
+      }
+    } catch {
+      // registry not ready
+    }
+  };
 
   const drawGridOverlay = () => {
     overlayGfx.clear();
@@ -176,6 +259,7 @@ function setupGridDebugPicker(ctx: RoomSceneInputCtx): void {
     hud.setText(gridDebugHudText(x, y, picks.length));
   });
 
+  drawZoneOverlay();
   drawGridOverlay();
   drawPickMarkers();
   updateHover(ctx.input.activePointer);

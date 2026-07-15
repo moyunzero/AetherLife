@@ -538,29 +538,36 @@ async function main() {
         ),
       ]);
       console.log("verify:phase8: NL staging positions OK");
+      // Assert adjacency immediately after each speak. Waiting until both finishes lets
+      // speak_end ambient walk the first NPC away during the second turn (GF-03 flake).
+      const nlAdjacentMs = Number.parseInt(
+        process.env.VERIFY_NL_ADJACENT_MS || "45000",
+        10,
+      );
       for (let nlAttempt = 0; nlAttempt < 2; nlAttempt++) {
         if (nlAttempt > 0) {
           console.warn(`verify:phase8: dual NL move retry=${nlAttempt}`);
         }
-        await runSpeakTurn(
-          roomA,
-          { text: "移动到我的下方", npcId: "npc-1", playerId: playerAId },
-          "NL npc-1 player A",
-          speakTimeoutMs,
-        );
-        await runSpeakTurn(
-          roomB,
-          { text: "移动到我的下方", npcId: "npc-2", playerId: playerBId },
-          "NL npc-2 player B",
-          speakTimeoutMs,
-        );
         try {
+          // Avoid personality-seed hostile seats (npc-1/6/8/11): D-20 gate blocks move.
+          await runSpeakTurn(
+            roomA,
+            { text: "移动到我的下方", npcId: "npc-3", playerId: playerAId },
+            "NL npc-3 player A",
+            speakTimeoutMs,
+          );
           await waitForNpcAdjacent(
             roomA,
             roomA.sessionId,
             playerAId,
-            "npc-1",
-            "player A → npc-1",
+            "npc-3",
+            "player A → npc-3",
+            nlAdjacentMs,
+          );
+          await runSpeakTurn(
+            roomB,
+            { text: "移动到我的下方", npcId: "npc-2", playerId: playerBId },
+            "NL npc-2 player B",
             speakTimeoutMs,
           );
           await waitForNpcAdjacent(
@@ -569,7 +576,7 @@ async function main() {
             playerBId,
             "npc-2",
             "player B → npc-2",
-            speakTimeoutMs,
+            nlAdjacentMs,
           );
           break;
         } catch (err) {

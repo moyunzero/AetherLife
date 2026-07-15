@@ -192,7 +192,8 @@
 106. **全员 LPC 角色皮**：本地/远端**所有玩家**与 **`npc-1`…`npc-12`** 使用烘焙 `sprites/lpc-player-1.png` + `sprites/lpc-npc-{1…12}.png`（`createPlayerSprite` → `createLpcNpcSprite`；`spriteProfileForNpc` 映射 npc-1…12）；**禁止**恢复 `sprites/characters.png` 四色 palette 作玩家皮除非新开 phase 决策。`useSpriteEntities()` 门槛：`spritesLpcNpc1` + `spritesNpcs` 均须存在（全部 `lpc-npc-*` 随 `CORE_AREA_ASSETS` 加载）。烘焙：`pnpm assets:sync:lpc-npcs`（源 `npc-asset/player-1.png` + `npc-asset/npc-{1…12}.png`）。文档：[BEGINNING-FIELDS.md](./BEGINNING-FIELDS.md) §角色视觉。回归：`pnpm --filter @aetherlife/web test` + `pnpm verify:phase6:move-only`。
 107. **显示格 CELL_PX=32**：`gridLayout.CELL_PX=32`（16px 源 ×2）；角色显示高 `CHAR_DISPLAY_PX=64`（占 2 逻辑格）。改 `CELL_PX` 须同步 `entityLayout.LABEL_SCALE`、`GRID_STEP_MS`、地图注释与 [BEGINNING-FIELDS.md](./BEGINNING-FIELDS.md)。Phase 13.3 历史仍为 48px 校准记录，**当前运行时以 32px 为准**。
 108. **Phase 26+ verify 禁止断言 bg-villager**：`verify:phase16` / UAT 脚本 **禁止** 要求房间存在 `bg-villager-*`（ISSUE-101）；ambient/铭牌回归用 12 席 council + `verify:phase26`。
-109. **Phase 26 D-MAP-AMB-03 独占 12 分桶（每 tick 仅 1 NPC 移动）已被 26.2 B2 取代**：tick 走步资格必须走 `shouldStepThisTick` 概率门（wander **55** / linger **30**，hash `ambient-step:{npcId}:{gameMinute}`）；**禁止**重新引入 exclusive bucket 或用 `Math.random()` 替换 hash 门；双 SSOT `maxRadius` 改动必须过 `council-spawn-radius.test.ts`。回归：`pnpm --filter @aetherlife/game-server test -- src/ambient/`。
+109. **Phase 26 D-MAP-AMB-03 独占 12 分桶（每 tick 仅 1 NPC 移动）已被 26.2 B2 取代**：禁止重新引入 exclusive bucket。主路径为 **walk/pause**（到达后停 2–8 tick，再抽目标）；`shouldStepThisTick` 仍导出作分布断言。双 SSOT `maxRadius` 改动必须过 `council-spawn-radius.test.ts`。回归：`pnpm --filter @aetherlife/game-server test -- src/ambient/`。
+110. **Ambient 动森式闲逛（26.2 gap）**：`shouldSkipMovement` **仅** `resting`；日程发呆用 `wandering`+`wander`。`stationary` 在 zone 外须 **通勤到最近 zone 格**。选目标 **永不叠格**（占用 + 本 tick reserved）；偏好 `PERSONAL_SPACE≥2`，擦肩可。白天主漫游 zone 为 `beginning-fields@v1:home`（全图）；子 zone orchard/plaza/pond 仅短时人设 linger。改 zones 须双 SSOT（`zones.json` + `defaultBeginningFieldsBundle`）。回归：`src/ambient/` + 新 `roomId` + `?gridDebug=1` 看 zone。
 
 ## 记录
 
@@ -2663,6 +2664,37 @@ Worker 主循环仅在 npc-turn 队列 **连续 5s 为空** 时才 `BLPOP` chunk
 **防复发**
 
 - Guardrail #106（全员 LPC）· #107（CELL_PX=32）
+
+---
+
+### ISSUE-103 — World Alive UAT：站桩 + 重叠扎堆（动森感不足）
+
+- **状态:** fixed
+- **发现:** 2026-07-15（`/gsd-verify-work 26.2` 人工）
+- **阶段/范围:** Phase 26.2 gap · `apps/game-server/src/ambient/**` · `data/schedules/npc-4|7.json`
+- **严重性:** major
+
+**根因**
+
+- `shouldSkipMovement` 把日程 `idle` 当睡觉 → npc-4/7 早晨长时间冻住。
+- `stationary` 且 spawn 离 zone >`LINGER_RADIUS` 时 `nearby=[]` 原地 fallback → 全天 stationary 席位永久站桩。
+- `pickZoneTarget` 不看他人占位 → 多人可同去一格，视觉重叠扎堆。
+- 每 tick 重抽目标 + 概率门 → 不像「走到再停」的真人节奏。
+
+**修复**
+
+- 仅 `resting` 跳过移动；npc-4/7 idle 段并进 `wandering`+`wander`。
+- zone 外 stationary → 通勤最近 zone 格；选格排除占用/本 tick reserved，偏好 `PERSONAL_SPACE=2`。
+- `AmbientMotion` walk/pause（到达停 2–8 tick，走路超时 48 tick 重抽）。
+
+**验证**
+
+- `pnpm --filter @aetherlife/game-server test -- src/ambient/`
+- 实机：`pnpm dev:stack` + **新 roomId**，看 2–3 min（无永久站桩、无叠格）
+
+**防复发**
+
+- Guardrail #110
 
 ---
 

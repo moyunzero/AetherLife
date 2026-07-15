@@ -1,20 +1,20 @@
 {
   "npcId": "npc-2",
   "persona": "expansionist",
-  "_comment": "Expansionist — AM orchard crops, PM wander plaza outreach, evening orchard patrol, night pond rest.",
+  "_comment": "Expansionist — morning tend orchard, day roam whole home, evening plaza, night rest pond.",
   "segments": [
     {
       "fromMinute": 360,
-      "toMinute": 540,
+      "toMinute": 480,
       "activityKey": "tending_crops",
       "zoneId": "beginning-fields@v1:orchard",
       "mobility": "stationary"
     },
     {
-      "fromMinute": 540,
+      "fromMinute": 480,
       "toMinute": 900,
-      "activityKey": "patrol",
-      "zoneId": "beginning-fields@v1:plaza",
+      "activityKey": "wandering",
+      "zoneId": "beginning-fields@v1:home",
       "mobility": "wander"
     },
     {
@@ -29,7 +29,7 @@
       "toMinute": 1200,
       "activityKey": "watering",
       "zoneId": "beginning-fields@v1:orchard",
-      "mobility": "wander"
+      "mobility": "stationary"
     },
     {
       "fromMinute": 1200,

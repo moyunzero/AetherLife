@@ -1,20 +1,20 @@
 {
   "npcId": "npc-10",
   "persona": "brawler",
-  "_comment": "Brawler — AM plaza patrol, PM plaza wander, evening orchard chopping.",
+  "_comment": "Brawler — home patrol/roam by day; evening wood chopping at orchard; night rest plaza.",
   "segments": [
     {
       "fromMinute": 360,
       "toMinute": 720,
       "activityKey": "patrol",
-      "zoneId": "beginning-fields@v1:plaza",
+      "zoneId": "beginning-fields@v1:home",
       "mobility": "wander"
     },
     {
       "fromMinute": 720,
       "toMinute": 1080,
       "activityKey": "wandering",
-      "zoneId": "beginning-fields@v1:plaza",
+      "zoneId": "beginning-fields@v1:home",
       "mobility": "wander"
     },
     {

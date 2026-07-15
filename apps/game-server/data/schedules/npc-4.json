@@ -1,34 +1,27 @@
 {
   "npcId": "npc-4",
   "persona": "chaos_agent",
-  "_comment": "Chaos agent — AM idle plaza, PM wander plaza, night wandering plaza.",
+  "_comment": "Chaos — nearly always roaming full home; short plaza social; rarely rests.",
   "segments": [
     {
       "fromMinute": 360,
-      "toMinute": 720,
-      "activityKey": "idle",
-      "zoneId": "beginning-fields@v1:plaza",
-      "mobility": "wander"
-    },
-    {
-      "fromMinute": 720,
-      "toMinute": 1080,
+      "toMinute": 900,
       "activityKey": "wandering",
-      "zoneId": "beginning-fields@v1:plaza",
+      "zoneId": "beginning-fields@v1:home",
       "mobility": "wander"
     },
     {
-      "fromMinute": 1080,
-      "toMinute": 1200,
+      "fromMinute": 900,
+      "toMinute": 1080,
       "activityKey": "socializing",
       "zoneId": "beginning-fields@v1:plaza",
       "mobility": "poi"
     },
     {
-      "fromMinute": 1200,
+      "fromMinute": 1080,
       "toMinute": 360,
       "activityKey": "wandering",
-      "zoneId": "beginning-fields@v1:plaza",
+      "zoneId": "beginning-fields@v1:home",
       "mobility": "wander"
     }
   ]

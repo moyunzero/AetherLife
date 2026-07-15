@@ -23,7 +23,7 @@ JSON Schema：[`schema.json`](./schema.json)
 | `fromMinute` | 0–1439 | 段开始（含）。`360` = 06:00 |
 | `toMinute` | 0–1439 | 段结束（**不含**）。`480` = 08:00 |
 | `activityKey` | enum | 活动 ID → 中文 HUD 由 `@aetherlife/shared` `npcActivity` 映射 |
-| `zoneId` | string | `{regionId}:{localZoneId}`，如 `beginning-fields@v1:orchard` |
+| `zoneId` | string | `{regionId}:{localZoneId}`，如 `beginning-fields@v1:home`（全图闲逛）或 `…:orchard` / `plaza` / `pond` |
 | `mobility` | `"wander"` \| `"stationary"` \| `"poi"` | 本段内如何选移动目标（见下） |
 
 ### 时间示例
@@ -46,7 +46,7 @@ JSON Schema：[`schema.json`](./schema.json)
 | Key | 典型场景 |
 |-----|----------|
 | `resting` | 睡觉 — **不移动**（`shouldSkipMovement`） |
-| `idle` | 无日程 / 非法 key 降级 — **不移动** |
+| `idle` | 无日程 / 非法 key 降级标签；**不再**跳过移动（日程发呆请用 `wandering` + `wander`） |
 | `reading` | 晨读、学习 |
 | `tending_crops` | 农田劳作 |
 | `watering` | 浇水 |
@@ -55,7 +55,7 @@ JSON Schema：[`schema.json`](./schema.json)
 | `fishing` | 钓鱼 |
 | `patrol` | 区域巡逻（常配 `wander`） |
 | `socializing` | 社交（常配 `wander` 或 `poi`） |
-| `wandering` | 背景村民默认活动 |
+| `wandering` | 闲逛（原 idle 段并进此项） |
 | `unknown` | Schema 占位；运行时应被 `validateActivityKey` 转为 `idle` |
 
 ---
@@ -79,9 +79,11 @@ JSON Schema：[`schema.json`](./schema.json)
 格式：`{regionId}:{localId}`
 
 - `regionId`：如 `beginning-fields@v1`（含版本，便于换图）
-- `localId`：registry 内 zone，如 `orchard`、`pond`、`plaza`
+- `localId`：registry 内 zone，如 `home`（全图）、`orchard`、`pond`、`plaza`
 
-zone 矩形来自 `apps/game-server/data/world/.../zones.json`（经 WorldRegistry 加载）。
+zone 矩形来自 `apps/game-server/data/world/.../zones.json`（经 WorldRegistry 加载；与 `packages/shared` `defaultBeginningFieldsBundle` 双 SSOT）。
+
+动森风格：白天主段用 `mobility: wander` + `zoneId: …:home` 逛整张可走区；短时 `stationary`/`poi` 绑定人物专属场点（果园/广场/池塘）。
 
 ---
 
@@ -89,5 +91,6 @@ zone 矩形来自 `apps/game-server/data/world/.../zones.json`（经 WorldRegist
 
 1. 改 JSON 后跑 `pnpm --filter @aetherlife/game-server test -- src/ambient/schedule.test.ts`
 2. 段边界不要重叠（同一分钟只应命中一段）
-3. 长 `stationary` 段现在会有 linger；若要 **真·不动**，用 `resting` 或 `idle`，不要用 `stationary`
+3. `resting` 才完全不移动；发呆请用 `wandering` + `wander`
 4. 新 activity 需同步 `@aetherlife/shared` `NPC_ACTIVITY_KEYS` 与 `schema.json` enum
+5. 改 zones 须同步 `zones.json` 与 `defaultBeginningFieldsBundle`
