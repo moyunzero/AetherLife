@@ -11,10 +11,10 @@ import { CollectiveAttitudeOverlay } from "./components/CollectiveAttitudeOverla
 import { CollectiveDebugPanel } from "./components/CollectiveDebugPanel.js";
 import { CornerMenu } from "./components/CornerMenu.js";
 import { DialogueOverlay } from "./components/DialogueOverlay.js";
-import type { DrawerTab } from "./components/DialogueBar.js";
 import { OnboardingCoach } from "./components/OnboardingCoach.js";
 import { ShellDrawer } from "./components/ShellDrawer.js";
 import { useCollectiveAttitude } from "./hooks/useCollectiveAttitude.js";
+import { useShellDrawerState } from "./hooks/useShellDrawerState.js";
 import {
   CHRONICLE_TOAST_MESSAGE,
   useWorldHistory,
@@ -31,7 +31,6 @@ import {
 import { getMapRoomId } from "./lib/mapRoomId.js";
 import { stripNpcsForViewport } from "./lib/stripNpcsForViewport.js";
 import {
-  resolveCollectiveInitiatorPlayerId,
   shouldShowCollectiveFeedbackBanner,
 } from "./lib/collectiveInitiator.js";
 import { getOrCreatePlayerId } from "./lib/playerSession.js";
@@ -179,8 +178,6 @@ export function ChatPage() {
     [fetchWorldHistoryEntry],
   );
   const [draft, setDraft] = useState("");
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [drawerTab, setDrawerTab] = useState<DrawerTab>("history");
   const [npcMoveHint, setNpcMoveHint] = useState<string | null>(null);
   /** After first roomState sync, NPC live moves may animate; load/reset always snap. */
   const [npcWorldLive, setNpcWorldLive] = useState(false);
@@ -214,6 +211,20 @@ export function ChatPage() {
     useCollectiveAttitude(mapRoomId, activeNpcId, connected);
   onCollectiveUpdatedRef.current = refetchCollective;
 
+  const {
+    drawerOpen,
+    drawerTab,
+    openDrawer,
+    handleDrawerTabChange,
+    closeDrawer,
+  } = useShellDrawerState({
+    clearChronicleUnread,
+    mapRoomId,
+    activeNpcId,
+    playerId,
+    collectiveRecentEvents: collectiveSnapshot?.recentEvents,
+  });
+
   const latestCollectiveEvent = collectiveSnapshot?.recentEvents[0];
   const collectiveFeedbackKind =
     latestCollectiveEvent &&
@@ -222,58 +233,13 @@ export function ChatPage() {
       ? latestCollectiveEvent.kind
       : null;
 
-  const pendingCollectiveAutoOpenRef = useRef(false);
-
-  useEffect(() => {
-    const event = collectiveSnapshot?.recentEvents[0];
-    if (!event || event.kind !== "rude") return;
-    if (resolveCollectiveInitiatorPlayerId(event) !== playerId) return;
-    const key = `collective-auto-open:${mapRoomId}:${activeNpcId}`;
-    if (sessionStorage.getItem(key)) return;
-    pendingCollectiveAutoOpenRef.current = true;
-    setDrawerTab("collective");
-    setDrawerOpen(true);
-  }, [collectiveSnapshot?.recentEvents, mapRoomId, activeNpcId, playerId]);
-
-  // Defer sessionStorage until drawer stays open — Strict Mode remount clears the timer
-  // before storage is set, so the second mount can still auto-open (dev + Playwright UAT).
-  useEffect(() => {
-    if (!pendingCollectiveAutoOpenRef.current) return;
-    if (!drawerOpen || drawerTab !== "collective") return;
-    const key = `collective-auto-open:${mapRoomId}:${activeNpcId}`;
-    const t = window.setTimeout(() => {
-      sessionStorage.setItem(key, "1");
-      pendingCollectiveAutoOpenRef.current = false;
-    }, 100);
-    return () => window.clearTimeout(t);
-  }, [drawerOpen, drawerTab, mapRoomId, activeNpcId]);
-
-  const openDrawer = useCallback((tab: DrawerTab) => {
-    setDrawerTab(tab);
-    setDrawerOpen(true);
-    if (tab === "chronicle") {
-      clearChronicleUnread();
-    }
-  }, [clearChronicleUnread]);
-
-  const handleDrawerTabChange = useCallback(
-    (tab: DrawerTab) => {
-      setDrawerTab(tab);
-      if (tab === "chronicle") {
-        clearChronicleUnread();
-      }
-    },
-    [clearChronicleUnread],
-  );
-
   const handleCouncilVoteToastClick = useCallback(
     (toast: CouncilVoteToastPayload) => {
       if (toast.kind === "deliberation_start") {
         openDrawer("council");
         return;
       }
-      setDrawerTab("chronicle");
-      setDrawerOpen(true);
+      openDrawer("chronicle");
       void openMinutesForEntry(toast.resultEntryId);
     },
     [openDrawer, openMinutesForEntry],
@@ -421,28 +387,30 @@ export function ChatPage() {
   useEffect(() => subscribeTabPresence(() => setDuplicateTab(true)), []);
 
   useEffect(() => {
-    if (!roomState) return;
-    const moves: string[] = [];
-    if (npcWorldLive) {
-      for (const npc of roomState.npcs) {
-        const prev = prevNpcPosRef.current.get(npc.id);
-        if (prev && (prev.x !== npc.x || prev.y !== npc.y)) {
-          moves.push(`${npc.name} 移动到 (${npc.x}, ${npc.y})`);
+    // Prefer Colyseus live grids for hints/moveMap; HTTP roomState is secondary.
+    if (roomState) {
+      const moves: string[] = [];
+      if (npcWorldLive) {
+        for (const npc of roomState.npcs) {
+          const prev = prevNpcPosRef.current.get(npc.id);
+          if (prev && (prev.x !== npc.x || prev.y !== npc.y)) {
+            moves.push(`${npc.name} 移动到 (${npc.x}, ${npc.y})`);
+          }
         }
       }
+      for (const npc of roomState.npcs) {
+        prevNpcPosRef.current.set(npc.id, { x: npc.x, y: npc.y });
+      }
+      if (moves.length > 0) setNpcMoveHint(moves.join("；"));
+      setMoveMap((prev) => mergeRoomStateIntoMoveMap(roomState, prev, colyseusNpcGrids));
     }
-    for (const npc of roomState.npcs) {
-      prevNpcPosRef.current.set(npc.id, { x: npc.x, y: npc.y });
-    }
-    if (moves.length > 0) setNpcMoveHint(moves.join("；"));
-    setMoveMap((prev) => {
-      if (!npcWorldLive) return roomState;
-      return mergeRoomStateIntoMoveMap(roomState, prev, colyseusNpcGrids);
-    });
 
     if (npcWorldLive) return;
     if (awaitingResetRef.current) return;
     if (initialNpcLiveDoneRef.current) return;
+    // Enable walk tweens once Colyseus NPCs exist — do not wait for HTTP roomState
+    // (that left early ambient steps on snapNpcTo = no walk frames).
+    if (roomNpcs.length === 0 && !roomState) return;
 
     const id = requestAnimationFrame(() =>
       requestAnimationFrame(() => {
@@ -451,7 +419,7 @@ export function ChatPage() {
       }),
     );
     return () => cancelAnimationFrame(id);
-  }, [roomState, npcWorldLive, colyseusNpcGrids]);
+  }, [roomState, roomNpcs.length, npcWorldLive, colyseusNpcGrids]);
 
   const performResetGame = useCallback(async () => {
     prevNpcPosRef.current.clear();
@@ -553,7 +521,7 @@ export function ChatPage() {
             open={drawerOpen}
             tab={drawerTab}
             onTabChange={handleDrawerTabChange}
-            onClose={() => setDrawerOpen(false)}
+            onClose={closeDrawer}
             messages={messages}
             thinkingNpcId={thinkingNpcId}
             activeNpcId={activeNpcId}

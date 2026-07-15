@@ -12,7 +12,7 @@ import {
 } from "./schedule.js";
 
 describe("shouldSkipMovement / isLingerMobility", () => {
-  it("skips only idle and resting", () => {
+  it("skips only resting (idle schedules walk as wander)", () => {
     expect(
       shouldSkipMovement({
         fromMinute: 0,
@@ -22,6 +22,15 @@ describe("shouldSkipMovement / isLingerMobility", () => {
         mobility: "stationary",
       }),
     ).toBe(true);
+    expect(
+      shouldSkipMovement({
+        fromMinute: 360,
+        toMinute: 720,
+        activityKey: "idle",
+        zoneId: "beginning-fields@v1:plaza",
+        mobility: "wander",
+      }),
+    ).toBe(false);
     expect(
       shouldSkipMovement({
         fromMinute: 360,
@@ -106,32 +115,44 @@ describe("validateNpcSchedulesAgainstRegistry (T-16-01)", () => {
 });
 
 describe("hybrid persona schedules (D-zone-persona-hybrid)", () => {
-  it("npc-1 has AM stationary, PM wander, evening stationary", () => {
+  it("npc-1 has AM orchard linger then home wander patrol", () => {
     const schedule = getNpcSchedule("npc-1")!;
-    const am = schedule.segments.filter((s) => s.fromMinute >= 360 && s.toMinute <= 720);
-    expect(am.some((s) => s.mobility === "stationary")).toBe(true);
-    const pm = schedule.segments.filter((s) => s.fromMinute >= 720 && s.toMinute <= 1080);
-    expect(pm.some((s) => s.mobility === "wander")).toBe(true);
-    const evening = schedule.segments.filter((s) => s.fromMinute >= 1080 && s.toMinute <= 1200);
-    expect(evening.some((s) => s.mobility === "stationary")).toBe(true);
+    const morning = schedule.segments.find((s) => s.fromMinute === 360)!;
+    expect(morning.mobility).toBe("stationary");
+    expect(morning.zoneId).toBe("beginning-fields@v1:orchard");
+    const day = schedule.segments.find((s) => s.fromMinute === 480)!;
+    expect(day.mobility).toBe("wander");
+    expect(day.zoneId).toBe("beginning-fields@v1:home");
   });
 
-  it("npc-2 expansionist has AM orchard stationary and PM plaza wander", () => {
+  it("npc-2 expansionist has AM orchard stationary and day home roam", () => {
     const schedule = getNpcSchedule("npc-2")!;
     expect(schedule.persona).toBe("expansionist");
     const morning = schedule.segments.find((s) => s.fromMinute === 360)!;
     expect(morning.mobility).toBe("stationary");
     expect(morning.zoneId).toBe("beginning-fields@v1:orchard");
-    const afternoon = schedule.segments.find((s) => s.fromMinute === 540)!;
-    expect(afternoon.mobility).toBe("wander");
-    expect(afternoon.zoneId).toBe("beginning-fields@v1:plaza");
+    const day = schedule.segments.find((s) => s.fromMinute === 480)!;
+    expect(day.mobility).toBe("wander");
+    expect(day.zoneId).toBe("beginning-fields@v1:home");
   });
 
-  it("npc-3 logician has evening socialize poi at plaza", () => {
+  it("npc-3 logician has midday plaza socialize poi", () => {
     const schedule = getNpcSchedule("npc-3")!;
     expect(schedule.persona).toBe("logician");
     const socialize = schedule.segments.find((s) => s.activityKey === "socializing")!;
     expect(socialize.mobility).toBe("poi");
     expect(socialize.zoneId).toBe("beginning-fields@v1:plaza");
+  });
+
+  it("every council seat has at least one beginning-fields@v1:home wander segment", () => {
+    for (const id of COUNCIL_NPC_IDS) {
+      const schedule = getNpcSchedule(id)!;
+      expect(
+        schedule.segments.some(
+          (s) => s.zoneId === "beginning-fields@v1:home" && s.mobility === "wander",
+        ),
+        `${id} should roam home`,
+      ).toBe(true);
+    }
   });
 });

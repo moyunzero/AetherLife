@@ -6,6 +6,7 @@ import {
   type GlobalMoveGrid,
   type GridCell,
   type NpcState,
+  type WorldRegion,
   type WorldRegistry,
   type Zone,
   type ZoneId,
@@ -19,9 +20,11 @@ const SOCIAL_BIAS_ACTIVITIES = new Set(["socializing", "patrol"]);
 /** Chebyshev radius (cells) for stationary/poi linger — 动森/星露谷式「在工位附近晃」. See ambient/README.md */
 export const LINGER_RADIUS = 2;
 /** Per-tick probability (0–100) to stand still during linger; hash-stable per npcId+gameMinute. */
-export const LINGER_PAUSE_PERCENT = 30;
+export const LINGER_PAUSE_PERCENT = 15;
 /** Max walkable cells sampled per zone per tick — caps DoS from huge zone rects (T-16-02). */
 export const MAX_ZONE_SAMPLE_CELLS = 256;
+/** Prefer destinations at least this far from other NPCs (brush-by closer still allowed if no spacious cell). */
+export const PERSONAL_SPACE = 2;
 
 function shouldPauseLinger(npcId: string, gameMinute: number): boolean {
   return stableStringHash(`linger:${npcId}:${gameMinute}`) % 100 < LINGER_PAUSE_PERCENT;
@@ -29,6 +32,18 @@ function shouldPauseLinger(npcId: string, gameMinute: number): boolean {
 
 function chebyshev(ax: number, ay: number, bx: number, by: number): number {
   return Math.max(Math.abs(ax - bx), Math.abs(ay - by));
+}
+
+function cellTaken(cell: GridCell, blocked: readonly GridCell[]): boolean {
+  return blocked.some((b) => b.x === cell.x && b.y === cell.y);
+}
+
+function minDistToOccupied(cell: GridCell, occupied: readonly GridCell[]): number {
+  let min = Infinity;
+  for (const o of occupied) {
+    min = Math.min(min, chebyshev(cell.x, cell.y, o.x, o.y));
+  }
+  return min === Infinity ? 99 : min;
 }
 
 function findZone(registry: WorldRegistry, zoneId: string): Zone | undefined {
@@ -62,6 +77,78 @@ function pushRecent(recent: GridCell[], cell: GridCell): GridCell[] {
   return next;
 }
 
+function collectZoneWalkable(
+  zone: Zone,
+  region: WorldRegion,
+  grid: GlobalMoveGrid,
+): GridCell[] {
+  const candidates: GridCell[] = [];
+  const { rect } = zone;
+  for (let lx = rect.lx; lx < rect.lx + rect.w; lx++) {
+    for (let ly = rect.ly; ly < rect.ly + rect.h; ly++) {
+      if (!shouldSampleZoneCell(zone.zoneId, lx, ly, rect)) continue;
+      const { gx, gy } = toGlobal(region, lx, ly);
+      if (!grid.isBlocked(gx, gy)) {
+        candidates.push({ x: gx, y: gy });
+      }
+    }
+  }
+  return candidates;
+}
+
+/** Prefer free cells with personal space; never pick an occupied/reserved cell when alternatives exist. */
+export function pickSpaciousCell(
+  pool: readonly GridCell[],
+  occupied: readonly GridCell[],
+  reserved: readonly GridCell[],
+): GridCell | null {
+  if (pool.length === 0) return null;
+  const blocked = [...occupied, ...reserved];
+  const free = pool.filter((c) => !cellTaken(c, blocked));
+  const usable = free.length > 0 ? free : pool;
+  const spacious = usable.filter((c) => minDistToOccupied(c, occupied) >= PERSONAL_SPACE);
+  const ranked = (spacious.length > 0 ? spacious : usable).slice();
+  ranked.sort((a, b) => {
+    const da = minDistToOccupied(a, occupied);
+    const db = minDistToOccupied(b, occupied);
+    if (db !== da) return db - da;
+    return a.x - b.x || a.y - b.y;
+  });
+  // Soft random among top-scored peers so destinations aren't identical every tick.
+  const bestScore = minDistToOccupied(ranked[0]!, occupied);
+  const top = ranked.filter((c) => minDistToOccupied(c, occupied) === bestScore);
+  return top[Math.floor(Math.random() * top.length)] ?? null;
+}
+
+function nearestZoneCell(
+  from: GridCell,
+  candidates: readonly GridCell[],
+  occupied: readonly GridCell[],
+  reserved: readonly GridCell[],
+): GridCell | null {
+  const blocked = [...occupied, ...reserved];
+  let best: GridCell | null = null;
+  let bestD = Infinity;
+  for (const c of candidates) {
+    if (cellTaken(c, blocked)) continue;
+    const d = chebyshev(from.x, from.y, c.x, c.y);
+    if (d < bestD) {
+      bestD = d;
+      best = c;
+    }
+  }
+  if (best) return best;
+  // All free cells taken — still commute toward nearest (step layer prevents stacking).
+  for (const c of candidates) {
+    const d = chebyshev(from.x, from.y, c.x, c.y);
+    if (d < bestD) {
+      bestD = d;
+      best = c;
+    }
+  }
+  return best;
+}
+
 export type ZoneWanderInput = {
   npc: NpcState;
   segment: ScheduleSegment;
@@ -70,6 +157,10 @@ export type ZoneWanderInput = {
   recentCells: GridCell[];
   /** Game clock minute — stabilizes linger pause cadence per tick. */
   gameMinute: number;
+  /** Other NPC standing cells (never stack when alternatives exist). */
+  occupiedCells?: readonly GridCell[];
+  /** Destinations already claimed this ambient tick. */
+  reservedTargets?: readonly GridCell[];
 };
 
 export function pickZoneTarget(input: ZoneWanderInput): {
@@ -77,6 +168,8 @@ export function pickZoneTarget(input: ZoneWanderInput): {
   targetGy: number;
   nextRecent: GridCell[];
 } {
+  const occupied = input.occupiedCells ?? [];
+  const reserved = input.reservedTargets ?? [];
   const registry = getWorldRegistry();
   const fallback = {
     targetGx: input.npc.x,
@@ -97,28 +190,18 @@ export function pickZoneTarget(input: ZoneWanderInput): {
       pois.find((p) => p.kind === "social") ?? pois.find((p) => p.localId === "well");
     if (socialPoi) {
       const { gx, gy } = toGlobal(region, socialPoi.lx, socialPoi.ly);
-      if (!input.grid.isBlocked(gx, gy)) {
+      const poiCell = { x: gx, y: gy };
+      if (!input.grid.isBlocked(gx, gy) && !cellTaken(poiCell, [...occupied, ...reserved])) {
         return {
           targetGx: gx,
           targetGy: gy,
-          nextRecent: pushRecent(input.recentCells, { x: gx, y: gy }),
+          nextRecent: pushRecent(input.recentCells, poiCell),
         };
       }
     }
   }
 
-  const candidates: GridCell[] = [];
-  const { rect } = zone;
-  for (let lx = rect.lx; lx < rect.lx + rect.w; lx++) {
-    for (let ly = rect.ly; ly < rect.ly + rect.h; ly++) {
-      if (!shouldSampleZoneCell(zone.zoneId, lx, ly, rect)) continue;
-      const { gx, gy } = toGlobal(region, lx, ly);
-      if (!input.grid.isBlocked(gx, gy)) {
-        candidates.push({ x: gx, y: gy });
-      }
-    }
-  }
-
+  const candidates = collectZoneWalkable(zone, region, input.grid);
   if (candidates.length === 0) return fallback;
 
   let pool = candidates;
@@ -131,10 +214,23 @@ export function pickZoneTarget(input: ZoneWanderInput): {
       (c) => chebyshev(input.npc.x, input.npc.y, c.x, c.y) <= LINGER_RADIUS,
     );
     if (nearby.length === 0) {
-      return fallback;
+      // Outside schedule zone — commute to nearest free zone cell (26.2 gap).
+      const commute = nearestZoneCell(
+        { x: input.npc.x, y: input.npc.y },
+        candidates,
+        occupied,
+        reserved,
+      );
+      if (!commute) return fallback;
+      return {
+        targetGx: commute.x,
+        targetGy: commute.y,
+        nextRecent: pushRecent(input.recentCells, commute),
+      };
     }
     pool = nearby;
   }
+
   const nearPlayer =
     input.playerCells.length > 0 &&
     input.playerCells.some(
@@ -161,7 +257,8 @@ export function pickZoneTarget(input: ZoneWanderInput): {
     (c) => !input.recentCells.some((r) => r.x === c.x && r.y === c.y),
   );
   const pickFrom = filtered.length > 0 ? filtered : pool;
-  const chosen = pickFrom[Math.floor(Math.random() * pickFrom.length)]!;
+  const chosen = pickSpaciousCell(pickFrom, occupied, reserved);
+  if (!chosen) return fallback;
 
   return {
     targetGx: chosen.x,

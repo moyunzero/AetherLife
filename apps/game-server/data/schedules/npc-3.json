@@ -1,27 +1,34 @@
 {
   "npcId": "npc-3",
   "persona": "logician",
-  "_comment": "Logician — AM pond reading, midday plaza debate poi, evening plaza patrol, night pond rest.",
+  "_comment": "Logician — morning pond reading, day home roam, evening plaza social, night rest pond.",
   "segments": [
     {
       "fromMinute": 360,
-      "toMinute": 540,
+      "toMinute": 480,
       "activityKey": "reading",
       "zoneId": "beginning-fields@v1:pond",
       "mobility": "stationary"
     },
     {
-      "fromMinute": 540,
+      "fromMinute": 480,
       "toMinute": 900,
+      "activityKey": "wandering",
+      "zoneId": "beginning-fields@v1:home",
+      "mobility": "wander"
+    },
+    {
+      "fromMinute": 900,
+      "toMinute": 1080,
       "activityKey": "socializing",
       "zoneId": "beginning-fields@v1:plaza",
       "mobility": "poi"
     },
     {
-      "fromMinute": 900,
+      "fromMinute": 1080,
       "toMinute": 1200,
       "activityKey": "patrol",
-      "zoneId": "beginning-fields@v1:plaza",
+      "zoneId": "beginning-fields@v1:home",
       "mobility": "wander"
     },
     {

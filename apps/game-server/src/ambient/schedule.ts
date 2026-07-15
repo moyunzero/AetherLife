@@ -49,9 +49,9 @@ export function minuteInSegment(minute: number, fromMinute: number, toMinute: nu
   return m >= from || m < to;
 }
 
-/** True sleep / no movement — resting & idle only. Stationary/poi use zone linger (see ambient/README.md). */
+/** True sleep / no movement — resting only. `idle` schedules merge into wander (26.2 gap); unknown keys still coerce to idle label but may move. */
 export function shouldSkipMovement(segment: ScheduleSegment): boolean {
-  return segment.activityKey === "idle" || segment.activityKey === "resting";
+  return segment.activityKey === "resting";
 }
 
 /** stationary | poi → micro-wander within LINGER_RADIUS; wander → full zone pick. */

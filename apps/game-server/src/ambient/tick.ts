@@ -1,5 +1,11 @@
 import type { GridCell, NpcState, RoomState } from "@aetherlife/shared";
-import { COUNCIL_NPC_IDS, isCouncilNpcId, isTargetIntent, isZoneIntent } from "@aetherlife/shared";
+import {
+  COUNCIL_NPC_IDS,
+  isCouncilNpcId,
+  isTargetIntent,
+  isZoneIntent,
+  stableStringHash,
+} from "@aetherlife/shared";
 import { collectPlayerCells, findPlayerCellByPlayerId } from "../colyseus/bridge.js";
 import { buildMoveGrid, findNearestWalkableCell } from "../colyseus/move-handler.js";
 import type { GameRoomState } from "../colyseus/schema.js";
@@ -7,28 +13,50 @@ import { applyMapAndBumpVersion } from "../colyseus/version.js";
 import type { ChunkLoader } from "../world/chunk-loader.js";
 import { getIntent, isIntentExpired } from "./intent-cache.js";
 import { buildOtherNpcCells, stepNpcTowardTarget } from "./move.js";
-import { resolveScheduleSegment, shouldSkipMovement, type ScheduleSegment } from "./schedule.js";
+import {
+  resolveScheduleSegment,
+  segmentKey,
+  shouldSkipMovement,
+  type Mobility,
+  type ScheduleSegment,
+} from "./schedule.js";
 import { pickZoneTarget } from "./zone-wander.js";
 
 export const MAIN_AMBIENT_NPC_IDS = COUNCIL_NPC_IDS;
 
-const AMBIENT_BUCKET_COUNT = 12;
+/** Fail-safe: abandon a stuck walk after this many ambient ticks. */
+export const WALK_TIMEOUT_TICKS = 48;
 
-/** Stable 0..11 bucket per council seat — one NPC moves per bucket per tick (D-MAP-AMB-03). */
-export function hashNpcBucket(npcId: string): number {
-  const match = /^npc-(\d+)$/.exec(npcId);
-  if (match) {
-    const seat = Number.parseInt(match[1]!, 10);
-    if (seat >= 1 && seat <= AMBIENT_BUCKET_COUNT) {
-      return (seat - 1) % AMBIENT_BUCKET_COUNT;
-    }
-  }
-  let hash = 0;
-  for (let i = 0; i < npcId.length; i += 1) {
-    hash = (hash * 31 + npcId.charCodeAt(i)) | 0;
-  }
-  return Math.abs(hash) % AMBIENT_BUCKET_COUNT;
+/** Pause span 2–8 ticks after arriving (动森式走走停停). */
+export function ambientPauseTicks(npcId: string, gameMinute: number): number {
+  return 2 + (stableStringHash(`ambient-pause:${npcId}:${gameMinute}`) % 7);
 }
+
+/** Per-tick step probability (0–100) by mobility — wander ~55%, linger ~30% (D-23). */
+export function stepPercentForMobility(mobility: Mobility): number {
+  return mobility === "wander" ? 55 : 30;
+}
+
+/**
+ * Deterministic per-NPC-per-minute step gate (D-23/D-24).
+ * Gates starting a new stroll; mid-walk holds and join_vicinity bypass it.
+ * Resting never reaches this path (`shouldSkipMovement` upstream).
+ */
+export function shouldStepThisTick(npcId: string, gameMinute: number, mobility: Mobility): boolean {
+  return stableStringHash(`ambient-step:${npcId}:${gameMinute}`) % 100 < stepPercentForMobility(mobility);
+}
+
+export type AmbientMotion = {
+  mode: "walking" | "pausing";
+  targetGx: number;
+  targetGy: number;
+  /** Ticks remaining in pause (decremented each ambient tick). */
+  pauseTicksLeft: number;
+  /** Ticks remaining before walk timeout forces re-pick. */
+  walkTicksLeft: number;
+  /** Schedule segment that started this hold — invalidate when the active segment changes. */
+  segmentKey: string;
+};
 
 export type AmbientTickContext = {
   roomId: string;
@@ -38,6 +66,8 @@ export type AmbientTickContext = {
   npcSpeakJobs: ReadonlyMap<string, string>;
   /** Per-NPC recent target cells (anti-repeat wander). */
   recentNpcCells: Map<string, GridCell[]>;
+  /** Per-NPC walk/pause cadence (room-local, not Colyseus-synced). */
+  ambientMotion?: Map<string, AmbientMotion>;
 };
 
 function chebyshev(ax: number, ay: number, bx: number, by: number): number {
@@ -155,15 +185,23 @@ function resolveMovementTarget(
   grid: ReturnType<typeof buildMoveGrid>,
   playerCells: GridCell[],
   recent: GridCell[],
-): { targetGx: number; targetGy: number; nextRecent: GridCell[] } {
+  occupiedCells: readonly GridCell[],
+  reservedTargets: readonly GridCell[],
+): { targetGx: number; targetGy: number; nextRecent: GridCell[]; source: "join" | "intent" | "zone" } {
   const joinTarget = pickJoinVicinityTarget(npc, roomId, playerCells, grid);
   if (joinTarget) {
     return {
       targetGx: joinTarget.x,
       targetGy: joinTarget.y,
       nextRecent: recent,
+      source: "join",
     };
   }
+
+  const zoneOpts = {
+    occupiedCells,
+    reservedTargets,
+  };
 
   const cached = getIntent(roomId, npc.id);
   if (cached && !isIntentExpired(cached.intent, gameMinute, cached.gameMinute)) {
@@ -173,6 +211,7 @@ function resolveMovementTarget(
         targetGx: cached.intent.target.gx,
         targetGy: cached.intent.target.gy,
         nextRecent: recent,
+        source: "intent",
       };
     }
     if (isZoneIntent(cached.intent)) {
@@ -184,11 +223,13 @@ function resolveMovementTarget(
         playerCells,
         recentCells: recent,
         gameMinute,
+        ...zoneOpts,
       });
       return {
         targetGx: picked.targetGx,
         targetGy: picked.targetGy,
         nextRecent: picked.nextRecent,
+        source: "zone",
       };
     }
   }
@@ -200,56 +241,145 @@ function resolveMovementTarget(
     playerCells,
     recentCells: recent,
     gameMinute,
+    ...zoneOpts,
   });
   return {
     targetGx: picked.targetGx,
     targetGy: picked.targetGy,
     nextRecent: picked.nextRecent,
+    source: "zone",
   };
+}
+
+/** Destinations already claimed by held walks — seed before per-NPC target picks (never-stack). */
+export function collectWalkingReservedTargets(
+  ambientMotion: ReadonlyMap<string, AmbientMotion>,
+): GridCell[] {
+  const reserved: GridCell[] = [];
+  for (const motion of ambientMotion.values()) {
+    if (motion.mode === "walking") {
+      reserved.push({ x: motion.targetGx, y: motion.targetGy });
+    }
+  }
+  return reserved;
+}
+
+function beginWalk(
+  motionMap: Map<string, AmbientMotion>,
+  npcId: string,
+  targetGx: number,
+  targetGy: number,
+  holdSegmentKey: string,
+): void {
+  motionMap.set(npcId, {
+    mode: "walking",
+    targetGx,
+    targetGy,
+    pauseTicksLeft: 0,
+    walkTicksLeft: WALK_TIMEOUT_TICKS,
+    segmentKey: holdSegmentKey,
+  });
+}
+
+function beginPause(
+  motionMap: Map<string, AmbientMotion>,
+  npcId: string,
+  gameMinute: number,
+  x: number,
+  y: number,
+  holdSegmentKey: string,
+): void {
+  motionMap.set(npcId, {
+    mode: "pausing",
+    targetGx: x,
+    targetGy: y,
+    pauseTicksLeft: ambientPauseTicks(npcId, gameMinute),
+    walkTicksLeft: 0,
+    segmentKey: holdSegmentKey,
+  });
 }
 
 /**
  * Authoritative ambient simulation tick: game clock, schedule activity, ≤1 grid step per NPC.
- * No LLM or HTTP calls (LIFE-03).
+ * Walk/pause cadence (动森式); never stack when alternatives exist. No LLM/HTTP (LIFE-03).
  */
 export function runAmbientTick(ctx: AmbientTickContext): {
   stateVersion: number;
   delta: ReturnType<typeof applyMapAndBumpVersion>["delta"];
 } {
   const { roomId, gameState, map, loader, npcSpeakJobs, recentNpcCells } = ctx;
+  const ambientMotion = ctx.ambientMotion ?? new Map<string, AmbientMotion>();
 
   gameState.gameMinute = (gameState.gameMinute + 1) % 1440;
+  const gameMinute = gameState.gameMinute;
 
   const playerCells = collectPlayerCells(roomId, map);
+  const reservedTargets: GridCell[] = collectWalkingReservedTargets(ambientMotion);
 
   for (const npc of map.npcs) {
     if (!isCouncilNpcId(npc.id)) {
       continue;
     }
     if (npcSpeakJobs.has(npc.id)) {
+      ambientMotion.delete(npc.id);
       continue;
     }
 
     clearJoinVicinityIfDone(npc, playerCells);
 
-    const segment = resolveScheduleSegment(npc.id, gameState.gameMinute);
+    const segment = resolveScheduleSegment(npc.id, gameMinute);
     if (!segment) {
       npc.activityKey = "idle";
+      ambientMotion.delete(npc.id);
       continue;
     }
 
     npc.activityKey = segment.activityKey;
-    syncIntentReasonFromCache(npc, roomId, gameState.gameMinute);
+    syncIntentReasonFromCache(npc, roomId, gameMinute);
 
     if (shouldSkipMovement(segment)) {
+      ambientMotion.delete(npc.id);
       continue;
     }
 
     if (npc.maxRadius === 0) {
+      ambientMotion.delete(npc.id);
       continue;
     }
 
-    if (gameState.gameMinute % AMBIENT_BUCKET_COUNT !== hashNpcBucket(npc.id)) {
+    const activeSegmentKey = segmentKey(segment);
+    let motion = ambientMotion.get(npc.id);
+    if (motion && motion.segmentKey !== activeSegmentKey) {
+      ambientMotion.delete(npc.id);
+      motion = undefined;
+    }
+
+    // join_vicinity interrupts pause/walk hold
+    if (npc.joinVicinityActive) {
+      ambientMotion.delete(npc.id);
+      motion = undefined;
+    } else if (motion?.mode === "pausing") {
+      motion.pauseTicksLeft -= 1;
+      if (motion.pauseTicksLeft > 0) {
+        ambientMotion.set(npc.id, motion);
+        continue;
+      }
+      ambientMotion.delete(npc.id);
+      motion = undefined;
+    }
+
+    const holdingWalk =
+      motion?.mode === "walking" &&
+      motion.walkTicksLeft > 0 &&
+      (motion.targetGx !== npc.x || motion.targetGy !== npc.y) &&
+      !npc.joinVicinityActive;
+
+    // B2: gate new strolls only — mid-walk continuum + join_vicinity bypass (D-11 / D-22).
+    if (
+      !holdingWalk &&
+      !npc.joinVicinityActive &&
+      !shouldStepThisTick(npc.id, gameMinute, segment.mobility)
+    ) {
       continue;
     }
 
@@ -257,18 +387,55 @@ export function runAmbientTick(ctx: AmbientTickContext): {
     const otherNpcCells = buildOtherNpcCells(map, npc.id);
     const recent = recentNpcCells.get(npc.id) ?? [];
 
-    const resolved = resolveMovementTarget(
-      npc,
-      segment,
-      roomId,
-      gameState.gameMinute,
-      grid,
-      playerCells,
-      recent,
-    );
-    recentNpcCells.set(npc.id, resolved.nextRecent);
+    let resolved: {
+      targetGx: number;
+      targetGy: number;
+      nextRecent: GridCell[];
+      source: "join" | "intent" | "zone";
+    };
 
-    const leashed = applySoftLeashTarget(npc, resolved.targetGx, resolved.targetGy);
+    if (holdingWalk && motion) {
+      motion.walkTicksLeft -= 1;
+      ambientMotion.set(npc.id, motion);
+      resolved = {
+        targetGx: motion.targetGx,
+        targetGy: motion.targetGy,
+        nextRecent: recent,
+        source: "zone",
+      };
+    } else {
+      resolved = resolveMovementTarget(
+        npc,
+        segment,
+        roomId,
+        gameMinute,
+        grid,
+        playerCells,
+        recent,
+        otherNpcCells,
+        reservedTargets,
+      );
+      recentNpcCells.set(npc.id, resolved.nextRecent);
+      if (resolved.source !== "join") {
+        reservedTargets.push({ x: resolved.targetGx, y: resolved.targetGy });
+        beginWalk(ambientMotion, npc.id, resolved.targetGx, resolved.targetGy, activeSegmentKey);
+      }
+    }
+
+    const leashed =
+      resolved.source === "join"
+        ? { targetGx: resolved.targetGx, targetGy: resolved.targetGy }
+        : applySoftLeashTarget(npc, resolved.targetGx, resolved.targetGy);
+
+    // If soft-leash retargets, keep motion in sync so we don't oscillate.
+    if (resolved.source !== "join") {
+      const cur = ambientMotion.get(npc.id);
+      if (cur?.mode === "walking" && (cur.targetGx !== leashed.targetGx || cur.targetGy !== leashed.targetGy)) {
+        cur.targetGx = leashed.targetGx;
+        cur.targetGy = leashed.targetGy;
+        ambientMotion.set(npc.id, cur);
+      }
+    }
 
     const step = stepNpcTowardTarget({
       npcX: npc.x,
@@ -283,6 +450,10 @@ export function runAmbientTick(ctx: AmbientTickContext): {
     if (step.moved) {
       npc.x = step.x;
       npc.y = step.y;
+    }
+
+    if (resolved.source !== "join" && npc.x === leashed.targetGx && npc.y === leashed.targetGy) {
+      beginPause(ambientMotion, npc.id, gameMinute, npc.x, npc.y, activeSegmentKey);
     }
   }
 

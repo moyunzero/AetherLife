@@ -57,6 +57,17 @@ export class GameRoom extends Room {
   private lastSpeakInitiatorByNpc = new Map<string, string>();
   /** Per-NPC recent wander targets (room-local ambient state). */
   private ambientRecentNpcCells = new Map<string, { x: number; y: number }[]>();
+  private ambientMotion = new Map<
+    string,
+    {
+      mode: "walking" | "pausing";
+      targetGx: number;
+      targetGy: number;
+      pauseTicksLeft: number;
+      walkTicksLeft: number;
+      segmentKey: string;
+    }
+  >();
   private lastAckedSeq = new Map<string, number>();
   private lastChunksFingerprint = "";
   /** Set when matchmaker spawned a duplicate shard for the same mapRoomId. */
@@ -405,6 +416,7 @@ export class GameRoom extends Room {
       loader,
       npcSpeakJobs: this.npcSpeakJobs,
       recentNpcCells: this.ambientRecentNpcCells,
+      ambientMotion: this.ambientMotion,
     });
 
     const newMinute = this.gameState.gameMinute;

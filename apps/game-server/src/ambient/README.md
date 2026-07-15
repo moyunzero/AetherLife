@@ -24,16 +24,18 @@ Phase 16 权威 ambient 逻辑：`schedule.ts`（日程）→ `tick.ts`（6s tic
 |------|------|
 | `fromMinute` / `toMinute` | 半开区间 `[from, to)`；`to < from` 表示跨午夜（如 22:00→06:00）。 |
 | `activityKey` | HUD / 铭牌活动文案（如 `reading`、`patrol`）。未知 key 加载时降为 `idle`。 |
-| `zoneId` | 命名空间 zone，形如 `beginning-fields@v1:orchard`。 wander/linger 只在该矩形内选格。 |
+| `zoneId` | 命名空间 zone，形如 `beginning-fields@v1:home`（全图）或 `…:orchard` / `plaza` / `pond`。 wander/linger 只在该矩形内选格（碰撞过滤）。 |
 | `mobility` | 移动模式，见下表。 |
 
 ### `mobility` 与移动行为
 
+走步资格（Phase **26.2 / 动森式**）：**B2 `shouldStepThisTick`**（wander ~55% / linger ~30%；`ambient-step:{npcId}:{minute}`；`join_vicinity` 绕过）决定是否**新开一程**；通过后持有 **walking | pausing**——到达停 **2–8** tick 再抽目标；**mid-walk 不重掷 B2**，每 tick 最多 1 格。**同 tick 可多名 NPC 移动**。仅 `resting` 经上游 `shouldSkipMovement` 完全跳过。
+
 | 值 | 选目标策略 | 是否每 tick 都动 |
 |----|------------|------------------|
-| `wander` | 在 `zoneId` 内随机可走格；社交段见下方 bias | 每 tick 尝试（仍受 speak 占用、碰撞、玩家格阻挡） |
-| `stationary` | **Linger**：当前位置 Chebyshev **≤ `LINGER_RADIUS`** 格内微 wander | 约 **`100 - LINGER_PAUSE_PERCENT`%** tick 会选新目标；其余 tick 原地停 |
-| `poi` | 优先走向区域内 **social POI**（如 well）；若已在 POI 或未找到，则同 `stationary` 的 linger | 同 linger |
+| `wander` | 在 `zoneId` 内选可走格（避开占用格，偏好个人空间 ≥2）；社交段见下方 bias | walking 时每 tick 尝试步进；到达后 pausing 2–8 tick |
+| `stationary` | **Linger**：当前位置 Chebyshev **≤ `LINGER_RADIUS`**；若在 zone 外则 **通勤到最近 zone 格** | 同上 + linger 本地 `LINGER_PAUSE_PERCENT` |
+| `poi` | 优先走向区域内 **social POI**（若未占用）；否则同 linger / zone pick | 同上 |
 
 ### 完全不移动的 activity
 
@@ -42,9 +44,8 @@ Phase 16 权威 ambient 逻辑：`schedule.ts`（日程）→ `tick.ts`（6s tic
 | 条件 | 说明 |
 |------|------|
 | `activityKey === "resting"` | 睡觉段（如午夜–06:00） |
-| `activityKey === "idle"` | 无有效日程或未知活动降级 |
 
-**注意：** `mobility: "stationary"` **不再** 跳过移动；晨间 `reading` / `cooking` 等会 linger 微动。
+日程里的「发呆」请用 `wandering` + `wander`（26.2 gap：原 `idle` 段已并进 wander）。未知 `activityKey` 仍会 coerce 为标签 `idle`，但**不再**因此跳过移动。
 
 ---
 
@@ -54,9 +55,17 @@ Phase 16 权威 ambient 逻辑：`schedule.ts`（日程）→ `tick.ts`（6s tic
 
 | 参数 | 导出 | 默认 | 含义 |
 |------|------|------|------|
-| `LINGER_RADIUS` | 是 | `2` | Chebyshev 距离（格）。`stationary` / `poi` 模式下，目标格必须在 NPC 当前位置 **≤ 此半径** 内。越大越像「在区域里闲逛」，越小越像「原地小动作」。 |
-| `LINGER_PAUSE_PERCENT` | 是 | `30` | 每个 tick、每名 NPC **原地不动** 的概率（%）。哈希键：`linger:{npcId}:{gameMinute}`，同一游戏分钟 deterministic，不同 NPC/分钟错开。调高 → 更常停住；调低 → 更碎步。 |
+| `LINGER_RADIUS` | 是 | `2` | Chebyshev 距离（格）。`stationary` / `poi` 在 zone 内时，目标格必须在 NPC 当前位置 **≤ 此半径** 内。 |
+| `LINGER_PAUSE_PERCENT` | 是 | `15` | linger 选目标时额外原地概率（%）。哈希键：`linger:{npcId}:{gameMinute}`。 |
+| `PERSONAL_SPACE` | 是 | `2` | 选目标时优先与其他 NPC 至少此距离；**永不叠格**（有空闲格时排除占用/本 tick 已预约格）；擦肩路过允许。 |
 | `MAX_RECENT` | 否 | `8` | 最近访问格 deque 长度，避免 linger/wander 在 2–3 格间来回抖。 |
+
+Walk/pause（`tick.ts`）：
+
+| 参数 | 默认 | 含义 |
+|------|------|------|
+| `WALK_TIMEOUT_TICKS` | `48` | 走路超时强制重抽目标（防卡死） |
+| `ambientPauseTicks` | 2–8 | 到达后停顿时长（hash `ambient-pause:{npcId}:{gameMinute}`） |
 
 ---
 
@@ -73,7 +82,7 @@ Phase 16 权威 ambient 逻辑：`schedule.ts`（日程）→ `tick.ts`（6s tic
 
 | 类型 | ID 模式 | 移动来源 |
 |------|---------|----------|
-| 主 NPC | `npc-1`…`npc-3` | `data/schedules/npc-*.json` + 可选 worker **intent cache** |
+| 主 NPC | `npc-1`…`npc-12`（议会 12 席） | `data/schedules/npc-*.json` + 可选 worker **intent cache** |
 | 背景 NPC | `bg-villager-*` | 合成段 `backgroundWanderSegment`：恒 `mobility: wander`，`activityKey: wandering` |
 
 主 NPC 在 `npcSpeakJobs` 中有 job 时 **整 tick 跳过**（对话优先）。
@@ -107,5 +116,5 @@ Phase 16 权威 ambient 逻辑：`schedule.ts`（日程）→ `tick.ts`（6s tic
 ```bash
 pnpm --filter @aetherlife/game-server test -- src/ambient/
 pnpm agent:verify
-# 实机：pnpm dev:stack → 06:00 进房，观察 npc-1/2/3 在 reading/cooking 段内 2 格内微动
+# 实机：pnpm dev:stack → 06:00 进房，观察议会席在 reading/cooking 段内 linger 微动（B2 多 NPC 同 tick）
 ```

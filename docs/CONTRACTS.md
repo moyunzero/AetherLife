@@ -101,14 +101,14 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 | **Worker** | `ambient_intent.py`：`LLM_PROVIDER_REFLECT` / `LORE` 结构化 JSON；**禁止** `tool_calls_to_actions` |
 | **写回** | `POST /internal/rooms/:roomId/npc-intent`（`requireWorkerAuth`）→ in-memory `setIntent` + `clearPendingNpcIntentJob` |
 | **Schema** | `@aetherlife/shared` `AmbientIntentSchema`：`target {gx,gy}` **或** `zoneId`；`reasonZh` ≤32；`untilGameMinute`；可选 `joinVicinity` |
-| **Tick 消费** | `ambient/tick.ts` 读 cache：target 格或 zone-bias wander；过期/缺失 → zone-wander **且不得清空**已有 `intentReasonZh`（segment fallback 保留） |
+| **Tick 消费** | `ambient/tick.ts` 读 cache：target 格或 zone-bias wander；过期/缺失 → zone-wander **且不得清空**已有 `intentReasonZh`（segment fallback 保留）；**位移**另受 `NpcState.maxRadius` 约束（`===0` 钉死；`>0` soft leash — Phase **26.2** / MAP-06）；走步资格 = **B2 `shouldStepThisTick`**（wander ~55 / linger ~30；join 绕过）**+ walk/pause**（通过后抽目标并持 walk，到达停 2–8 tick；mid-walk 不再重掷 B2）。仅 `resting` 经 `shouldSkipMovement` 完全跳过移动（`idle` 不跳过 — Guardrail #110）；**同 tick 可多名 NPC 移动**（26.2 / B2，取代 Phase 26 独占分桶） |
 | **reasonZh 语义** | **动机层**（情绪/社交/短期打算，12–18 字）；禁止与 `activityDisplayZh` 同义复述；segment 开始时 **同步** rule fallback（`intent-fallback.ts`），LLM 异步 **静默替换** |
 | **Dedupe** | `@aetherlife/shared` `isReasonZhRedundantWithActivity`；server `applyIntentToLiveRoom` + client `effectiveIntentReasonZh` |
-| **Join** | `joinVicinity` → 8s 窗口内 NPC 朝发起者邻近格移动；worker 每 NPC 每 game-day bucket（480 分钟）最多 2 次 |
+| **Join** | `joinVicinity` → 8s 窗口内 NPC 朝发起者邻近格移动；该窗口内该 NPC **绕过 B2 门与 soft leash**，并打断 walk/pause hold（D-11）；`maxRadius===0` 钉死仍优先于 join；worker 每 NPC 每 game-day bucket（480 分钟）最多 2 次 |
 | **Colyseus** | `npc{N}IntentReasonZh`、`JoinVicinityActive/Until/StartedAt` 同步至客户端 |
 | **UI** | 玩家可见 **永久两行**（名 + activity）；**禁止**渲染 `intentReasonZh` 第三行；`updateIntentLabels` 恒隐藏；L2 `reasonZh` 仅 registry/debug/speak 引用；**禁止** spinner / thought bubble；frozen：`entityLabels.ts`、`useNpcChat.ts` |
 
-**验证：** `pnpm --filter @aetherlife/game-server test -- intent-cache npc-ambient-intent ambient/tick`；`cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_ambient_intent.py -q`；`pnpm --filter @aetherlife/web test -- RoomScene.activity`；`pnpm dev:stack` → `pnpm verify:phase16`（真实 LLM，≤45s intent 断言）。
+**验证：** `pnpm --filter @aetherlife/game-server test -- intent-cache npc-ambient-intent ambient/tick src/world/council-spawn-radius.test.ts`；`cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_ambient_intent.py -q`；`pnpm --filter @aetherlife/web test -- RoomScene.activity`；`pnpm dev:stack` → `pnpm verify:phase16`（真实 LLM，≤45s intent 断言）。
 
 **锚点文件：** `ambient/intent-cache.ts`, `queue/npc-ambient-intent.ts`, `routes/internal-ambient-intent.ts`, `ambient/tick.ts`, `workers/.../ambient_intent.py`, `apps/web/src/game/intentLabels.ts`.
 

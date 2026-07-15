@@ -99,23 +99,42 @@ atlas 整图加载 → object `setTexture(key, frame)` 无效 → 重复 tile / 
 
 ## 议会 12 席出生点（Phase 26 · 村内多点分散）
 
-**决策（2026-06-30 v3）：** 12 议员锚点分布于全图（西北 x=5 → 东南 x=33），避免同屏聚团与占格堵路。所有点须可走（collision=0），任意两点 Chebyshev ≥3，`maxRadius: 0` 锁定锚点防止 ambient 聚团。`shuffleCouncilSpawnAssignments(roomId)` 将 12 槽位随机映射到 npc-1…12。
+**决策（2026-06-30 v3）：** 12 议员锚点分布于全图（西北 x=5 → 东南 x=33），避免同屏聚团与占格堵路。所有点须可走（collision=0），任意两点 Chebyshev ≥3。最初 `maxRadius: 0` 钉死锚点防 ambient 聚团。
 
-**SSOT：** `apps/game-server/data/world/beginning-fields@v1/spawns.json` → `councilSpawns[]`（本地格 lx/ly，经 `getCouncilSpawnSlots` 转全局 gx/gy）。
+**修订（Phase 26.2 · 2026-07-15 · A3）：** 全 12 议会席位统一 `maxRadius: 40`（zone 漫游为主；soft leash 仅防卡死/出界，半径大于最远锚点→角点 Chebyshev≈34）。`maxRadius===0` 仍表示钉死。决策 SSOT：`.planning/phases/26.2-world-alive-wander/26.2-CONTEXT.md`（D-19…D-25）。`shuffleCouncilSpawnAssignments(roomId)` 将 12 槽位随机映射到 npc-1…12。
 
-| 槽序 | 锚点 (x,y) | facing | 区域 |
-|------|------------|--------|------|
-| 0 | 9, 21 | s | 西侧偏南 |
-| 1 | 9, 5 | s | 西北林地 |
-| 2 | 23, 11 | e | 中北 |
-| 3 | 31, 13 | w | 东北 |
-| 4 | 17, 13 | e | 中部 |
-| 5 | 33, 28 | n | 东南岸 |
-| 6 | 20, 26 | s | 中南 |
-| 7 | 16, 31 | n | 西南岸 |
-| 8 | 27, 27 | w | 东南路径 |
-| 9 | 29, 17 | s | 东侧 |
-| 10 | 5, 9 | e | 西北角 |
-| 11 | 17, 22 | s | 中西 |
+**SSOT：** `apps/game-server/data/world/beginning-fields@v1/spawns.json` → `councilSpawns[]`（本地格 lx/ly，经 `getCouncilSpawnSlots` 转全局 gx/gy）；镜像 `packages/shared` `defaultBeginningFieldsBundle`（双 SSOT 须同步，见 `council-spawn-radius.test.ts`）。
 
-**约束：** 全点 collision 可走；与玩家默认 spawn (34,13) Chebyshev ≥3；任意两点 ≥3；x 跨度 ≥20、y 跨度 ≥20（见 `region-walkability.test.ts`）；`maxRadius: 0`。
+| 槽序 | 锚点 (x,y) | facing | 区域标签 | maxRadius (26.2) |
+|------|------------|--------|----------|------------------|
+| 0 | 9, 21 | s | west-path | 40 |
+| 1 | 9, 5 | s | woodland | 40 |
+| 2 | 23, 11 | e | orchard | 40 |
+| 3 | 31, 13 | w | plaza | 40 |
+| 4 | 17, 13 | e | central | 40 |
+| 5 | 33, 28 | n | pond | 40 |
+| 6 | 20, 26 | s | pond | 40 |
+| 7 | 16, 31 | n | shore | 40 |
+| 8 | 27, 27 | w | pond | 40 |
+| 9 | 29, 17 | s | plaza | 40 |
+| 10 | 5, 9 | e | woodland | 40 |
+| 11 | 17, 22 | s | west-central | 40 |
+
+**约束：** 全点 collision 可走；与玩家默认 spawn (34,13) Chebyshev ≥3；任意两点 ≥3；x 跨度 ≥20、y 跨度 ≥20（见 `region-walkability.test.ts`）；`maxRadius` 全席 40（`===0` 仍钉死）。
+
+---
+
+## Ambient zones（NPC 日程选目标矩形）
+
+双 SSOT：`apps/game-server/data/world/beginning-fields@v1/zones.json` ↔ `packages/shared` `defaultBeginningFieldsBundle`。
+
+| localId | 中文 | 全局格范围 (含起不含终) | 用途 |
+|---------|------|-------------------------|------|
+| `home` | 起始田野（全图） | (0,0)–(39,39) | 白天 `wander` 主段：可在整张 home **可走格**闲逛 |
+| `orchard` | 果园 | (18,6)–(29,15) | 劳作 / 晨读等短时 linger |
+| `plaza` | 村口广场 | (28,8)–(39,19) | 社交 / POI（井） |
+| `pond` | 池塘 | (22,22)–(35,33) | 钓鱼 / 休整 |
+
+**调试可视化：** `http://localhost:5173/?gridDebug=1` 叠加着色 zone 框 + 标签；悬停格 HUD 显示所属 zone。
+
+**日程约定：** 长漫游用 `…:home` + `wander`；人物定位用短 `stationary`/`poi` 绑 orchard/plaza/pond；睡觉用 `resting`。

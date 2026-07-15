@@ -10,9 +10,32 @@ import {
 } from "@aetherlife/shared";
 import { GameRoomState } from "../colyseus/schema.js";
 import { clearAllIntentsForTests, setIntent } from "./intent-cache.js";
-import { hashNpcBucket, MAIN_AMBIENT_NPC_IDS, pickJoinVicinityTarget, runAmbientTick, applySoftLeashTarget } from "./tick.js";
+import {
+  resolveScheduleSegment,
+  segmentKey,
+  shouldSkipMovement,
+  type Mobility,
+} from "./schedule.js";
+import {
+  applySoftLeashTarget,
+  collectWalkingReservedTargets,
+  MAIN_AMBIENT_NPC_IDS,
+  pickJoinVicinityTarget,
+  runAmbientTick,
+  shouldStepThisTick,
+  stepPercentForMobility,
+  WALK_TIMEOUT_TICKS,
+} from "./tick.js";
 import { clearChunkDeltaMemory } from "../world/chunk-repository.js";
 import { ChunkLoader } from "../world/chunk-loader.js";
+
+/** First minute in 0..1439 where the B2 step gate passes (plan 03 integration helper). */
+function stepActiveMinute(npcId: string, mobility: Mobility): number {
+  for (let m = 0; m < 1440; m++) {
+    if (shouldStepThisTick(npcId, m, mobility)) return m;
+  }
+  throw new Error(`no passing minute for ${npcId}/${mobility} — hash key wrong?`);
+}
 
 const TICK_SOURCE = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), "tick.ts"),
@@ -230,36 +253,321 @@ describe("runAmbientTick", () => {
     );
   });
 
+  it("collectWalkingReservedTargets seeds held walk destinations", () => {
+    const motion = new Map([
+      [
+        "npc-1",
+        {
+          mode: "walking" as const,
+          targetGx: 22,
+          targetGy: 12,
+          pauseTicksLeft: 0,
+          walkTicksLeft: 10,
+          segmentKey: "orchard|reading|stationary|360-480",
+        },
+      ],
+      [
+        "npc-2",
+        {
+          mode: "pausing" as const,
+          targetGx: 5,
+          targetGy: 5,
+          pauseTicksLeft: 3,
+          walkTicksLeft: 0,
+          segmentKey: "orchard|tending_crops|stationary|360-480",
+        },
+      ],
+    ]);
+    expect(collectWalkingReservedTargets(motion)).toEqual([{ x: 22, y: 12 }]);
+  });
+
+  it("held walk destination stays reserved so a later NPC does not claim it", async () => {
+    clearAllIntentsForTests();
+    const map = createDefaultRoom("tick-reserve-hold");
+    const gameState = new GameRoomState();
+
+    const picker = map.npcs.find((n) => n.id === "npc-1")!;
+    const walker = map.npcs.find((n) => n.id === "npc-2")!;
+    // Process picker before walker so only seeded reservations protect the held dest.
+    map.npcs = [
+      picker,
+      walker,
+      ...map.npcs.filter((n) => n.id !== "npc-1" && n.id !== "npc-2"),
+    ];
+
+    // Minute where picker passes B2 (new stroll) while walker holds mid-walk (bypass).
+    let chosenMinute = -1;
+    for (let m = 0; m < 1440; m++) {
+      const pickerSeg = resolveScheduleSegment(picker.id, m);
+      const walkerSeg = resolveScheduleSegment(walker.id, m);
+      if (!pickerSeg || !walkerSeg) continue;
+      if (shouldSkipMovement(pickerSeg) || shouldSkipMovement(walkerSeg)) continue;
+      if (!shouldStepThisTick(picker.id, m, pickerSeg.mobility)) continue;
+      chosenMinute = m;
+      break;
+    }
+    expect(chosenMinute).toBeGreaterThanOrEqual(0);
+    gameState.gameMinute = chosenMinute === 0 ? 1439 : chosenMinute - 1;
+
+    const reservedDest = { x: 12, y: 10 };
+    picker.x = 10;
+    picker.y = 10;
+    picker.homeX = 10;
+    picker.homeY = 10;
+    picker.maxRadius = 40;
+    walker.x = 8;
+    walker.y = 10;
+    walker.homeX = 8;
+    walker.homeY = 10;
+    walker.maxRadius = 40;
+
+    // Park the rest so they do not consume zone cells or reclaim reservedDest.
+    const speakJobs = new Map<string, string>();
+    for (const npc of map.npcs) {
+      if (npc.id === "npc-1" || npc.id === "npc-2") continue;
+      speakJobs.set(npc.id, "park");
+      npc.x = 2;
+      npc.y = 2;
+    }
+    map.player.x = 1;
+    map.player.y = 1;
+
+    const walkerSeg = resolveScheduleSegment(walker.id, chosenMinute)!;
+    const motion = new Map([
+      [
+        walker.id,
+        {
+          mode: "walking" as const,
+          targetGx: reservedDest.x,
+          targetGy: reservedDest.y,
+          pauseTicksLeft: 0,
+          walkTicksLeft: WALK_TIMEOUT_TICKS,
+          segmentKey: segmentKey(walkerSeg),
+        },
+      ],
+    ]);
+
+    // Linger pool around (10,10) ≤2 includes reservedDest (12,10). Fill recent so
+    // the non-reserved alternative peers are less sticky; reservation must still win.
+    const recentNpcCells = new Map<string, { x: number; y: number }[]>();
+    recentNpcCells.set(picker.id, [
+      { x: 10, y: 10 },
+      { x: 11, y: 10 },
+      { x: 9, y: 10 },
+      { x: 10, y: 11 },
+      { x: 10, y: 9 },
+      { x: 11, y: 11 },
+      { x: 9, y: 9 },
+      { x: 11, y: 9 },
+      { x: 9, y: 11 },
+    ]);
+
+    const loader = await loaderForMap(map);
+    runAmbientTick({
+      roomId: "tick-reserve-hold",
+      gameState,
+      map,
+      loader,
+      npcSpeakJobs: speakJobs,
+      recentNpcCells,
+      ambientMotion: motion,
+    });
+
+    const pickerMotion = motion.get(picker.id);
+    expect(pickerMotion).toBeDefined();
+    // May finish a 1-step stroll into pause same tick — assert reserved dest was not claimed.
+    if (pickerMotion!.mode === "walking") {
+      expect(
+        pickerMotion!.targetGx === reservedDest.x && pickerMotion!.targetGy === reservedDest.y,
+      ).toBe(false);
+    } else {
+      expect(pickerMotion!.mode).toBe("pausing");
+      expect(picker.x === reservedDest.x && picker.y === reservedDest.y).toBe(false);
+    }
+  });
+
+  it("invalidates held walk when the schedule segment changes", async () => {
+    clearAllIntentsForTests();
+    const map = createDefaultRoom("tick-segment-invalidate");
+    const gameState = new GameRoomState();
+    // npc-1: orchard stationary ends at 480 → home patrol wander
+    gameState.gameMinute = 479;
+
+    const npc = map.npcs.find((n) => n.id === "npc-1")!;
+    npc.x = 10;
+    npc.y = 10;
+    npc.homeX = 10;
+    npc.homeY = 10;
+    npc.maxRadius = 40;
+
+    const speakJobs = new Map<string, string>();
+    for (const other of map.npcs) {
+      if (other.id === npc.id) continue;
+      speakJobs.set(other.id, "park");
+      other.x = 2;
+      other.y = 2;
+    }
+    map.player.x = 1;
+    map.player.y = 1;
+
+    const staleSeg = resolveScheduleSegment(npc.id, 400)!;
+    const staleTarget = { x: 14, y: 10 };
+    const motion = new Map([
+      [
+        npc.id,
+        {
+          mode: "walking" as const,
+          targetGx: staleTarget.x,
+          targetGy: staleTarget.y,
+          pauseTicksLeft: 0,
+          walkTicksLeft: WALK_TIMEOUT_TICKS,
+          segmentKey: segmentKey(staleSeg),
+        },
+      ],
+    ]);
+
+    const loader = await loaderForMap(map);
+    runAmbientTick({
+      roomId: "tick-segment-invalidate",
+      gameState,
+      map,
+      loader,
+      npcSpeakJobs: speakJobs,
+      recentNpcCells: new Map(),
+      ambientMotion: motion,
+    });
+
+    expect(gameState.gameMinute).toBe(480);
+    const active = resolveScheduleSegment(npc.id, 480)!;
+    expect(segmentKey(active)).not.toBe(segmentKey(staleSeg));
+    const next = motion.get(npc.id);
+    expect(next?.segmentKey).toBe(segmentKey(active));
+    // Continued hold would only decrement walkTicksLeft; invalidate + re-pick resets it.
+    if (next?.mode === "walking") {
+      expect(next.walkTicksLeft).toBe(WALK_TIMEOUT_TICKS);
+    }
+  });
+
+  it("arrives then pauses before picking a new walk", async () => {
+    clearAllIntentsForTests();
+    const map = createDefaultRoom("tick-pause");
+    const gameState = new GameRoomState();
+    gameState.gameMinute = 479;
+    const npc = map.npcs.find((n) => n.id === "npc-12")!;
+    npc.x = 20;
+    npc.y = 12;
+    npc.homeX = 20;
+    npc.homeY = 12;
+    npc.maxRadius = 40;
+    setIntent("tick-pause", npc.id, {
+      intent: parseAmbientIntent({
+        target: { gx: 21, gy: 12 },
+        reasonZh: "走一步",
+        untilGameMinute: 600,
+      }),
+      trigger: "segment_change",
+      gameMinute: 480,
+    });
+    const loader = await loaderForMap(map);
+    const motion = new Map();
+    runAmbientTick({
+      roomId: "tick-pause",
+      gameState,
+      map,
+      loader,
+      npcSpeakJobs: new Map(),
+      recentNpcCells: new Map(),
+      ambientMotion: motion,
+    });
+    expect(npc.x).toBe(21);
+    expect(npc.y).toBe(12);
+    expect(motion.get(npc.id)?.mode).toBe("pausing");
+    expect(motion.get(npc.id)!.pauseTicksLeft).toBeGreaterThanOrEqual(2);
+
+    const xDuringPause = npc.x;
+    const yDuringPause = npc.y;
+    runAmbientTick({
+      roomId: "tick-pause",
+      gameState,
+      map,
+      loader,
+      npcSpeakJobs: new Map(),
+      recentNpcCells: new Map(),
+      ambientMotion: motion,
+    });
+    expect(npc.x).toBe(xDuringPause);
+    expect(npc.y).toBe(yDuringPause);
+    expect(motion.get(npc.id)?.mode).toBe("pausing");
+  });
+
   it("MAIN_AMBIENT_NPC_IDS covers all 12 council seats", () => {
     expect(MAIN_AMBIENT_NPC_IDS.length).toBe(12);
     expect([...MAIN_AMBIENT_NPC_IDS].sort()).toEqual([...COUNCIL_NPC_IDS].sort());
   });
 
-  it("only NPCs in the current minute bucket may change position", async () => {
+  it("at least two NPCs move in the same runAmbientTick", async () => {
     clearAllIntentsForTests();
-    const map = createDefaultRoom("tick-bucket");
+    const map = createDefaultRoom("tick-multi-move");
     const gameState = new GameRoomState();
-    const gameMinute = 478;
-    gameState.gameMinute = gameMinute;
-    const activeBucket = (gameMinute + 1) % 12;
-    const activeNpc = map.npcs.find((n) => hashNpcBucket(n.id) === activeBucket)!;
-    activeNpc.maxRadius = 4;
-    const targetGx = activeNpc.x + 1;
-    const targetGy = activeNpc.y;
-    setIntent("tick-bucket", activeNpc.id, {
-      intent: parseAmbientIntent({
-        target: { gx: targetGx, gy: targetGy },
-        reasonZh: "去那边",
-        untilGameMinute: gameMinute + 60,
-      }),
-      trigger: "segment_change",
-      gameMinute,
+
+    let chosenMinute = -1;
+    let chosenIds: string[] = [];
+    for (let m = 0; m < 1440; m++) {
+      const eligible: string[] = [];
+      for (const id of COUNCIL_NPC_IDS) {
+        const segment = resolveScheduleSegment(id, m);
+        if (!segment || shouldSkipMovement(segment)) continue;
+        if (!shouldStepThisTick(id, m, segment.mobility)) continue;
+        eligible.push(id);
+      }
+      if (eligible.length >= 2) {
+        chosenMinute = m;
+        chosenIds = eligible.slice(0, 2);
+        break;
+      }
+    }
+    expect(chosenMinute).toBeGreaterThanOrEqual(0);
+    expect(chosenIds.length).toBe(2);
+
+    gameState.gameMinute = chosenMinute === 0 ? 1439 : chosenMinute - 1;
+    // Park everyone else so they cannot occupy mover targets (MP-07).
+    map.player.x = 1;
+    map.player.y = 1;
+    map.npcs.forEach((npc, i) => {
+      if (!chosenIds.includes(npc.id)) {
+        npc.x = 2;
+        npc.y = 2 + i;
+        npc.maxRadius = 40;
+      }
     });
+    const clearSlots = [
+      { x: 20, y: 12 },
+      { x: 28, y: 12 },
+    ];
+    for (let i = 0; i < chosenIds.length; i += 1) {
+      const id = chosenIds[i]!;
+      const slot = clearSlots[i]!;
+      const npc = map.npcs.find((n) => n.id === id)!;
+      npc.x = slot.x;
+      npc.y = slot.y;
+      npc.homeX = slot.x;
+      npc.homeY = slot.y;
+      npc.maxRadius = 40;
+      setIntent("tick-multi-move", id, {
+        intent: parseAmbientIntent({
+          target: { gx: slot.x + 1, gy: slot.y },
+          reasonZh: "去那边",
+          untilGameMinute: chosenMinute + 60,
+        }),
+        trigger: "segment_change",
+        gameMinute: chosenMinute,
+      });
+    }
     const loader = await loaderForMap(map);
     const before = new Map(map.npcs.map((n) => [n.id, { x: n.x, y: n.y }]));
 
     runAmbientTick({
-      roomId: "tick-bucket",
+      roomId: "tick-multi-move",
       gameState,
       map,
       loader,
@@ -268,34 +576,45 @@ describe("runAmbientTick", () => {
     });
 
     let movedCount = 0;
-    for (const npc of map.npcs) {
-      const start = before.get(npc.id)!;
+    for (const id of chosenIds) {
+      const npc = map.npcs.find((n) => n.id === id)!;
+      const start = before.get(id)!;
       const moved = npc.x !== start.x || npc.y !== start.y;
       if (moved) {
         movedCount += 1;
-        expect(gameState.gameMinute % 12).toBe(hashNpcBucket(npc.id));
+        const dx = Math.abs(npc.x - start.x);
+        const dy = Math.abs(npc.y - start.y);
+        expect(dx + dy).toBeLessThanOrEqual(1);
       }
     }
-    expect(movedCount).toBeGreaterThanOrEqual(1);
+    expect(movedCount).toBeGreaterThanOrEqual(2);
   });
 
   it("maxRadius 0 council seats stay at embassy home during ambient tick", async () => {
     clearAllIntentsForTests();
     const map = createDefaultRoom("tick-stationary");
     const gameState = new GameRoomState();
-    const gameMinute = 478;
-    gameState.gameMinute = gameMinute;
-    const activeBucket = (gameMinute + 1) % 12;
-    const stationaryNpc = map.npcs.find((n) => hashNpcBucket(n.id) === activeBucket)!;
+    const stationaryNpc = map.npcs[0]!;
     stationaryNpc.maxRadius = 0;
+    let passMinute = -1;
+    for (let m = 0; m < 1440; m++) {
+      const seg = resolveScheduleSegment(stationaryNpc.id, m);
+      if (!seg || shouldSkipMovement(seg)) continue;
+      if (shouldStepThisTick(stationaryNpc.id, m, seg.mobility)) {
+        passMinute = m;
+        break;
+      }
+    }
+    expect(passMinute).toBeGreaterThanOrEqual(0);
+    gameState.gameMinute = passMinute === 0 ? 1439 : passMinute - 1;
     setIntent("tick-stationary", stationaryNpc.id, {
       intent: parseAmbientIntent({
-        target: { gx: stationaryNpc.x + 2, gy: stationaryNpc.y },
+        target: { gx: stationaryNpc.x + 20, gy: stationaryNpc.y },
         reasonZh: "想走远一点",
-        untilGameMinute: gameMinute + 60,
+        untilGameMinute: passMinute + 60,
       }),
       trigger: "segment_change",
-      gameMinute,
+      gameMinute: passMinute,
     });
     const loader = await loaderForMap(map);
     const before = { x: stationaryNpc.x, y: stationaryNpc.y };
@@ -311,11 +630,6 @@ describe("runAmbientTick", () => {
 
     expect(stationaryNpc.x).toBe(before.x);
     expect(stationaryNpc.y).toBe(before.y);
-  });
-
-  it("assigns each council seat a distinct hash bucket slot 0..11", () => {
-    const buckets = COUNCIL_NPC_IDS.map((id) => hashNpcBucket(id));
-    expect(new Set(buckets).size).toBe(12);
   });
 
   it("applySoftLeashTarget biases wander target back toward embassy home", () => {
@@ -352,6 +666,83 @@ describe("runAmbientTick", () => {
     expect(leashed.targetGx).not.toBe(50);
   });
 
+  it("join_vicinity bypasses the step gate and the soft leash (D-11)", async () => {
+    clearAllIntentsForTests();
+    const map = createDefaultRoom("tick-join-bypass");
+    const gameState = new GameRoomState();
+    const npc = map.npcs[0]!;
+    // Player ~4 cells west on walkable cells; home far so soft leash would pull home.
+    npc.x = 32;
+    npc.y = 12;
+    npc.homeX = 5;
+    npc.homeY = 9;
+    npc.maxRadius = 2;
+    map.player.x = 28;
+    map.player.y = 12;
+    npc.joinVicinityActive = true;
+    npc.joinVicinityStartedAt = Date.now();
+    npc.joinVicinityUntil = Date.now() + 8000;
+
+    let failMinute = -1;
+    for (let m = 0; m < 1440; m++) {
+      const seg = resolveScheduleSegment(npc.id, m);
+      if (!seg || shouldSkipMovement(seg)) continue;
+      if (!shouldStepThisTick(npc.id, m, seg.mobility)) {
+        failMinute = m;
+        break;
+      }
+    }
+    expect(failMinute).toBeGreaterThanOrEqual(0);
+    gameState.gameMinute = failMinute === 0 ? 1439 : failMinute - 1;
+
+    // Park non-movers; pin diagonals so join target is uniquely (29,12) — first step west.
+    map.npcs.forEach((other, i) => {
+      if (other.id === npc.id) return;
+      if (i === 1) {
+        other.x = 29;
+        other.y = 11;
+      } else if (i === 2) {
+        other.x = 29;
+        other.y = 13;
+      } else {
+        other.x = 2;
+        other.y = 2 + i;
+      }
+    });
+
+    const distBefore = Math.max(Math.abs(npc.x - map.player.x), Math.abs(npc.y - map.player.y));
+    expect(distBefore).toBeGreaterThan(2);
+    const loader = await loaderForMap(map);
+
+    runAmbientTick({
+      roomId: "tick-join-bypass",
+      gameState,
+      map,
+      loader,
+      npcSpeakJobs: new Map(),
+      recentNpcCells: new Map(),
+    });
+
+    const distAfter = Math.max(Math.abs(npc.x - map.player.x), Math.abs(npc.y - map.player.y));
+    expect(distAfter).toBeLessThan(distBefore);
+  });
+
+  it("applySoftLeashTarget never clamps in-region zone targets at radius 40", () => {
+    const npc = {
+      id: "npc-11",
+      name: "test",
+      x: 5,
+      y: 9,
+      homeX: 5,
+      homeY: 9,
+      maxRadius: 40,
+      status: "idle",
+      inventory: [],
+    };
+    const leashed = applySoftLeashTarget(npc, 39, 39);
+    expect(leashed).toEqual({ targetGx: 39, targetGy: 39 });
+  });
+
   it("contains no fetch/axios/worker/llm imports (LIFE-03)", () => {
     const code = TICK_SOURCE.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
     expect(code).not.toMatch(/\bfetch\s*\(/);
@@ -361,5 +752,127 @@ describe("runAmbientTick", () => {
     expect(code).not.toMatch(/\bllm\b/i);
     expect(code).not.toMatch(/\bisBackgroundNpc\b/);
     expect(code).not.toMatch(/\brunBackgroundNpcTick\b/);
+  });
+
+  /**
+   * Plan 03 acceptance: grep -c 'shouldStepThisTick(npc.id' tick.ts == 1.
+   * Regression: wired in 0952357, removed in 45b6455 (walk/pause rewrite).
+   * Adversarial — must FAIL while runAmbientTick does not call the B2 gate.
+   */
+  it("runAmbientTick source wires shouldStepThisTick(npc.id) B2 gate (D-22/D-25)", () => {
+    const withoutComments = TICK_SOURCE.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+    const callSites = withoutComments.match(/shouldStepThisTick\(\s*npc\.id/g) ?? [];
+    expect(callSites.length).toBe(1);
+  });
+
+  /**
+   * Behavioral half of B2 wire: on a gate-FAIL minute without join_vicinity,
+   * NPC must not take a step. Fails if the loop skips shouldStepThisTick.
+   */
+  it("runAmbientTick skips stepping when shouldStepThisTick fails (B2 gate live)", async () => {
+    clearAllIntentsForTests();
+    const map = createDefaultRoom("tick-b2-gate-live");
+    const gameState = new GameRoomState();
+    const npc = map.npcs.find((n) => n.id === "npc-1")!;
+    npc.x = 20;
+    npc.y = 12;
+    npc.homeX = 20;
+    npc.homeY = 12;
+    npc.maxRadius = 40;
+    map.player.x = 1;
+    map.player.y = 1;
+
+    let failMinute = -1;
+    for (let m = 0; m < 1440; m++) {
+      const seg = resolveScheduleSegment(npc.id, m);
+      if (!seg || shouldSkipMovement(seg)) continue;
+      if (!shouldStepThisTick(npc.id, m, seg.mobility)) {
+        failMinute = m;
+        break;
+      }
+    }
+    expect(failMinute).toBeGreaterThanOrEqual(0);
+    gameState.gameMinute = failMinute === 0 ? 1439 : failMinute - 1;
+
+    setIntent("tick-b2-gate-live", npc.id, {
+      intent: parseAmbientIntent({
+        target: { gx: npc.x + 1, gy: npc.y },
+        reasonZh: "一步测试",
+        untilGameMinute: failMinute + 60,
+      }),
+      trigger: "segment_change",
+      gameMinute: failMinute,
+    });
+
+    const speakJobs = new Map<string, string>();
+    for (const other of map.npcs) {
+      if (other.id === npc.id) continue;
+      speakJobs.set(other.id, "park");
+      other.x = 2;
+      other.y = 2;
+    }
+
+    const before = { x: npc.x, y: npc.y };
+    const loader = await loaderForMap(map);
+    runAmbientTick({
+      roomId: "tick-b2-gate-live",
+      gameState,
+      map,
+      loader,
+      npcSpeakJobs: speakJobs,
+      recentNpcCells: new Map(),
+    });
+
+    expect(npc.x).toBe(before.x);
+    expect(npc.y).toBe(before.y);
+  });
+});
+
+describe("shouldStepThisTick (B2 gate)", () => {
+  it("wander gate passes ~55% of minutes (deterministic count)", () => {
+    let pass = 0;
+    for (let m = 0; m < 1440; m++) {
+      if (shouldStepThisTick("npc-3", m, "wander")) pass++;
+    }
+    const ratio = pass / 1440;
+    expect(ratio).toBeGreaterThan(0.5);
+    expect(ratio).toBeLessThan(0.6);
+    expect(stepActiveMinute("npc-3", "wander")).toBeGreaterThanOrEqual(0);
+  });
+
+  it("linger gate passes ~30% of minutes (deterministic count)", () => {
+    expect(stepPercentForMobility("wander")).toBe(55);
+    expect(stepPercentForMobility("stationary")).toBe(30);
+    expect(stepPercentForMobility("poi")).toBe(30);
+    let pass = 0;
+    for (let m = 0; m < 1440; m++) {
+      if (shouldStepThisTick("npc-3", m, "stationary")) pass++;
+    }
+    const ratio = pass / 1440;
+    expect(ratio).toBeGreaterThan(0.25);
+    expect(ratio).toBeLessThan(0.35);
+  });
+
+  it("multiple NPCs can pass the gate on the same minute (B2, D-22/D-24)", () => {
+    let coPassMinutes = 0;
+    for (let m = 0; m < 1440; m++) {
+      const movers = COUNCIL_NPC_IDS.filter((id) => shouldStepThisTick(id, m, "wander"));
+      if (movers.length >= 2) coPassMinutes++;
+    }
+    expect(coPassMinutes).toBeGreaterThan(0);
+  });
+
+  it("per-NPC jitter desynchronizes gate minutes (D-24)", () => {
+    let npc1Only = false;
+    let npc2Only = false;
+    for (let m = 0; m < 1440; m++) {
+      const a = shouldStepThisTick("npc-1", m, "wander");
+      const b = shouldStepThisTick("npc-2", m, "wander");
+      if (a && !b) npc1Only = true;
+      if (b && !a) npc2Only = true;
+      if (npc1Only && npc2Only) break;
+    }
+    expect(npc1Only).toBe(true);
+    expect(npc2Only).toBe(true);
   });
 });

@@ -1,27 +1,27 @@
 {
   "npcId": "npc-9",
   "persona": "aesthete",
-  "_comment": "Aesthete — AM orchard reading, PM plaza social wander, evening pond fishing.",
+  "_comment": "Aesthete — morning orchard reading, day home roam for beauty, evening pond, night rest orchard.",
   "segments": [
     {
       "fromMinute": 360,
-      "toMinute": 540,
+      "toMinute": 480,
       "activityKey": "reading",
       "zoneId": "beginning-fields@v1:orchard",
       "mobility": "stationary"
     },
     {
-      "fromMinute": 540,
+      "fromMinute": 480,
       "toMinute": 900,
-      "activityKey": "socializing",
-      "zoneId": "beginning-fields@v1:plaza",
+      "activityKey": "wandering",
+      "zoneId": "beginning-fields@v1:home",
       "mobility": "wander"
     },
     {
       "fromMinute": 900,
       "toMinute": 1080,
-      "activityKey": "wandering",
-      "zoneId": "beginning-fields@v1:orchard",
+      "activityKey": "socializing",
+      "zoneId": "beginning-fields@v1:home",
       "mobility": "wander"
     },
     {

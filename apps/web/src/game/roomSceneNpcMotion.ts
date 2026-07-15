@@ -3,14 +3,21 @@ import type { GridCell, RoomState } from "@aetherlife/shared";
 import { clientFindPath } from "../lib/chunkWalkability.js";
 import { entityYSortDepth } from "./entityLayout.js";
 import { gridToWorld } from "./gridLayout.js";
-import { GRID_STEP_MS } from "./gridMovement.js";
+import {
+  NPC_ANIMATE_CATCHUP_MAX_CELLS,
+  NPC_GRID_STEP_MS,
+  shouldSnapNpcCatchup,
+} from "./gridMovement.js";
 import {
   applyStepAnimation,
   applyStepEndAnimation,
 } from "./entitySprites.js";
+import { isLpcProfile, lpcNpc1WalkCycleMs } from "./lpcNpc1Sheet.js";
 import type { EntitySprite, PlayerSnap } from "./roomSceneTypes.js";
 
-const STEP_MS = GRID_STEP_MS;
+const STEP_MS = NPC_GRID_STEP_MS;
+/** Match remote peers — Linear + frozen stand reads as 漂移. */
+const NPC_STEP_EASE = "Cubic.easeInOut";
 
 export type RoomSceneNpcMotionCtx = {
   registry: Phaser.Data.DataManager;
@@ -49,11 +56,52 @@ export function pathForNpcMove(
 export function snapNpcTo(ctx: RoomSceneNpcMotionCtx, ent: EntitySprite, gx: number, gy: number): void {
   ent.targetGridX = gx;
   ent.targetGridY = gy;
+  ent.pendingGridX = undefined;
+  ent.pendingGridY = undefined;
   ctx.stopEntityMotion(ent);
   ctx.snapEntityToGrid(ent, gx, gy);
 }
 
-/** NPC moves step-by-step (~140ms/cell), matching player sendMoveTo animation. */
+function beginNpcStepTween(
+  ctx: RoomSceneNpcMotionCtx,
+  ent: EntitySprite,
+  gx: number,
+  gy: number,
+  onArrived: () => void,
+): void {
+  const fromX = ent.gridX;
+  const fromY = ent.gridY;
+  const { wx, wy } = gridToWorld(gx, gy);
+  ent.container.setDepth(entityYSortDepth(gx, gy, ent.depthLayer));
+  applyStepAnimation(ent, fromX, fromY, gx, gy);
+  // Pace LPC gait to one cycle per cell (Phaser AnimationState.timeScale).
+  if (ent.avatar?.anims) {
+    const profile = ent.spriteProfile;
+    const cycleMs =
+      profile && isLpcProfile(profile) ? lpcNpc1WalkCycleMs(profile) : STEP_MS;
+    ent.avatar.anims.timeScale = cycleMs / STEP_MS;
+  }
+  ent.moveTween = ctx.tweens.add({
+    targets: ent.container,
+    x: wx,
+    y: wy,
+    duration: STEP_MS,
+    ease: NPC_STEP_EASE,
+    onComplete: () => {
+      ent.gridX = gx;
+      ent.gridY = gy;
+      ent.moveTween = undefined;
+      if (ent.avatar?.anims) ent.avatar.anims.timeScale = 1;
+      onArrived();
+    },
+  });
+}
+
+/**
+ * NPC moves step-by-step (~NPC_GRID_STEP_MS/cell = one LPC gait).
+ * Must not kill an in-flight step when a stale schema still reports the start cell
+ * (ISSUE-004-style interrupt) — that causes idle-pose Linear “漂移”.
+ */
 export function tweenNpcTo(
   ctx: RoomSceneNpcMotionCtx,
   ent: EntitySprite,
@@ -64,8 +112,10 @@ export function tweenNpcTo(
   if (ent.gridX === gx && ent.gridY === gy) {
     ent.targetGridX = gx;
     ent.targetGridY = gy;
-    ctx.stopEntityMotion(ent);
-    ctx.snapEntityToGrid(ent, gx, gy);
+    ent.pendingGridX = undefined;
+    ent.pendingGridY = undefined;
+    // Stale schema at start cell while still tweening toward dest — keep going.
+    if (ent.moveTween?.isPlaying()) return;
     return;
   }
 
@@ -77,59 +127,73 @@ export function tweenNpcTo(
     return;
   }
 
-  const reduced = ctx.registry.get("reducedMotion") as boolean;
-  const path = pathForNpcMove(ctx, ent.gridX, ent.gridY, gx, gy, npcId);
-
-  ctx.stopEntityMotion(ent);
-  ent.targetGridX = gx;
-  ent.targetGridY = gy;
-  ctx.snapEntityToGrid(ent, ent.gridX, ent.gridY);
-
-  if (reduced) {
-    ctx.snapEntityToGrid(ent, gx, gy);
+  if (ent.moveTween?.isPlaying()) {
+    // Queue at most one follow-up cell; finish current step first.
+    ent.pendingGridX = gx;
+    ent.pendingGridY = gy;
+    ent.targetGridX = gx;
+    ent.targetGridY = gy;
     return;
   }
+
+  const reduced = ctx.registry.get("reducedMotion") as boolean;
+  ent.targetGridX = gx;
+  ent.targetGridY = gy;
+  ent.pendingGridX = undefined;
+  ent.pendingGridY = undefined;
+
+  if (reduced || shouldSnapNpcCatchup(ent.gridX, ent.gridY, gx, gy)) {
+    ctx.stopEntityMotion(ent);
+    ctx.snapEntityToGrid(ent, gx, gy);
+    applyStepEndAnimation(ent, false);
+    return;
+  }
+
+  const path = pathForNpcMove(ctx, ent.gridX, ent.gridY, gx, gy, npcId);
+  const resumeFromPendingOrIdle = (): void => {
+    const px = ent.pendingGridX;
+    const py = ent.pendingGridY;
+    if (px != null && py != null && (px !== ent.gridX || py !== ent.gridY)) {
+      ent.pendingGridX = undefined;
+      ent.pendingGridY = undefined;
+      tweenNpcTo(ctx, ent, px, py, npcId);
+      return;
+    }
+    applyStepEndAnimation(ent, false);
+  };
 
   if (!path || path.length <= 1) {
     const dist = Math.abs(ent.gridX - gx) + Math.abs(ent.gridY - gy);
     if (dist === 1) {
-      ctx.tweenEntityOneStep(ent, gx, gy, STEP_MS);
+      beginNpcStepTween(ctx, ent, gx, gy, resumeFromPendingOrIdle);
     } else {
       ctx.snapEntityToGrid(ent, gx, gy);
+      applyStepEndAnimation(ent, false);
     }
+    return;
+  }
+
+  if (path.length - 1 > NPC_ANIMATE_CATCHUP_MAX_CELLS) {
+    ctx.snapEntityToGrid(ent, gx, gy);
+    applyStepEndAnimation(ent, false);
     return;
   }
 
   let stepIndex = 1;
   const walkNext = (): void => {
     if (stepIndex >= path.length) {
-      ent.moveTween = undefined;
+      resumeFromPendingOrIdle();
       return;
     }
     const cell = path[stepIndex]!;
     stepIndex += 1;
-    const fromX = ent.gridX;
-    const fromY = ent.gridY;
-    const { wx, wy } = gridToWorld(cell.x, cell.y);
-    ent.container.setDepth(entityYSortDepth(cell.x, cell.y, ent.depthLayer));
-    applyStepAnimation(ent, fromX, fromY, cell.x, cell.y);
-    ent.moveTween = ctx.tweens.add({
-      targets: ent.container,
-      x: wx,
-      y: wy,
-      duration: STEP_MS,
-      ease: "Linear",
-      onComplete: () => {
-        ent.gridX = cell.x;
-        ent.gridY = cell.y;
-        const continuing = stepIndex < path.length;
-        applyStepEndAnimation(ent, continuing);
-        if (continuing) {
-          walkNext();
-        } else {
-          ent.moveTween = undefined;
-        }
-      },
+    beginNpcStepTween(ctx, ent, cell.x, cell.y, () => {
+      const continuing = stepIndex < path.length;
+      if (continuing) {
+        walkNext();
+      } else {
+        resumeFromPendingOrIdle();
+      }
     });
   };
   walkNext();

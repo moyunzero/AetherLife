@@ -397,6 +397,7 @@ export function defaultBeginningFieldsBundle(): WorldRegistryBundle {
     zonesByRegionId: {
       [BEGINNING_FIELDS_ID]: {
         zones: [
+          { id: "home", labelZh: "起始田野（全图）", rect: { lx: 0, ly: 0, w: 40, h: 40 } },
           { id: "orchard", labelZh: "果园", rect: { lx: 18, ly: 6, w: 12, h: 10 } },
           { id: "plaza", labelZh: "村口广场", rect: { lx: 28, ly: 8, w: 12, h: 12 } },
           { id: "pond", labelZh: "池塘", rect: { lx: 22, ly: 22, w: 14, h: 12 } },
@@ -417,18 +418,18 @@ export function defaultBeginningFieldsBundle(): WorldRegistryBundle {
       [BEGINNING_FIELDS_ID]: {
         defaultPlayerSpawn: { lx: 34, ly: 13 },
         councilSpawns: [
-          { x: 9, y: 21, facing: "s", maxRadius: 0 },
-          { x: 9, y: 5, facing: "s", maxRadius: 0 },
-          { x: 23, y: 11, facing: "e", maxRadius: 0 },
-          { x: 31, y: 13, facing: "w", maxRadius: 0 },
-          { x: 17, y: 13, facing: "e", maxRadius: 0 },
-          { x: 33, y: 28, facing: "n", maxRadius: 0 },
-          { x: 20, y: 26, facing: "s", maxRadius: 0 },
-          { x: 16, y: 31, facing: "n", maxRadius: 0 },
-          { x: 27, y: 27, facing: "w", maxRadius: 0 },
-          { x: 29, y: 17, facing: "s", maxRadius: 0 },
-          { x: 5, y: 9, facing: "e", maxRadius: 0 },
-          { x: 17, y: 22, facing: "s", maxRadius: 0 },
+          { x: 9, y: 21, facing: "s", maxRadius: 40 },
+          { x: 9, y: 5, facing: "s", maxRadius: 40 },
+          { x: 23, y: 11, facing: "e", maxRadius: 40 },
+          { x: 31, y: 13, facing: "w", maxRadius: 40 },
+          { x: 17, y: 13, facing: "e", maxRadius: 40 },
+          { x: 33, y: 28, facing: "n", maxRadius: 40 },
+          { x: 20, y: 26, facing: "s", maxRadius: 40 },
+          { x: 16, y: 31, facing: "n", maxRadius: 40 },
+          { x: 27, y: 27, facing: "w", maxRadius: 40 },
+          { x: 29, y: 17, facing: "s", maxRadius: 40 },
+          { x: 5, y: 9, facing: "e", maxRadius: 40 },
+          { x: 17, y: 22, facing: "s", maxRadius: 40 },
         ],
       },
     },

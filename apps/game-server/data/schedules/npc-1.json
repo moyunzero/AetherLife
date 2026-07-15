@@ -1,7 +1,7 @@
 {
   "npcId": "npc-1",
   "persona": "order_keeper",
-  "_comment": "Order keeper — AM stationary orchard study, PM patrol orchard, evening plaza social, night orchard rest.",
+  "_comment": "Order keeper — morning orchard reading, day home patrol, evening plaza social, night rest.",
   "segments": [
     {
       "fromMinute": 360,
@@ -12,16 +12,16 @@
     },
     {
       "fromMinute": 480,
-      "toMinute": 720,
+      "toMinute": 900,
       "activityKey": "patrol",
-      "zoneId": "beginning-fields@v1:orchard",
+      "zoneId": "beginning-fields@v1:home",
       "mobility": "wander"
     },
     {
-      "fromMinute": 720,
+      "fromMinute": 900,
       "toMinute": 1080,
       "activityKey": "socializing",
-      "zoneId": "beginning-fields@v1:plaza",
+      "zoneId": "beginning-fields@v1:home",
       "mobility": "wander"
     },
     {

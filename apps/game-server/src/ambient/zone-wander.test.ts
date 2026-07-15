@@ -10,7 +10,7 @@ import { createDefaultRoom } from "@aetherlife/shared";
 import collisionFixture from "../../data/world/beginning-fields@v1/collision.json";
 import type { ScheduleSegment } from "./schedule.js";
 import { bootBeginningFieldsCollision, regionWalkabilityAt } from "../world/region-walkability.js";
-import { pickZoneTarget, LINGER_RADIUS, LINGER_PAUSE_PERCENT, MAX_ZONE_SAMPLE_CELLS, shouldSampleZoneCell } from "./zone-wander.js";
+import { pickZoneTarget, LINGER_RADIUS, LINGER_PAUSE_PERCENT, MAX_ZONE_SAMPLE_CELLS, PERSONAL_SPACE, pickSpaciousCell, shouldSampleZoneCell } from "./zone-wander.js";
 
 function lingerActiveMinute(npcId: string): number {
   for (let m = 0; m < 1440; m++) {
@@ -50,6 +50,10 @@ describe("pickZoneTarget", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it("LINGER_PAUSE_PERCENT is 15 (D-09 MAP-06)", () => {
+    expect(LINGER_PAUSE_PERCENT).toBe(15);
   });
 
   it("returns cell inside zone rect bounds", () => {
@@ -196,6 +200,82 @@ describe("pickZoneTarget", () => {
     });
     expect(targetGx).toBe(npc.x);
     expect(targetGy).toBe(npc.y);
+  });
+
+  it("stationary outside zone commutes to nearest zone cell", () => {
+    const map = createDefaultRoom("zone-commute");
+    const npc = map.npcs[0] as NpcState;
+    npc.x = 5;
+    npc.y = 5;
+    const segment: ScheduleSegment = {
+      fromMinute: 360,
+      toMinute: 480,
+      activityKey: "reading",
+      zoneId: "beginning-fields@v1:orchard",
+      mobility: "stationary",
+    };
+    const gameMinute = lingerActiveMinute(npc.id);
+    const { targetGx, targetGy } = pickZoneTarget({
+      npc,
+      segment,
+      grid: openGrid(),
+      playerCells: [],
+      recentCells: [],
+      gameMinute,
+    });
+    expect(targetGx).toBeGreaterThanOrEqual(18);
+    expect(targetGx).toBeLessThan(30);
+    expect(targetGy).toBeGreaterThanOrEqual(6);
+    expect(targetGy).toBeLessThan(16);
+    expect(Math.max(Math.abs(targetGx - npc.x), Math.abs(targetGy - npc.y))).toBeGreaterThan(
+      LINGER_RADIUS,
+    );
+  });
+
+  it("never picks an occupied cell when a free alternative exists", () => {
+    const map = createDefaultRoom("zone-nostack");
+    const npc = map.npcs[0] as NpcState;
+    npc.x = 24;
+    npc.y = 10;
+    const segment: ScheduleSegment = {
+      fromMinute: 480,
+      toMinute: 720,
+      activityKey: "patrol",
+      zoneId: "beginning-fields@v1:orchard",
+      mobility: "wander",
+    };
+    const occupied = [
+      { x: 18, y: 6 },
+      { x: 19, y: 6 },
+      { x: 20, y: 6 },
+    ];
+    for (let i = 0; i < 15; i++) {
+      vi.spyOn(Math, "random").mockReturnValue((i * 0.11) % 1);
+      const { targetGx, targetGy } = pickZoneTarget({
+        npc,
+        segment,
+        grid: openGrid(),
+        playerCells: [],
+        recentCells: [],
+        gameMinute: 500 + i,
+        occupiedCells: occupied,
+      });
+      expect(occupied.some((o) => o.x === targetGx && o.y === targetGy)).toBe(false);
+    }
+  });
+
+  it("pickSpaciousCell prefers PERSONAL_SPACE clearance", () => {
+    const pool = [
+      { x: 10, y: 10 },
+      { x: 11, y: 10 },
+      { x: 20, y: 20 },
+    ];
+    const occupied = [{ x: 10, y: 10 }];
+    const chosen = pickSpaciousCell(pool, occupied, []);
+    expect(chosen).toEqual({ x: 20, y: 20 });
+    expect(Math.max(Math.abs(chosen!.x - 10), Math.abs(chosen!.y - 10))).toBeGreaterThanOrEqual(
+      PERSONAL_SPACE,
+    );
   });
 });
 
