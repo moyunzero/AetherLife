@@ -29,7 +29,7 @@ Phase 16 权威 ambient 逻辑：`schedule.ts`（日程）→ `tick.ts`（6s tic
 
 ### `mobility` 与移动行为
 
-走步资格（Phase **26.2 gap / 动森式**）：每人持有 **walking | pausing** 状态——到达目标后停 **2–8** tick，再抽新目标；走路期间每 tick 最多 1 格（不每分钟重抽目标）。`shouldStepThisTick` / `stepPercentForMobility` 仍导出供历史断言；主路径以 walk/pause 为准。**同 tick 可多名 NPC 移动**。仅 `resting` 经上游 `shouldSkipMovement` 完全跳过。
+走步资格（Phase **26.2 / 动森式**）：**B2 `shouldStepThisTick`**（wander ~55% / linger ~30%；`ambient-step:{npcId}:{minute}`；`join_vicinity` 绕过）决定是否**新开一程**；通过后持有 **walking | pausing**——到达停 **2–8** tick 再抽目标；**mid-walk 不重掷 B2**，每 tick 最多 1 格。**同 tick 可多名 NPC 移动**。仅 `resting` 经上游 `shouldSkipMovement` 完全跳过。
 
 | 值 | 选目标策略 | 是否每 tick 都动 |
 |----|------------|------------------|

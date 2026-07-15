@@ -285,8 +285,6 @@ describe("runAmbientTick", () => {
     clearAllIntentsForTests();
     const map = createDefaultRoom("tick-reserve-hold");
     const gameState = new GameRoomState();
-    // orchard stationary linger for npc-1 (picker) and npc-2 (walker holder)
-    gameState.gameMinute = 400;
 
     const picker = map.npcs.find((n) => n.id === "npc-1")!;
     const walker = map.npcs.find((n) => n.id === "npc-2")!;
@@ -296,6 +294,20 @@ describe("runAmbientTick", () => {
       walker,
       ...map.npcs.filter((n) => n.id !== "npc-1" && n.id !== "npc-2"),
     ];
+
+    // Minute where picker passes B2 (new stroll) while walker holds mid-walk (bypass).
+    let chosenMinute = -1;
+    for (let m = 0; m < 1440; m++) {
+      const pickerSeg = resolveScheduleSegment(picker.id, m);
+      const walkerSeg = resolveScheduleSegment(walker.id, m);
+      if (!pickerSeg || !walkerSeg) continue;
+      if (shouldSkipMovement(pickerSeg) || shouldSkipMovement(walkerSeg)) continue;
+      if (!shouldStepThisTick(picker.id, m, pickerSeg.mobility)) continue;
+      chosenMinute = m;
+      break;
+    }
+    expect(chosenMinute).toBeGreaterThanOrEqual(0);
+    gameState.gameMinute = chosenMinute === 0 ? 1439 : chosenMinute - 1;
 
     const reservedDest = { x: 12, y: 10 };
     picker.x = 10;
@@ -320,7 +332,7 @@ describe("runAmbientTick", () => {
     map.player.x = 1;
     map.player.y = 1;
 
-    const walkerSeg = resolveScheduleSegment(walker.id, 401)!;
+    const walkerSeg = resolveScheduleSegment(walker.id, chosenMinute)!;
     const motion = new Map([
       [
         walker.id,
@@ -362,10 +374,16 @@ describe("runAmbientTick", () => {
     });
 
     const pickerMotion = motion.get(picker.id);
-    expect(pickerMotion?.mode).toBe("walking");
-    expect(pickerMotion?.targetGx === reservedDest.x && pickerMotion?.targetGy === reservedDest.y).toBe(
-      false,
-    );
+    expect(pickerMotion).toBeDefined();
+    // May finish a 1-step stroll into pause same tick — assert reserved dest was not claimed.
+    if (pickerMotion!.mode === "walking") {
+      expect(
+        pickerMotion!.targetGx === reservedDest.x && pickerMotion!.targetGy === reservedDest.y,
+      ).toBe(false);
+    } else {
+      expect(pickerMotion!.mode).toBe("pausing");
+      expect(picker.x === reservedDest.x && picker.y === reservedDest.y).toBe(false);
+    }
   });
 
   it("invalidates held walk when the schedule segment changes", async () => {

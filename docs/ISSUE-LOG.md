@@ -193,9 +193,9 @@
 106. **全员 LPC 角色皮**：本地/远端**所有玩家**与 **`npc-1`…`npc-12`** 使用烘焙 `sprites/lpc-player-1.png` + `sprites/lpc-npc-{1…12}.png`（`createPlayerSprite` → `createLpcNpcSprite`；`spriteProfileForNpc` 映射 npc-1…12）；**禁止**恢复 `sprites/characters.png` 四色 palette 作玩家皮除非新开 phase 决策。`useSpriteEntities()` 门槛：`spritesLpcNpc1` + `spritesNpcs` 均须存在（全部 `lpc-npc-*` 随 `CORE_AREA_ASSETS` 加载）。烘焙：`pnpm assets:sync:lpc-npcs`（源 `npc-asset/player-1.png` + `npc-asset/npc-{1…12}.png`）。文档：[BEGINNING-FIELDS.md](./BEGINNING-FIELDS.md) §角色视觉。回归：`pnpm --filter @aetherlife/web test` + `pnpm verify:phase6:move-only`。
 107. **显示格 CELL_PX=32**：`gridLayout.CELL_PX=32`（16px 源 ×2）；角色显示高 `CHAR_DISPLAY_PX=64`（占 2 逻辑格）。改 `CELL_PX` 须同步 `entityLayout.LABEL_SCALE`、`GRID_STEP_MS`、地图注释与 [BEGINNING-FIELDS.md](./BEGINNING-FIELDS.md)。Phase 13.3 历史仍为 48px 校准记录，**当前运行时以 32px 为准**。
 108. **Phase 26+ verify 禁止断言 bg-villager**：`verify:phase16` / UAT 脚本 **禁止** 要求房间存在 `bg-villager-*`（ISSUE-101）；ambient/铭牌回归用 12 席 council + `verify:phase26`。
-109. **Phase 26 D-MAP-AMB-03 独占 12 分桶（每 tick 仅 1 NPC 移动）已被 26.2 B2 取代**：禁止重新引入 exclusive bucket。主路径为 **walk/pause**（到达后停 2–8 tick，再抽目标）；`shouldStepThisTick` 仍导出作分布断言。双 SSOT `maxRadius` 改动必须过 `council-spawn-radius.test.ts`。回归：`pnpm --filter @aetherlife/game-server test -- src/ambient/`。
+109. **Phase 26 D-MAP-AMB-03 独占 12 分桶（每 tick 仅 1 NPC 移动）已被 26.2 B2 取代**：禁止重新引入 exclusive bucket。走步资格 = **B2 `shouldStepThisTick`**（新开一程；join 绕过）**+ walk/pause**（mid-walk 不重掷 B2）。双 SSOT `maxRadius` 改动必须过 `council-spawn-radius.test.ts`。回归：`pnpm --filter @aetherlife/game-server test -- src/ambient/`。
 110. **Ambient 动森式闲逛（26.2 gap）**：`shouldSkipMovement` **仅** `resting`；日程发呆用 `wandering`+`wander`。`stationary` 在 zone 外须 **通勤到最近 zone 格**。选目标 **永不叠格**（占用 + 本 tick reserved）；偏好 `PERSONAL_SPACE≥2`，擦肩可。白天主漫游 zone 为 `beginning-fields@v1:home`（全图）；子 zone orchard/plaza/pond 仅短时人设 linger。改 zones 须双 SSOT（`zones.json` + `defaultBeginningFieldsBundle`）。回归：`src/ambient/` + 新 `roomId` + `?gridDebug=1` 看 zone。
-
+111. **禁止移除 `runAmbientTick` 内 B2 调用**：`shouldStepThisTick(npc.id, …)` 须在 `maxRadius===0` 钉死与 walk/pause 之后、resolve 之前保留（mid-walk / join 绕过）。`45b6455` 曾只留 walk/pause 导致门失效（ISSUE-105）；改 `tick.ts` 须保留 canary `wires shouldStepThisTick(npc.id)` + `skips stepping when shouldStepThisTick fails`。
 ## 记录
 
 ### ISSUE-001 — thinking 中切换 NPC Tab 后无法移动（UI 冻结）
@@ -2732,6 +2732,37 @@ Worker 主循环仅在 npc-turn 队列 **连续 5s 为空** 时才 `BLPOP` chunk
 **防复发**
 
 - Guardrail **10b**（NPC 步进须覆盖 LPC gait / live 门禁）
+
+---
+
+### ISSUE-105 — B2 `shouldStepThisTick` 从 `runAmbientTick` 被摘掉（仅留导出）
+
+- **状态:** fixed
+- **发现:** 2026-07-15（`/gsd-validate-phase 26.2` Nyquist）
+- **阶段/范围:** Phase 26.2 · `apps/game-server/src/ambient/tick.ts`
+- **严重性:** major（D-22/D-25 / MAP-06 门失效；多人同分钟概率门与 join 绕过半段不可证）
+
+**复现**
+
+1. `grep -c 'shouldStepThisTick(npc.id' apps/game-server/src/ambient/tick.ts` → `0`
+2. 在 gate-FAIL 分钟跑 `runAmbientTick`（无 walk hold）→ NPC 仍可步进
+
+**根因**
+
+- `0952357` 接入 B2；`45b6455` 引入 walk/pause 时删除了循环内调用，docs 误改为「历史断言」。
+
+**修复**
+
+- 恢复：非 mid-walk、非 `joinVicinityActive` 时 `!shouldStepThisTick(npc.id, …) → continue`
+- mid-walk Continuum 与 join 仍绕过；C-06 / ambient README / Guardrail #109+#111 对齐
+
+**验证**
+
+- `pnpm --filter @aetherlife/game-server test -- src/ambient/ src/world/council-spawn-radius.test.ts`（含 B2 wire canaries）
+
+**防复发**
+
+- Guardrail #111
 
 ---
 

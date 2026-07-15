@@ -32,12 +32,16 @@ export function ambientPauseTicks(npcId: string, gameMinute: number): number {
   return 2 + (stableStringHash(`ambient-pause:${npcId}:${gameMinute}`) % 7);
 }
 
-/** Per-tick step probability (0–100) by mobility — retained for tests / docs (D-23). */
+/** Per-tick step probability (0–100) by mobility — wander ~55%, linger ~30% (D-23). */
 export function stepPercentForMobility(mobility: Mobility): number {
   return mobility === "wander" ? 55 : 30;
 }
 
-/** Deterministic per-NPC-per-minute step gate (D-23/D-24). Resting never reaches walk path. */
+/**
+ * Deterministic per-NPC-per-minute step gate (D-23/D-24).
+ * Gates starting a new stroll; mid-walk holds and join_vicinity bypass it.
+ * Resting never reaches this path (`shouldSkipMovement` upstream).
+ */
 export function shouldStepThisTick(npcId: string, gameMinute: number, mobility: Mobility): boolean {
   return stableStringHash(`ambient-step:${npcId}:${gameMinute}`) % 100 < stepPercentForMobility(mobility);
 }
@@ -364,15 +368,24 @@ export function runAmbientTick(ctx: AmbientTickContext): {
       motion = undefined;
     }
 
-    const grid = buildMoveGrid(map, gameState, "", loader, { excludeNpcId: npc.id });
-    const otherNpcCells = buildOtherNpcCells(map, npc.id);
-    const recent = recentNpcCells.get(npc.id) ?? [];
-
     const holdingWalk =
       motion?.mode === "walking" &&
       motion.walkTicksLeft > 0 &&
       (motion.targetGx !== npc.x || motion.targetGy !== npc.y) &&
       !npc.joinVicinityActive;
+
+    // B2: gate new strolls only — mid-walk continuum + join_vicinity bypass (D-11 / D-22).
+    if (
+      !holdingWalk &&
+      !npc.joinVicinityActive &&
+      !shouldStepThisTick(npc.id, gameMinute, segment.mobility)
+    ) {
+      continue;
+    }
+
+    const grid = buildMoveGrid(map, gameState, "", loader, { excludeNpcId: npc.id });
+    const otherNpcCells = buildOtherNpcCells(map, npc.id);
+    const recent = recentNpcCells.get(npc.id) ?? [];
 
     let resolved: {
       targetGx: number;
