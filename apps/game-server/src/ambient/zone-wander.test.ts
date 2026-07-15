@@ -52,6 +52,10 @@ describe("pickZoneTarget", () => {
     vi.restoreAllMocks();
   });
 
+  it("LINGER_PAUSE_PERCENT is 15 (D-09 MAP-06)", () => {
+    expect(LINGER_PAUSE_PERCENT).toBe(15);
+  });
+
   it("returns cell inside zone rect bounds", () => {
     const map = createDefaultRoom("zone-bounds");
     const npc = map.npcs[0] as NpcState;

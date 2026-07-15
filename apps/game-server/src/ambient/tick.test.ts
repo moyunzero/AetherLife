@@ -735,6 +735,79 @@ describe("runAmbientTick", () => {
     expect(code).not.toMatch(/\bisBackgroundNpc\b/);
     expect(code).not.toMatch(/\brunBackgroundNpcTick\b/);
   });
+
+  /**
+   * Plan 03 acceptance: grep -c 'shouldStepThisTick(npc.id' tick.ts == 1.
+   * Regression: wired in 0952357, removed in 45b6455 (walk/pause rewrite).
+   * Adversarial — must FAIL while runAmbientTick does not call the B2 gate.
+   */
+  it("runAmbientTick source wires shouldStepThisTick(npc.id) B2 gate (D-22/D-25)", () => {
+    const withoutComments = TICK_SOURCE.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+    const callSites = withoutComments.match(/shouldStepThisTick\(\s*npc\.id/g) ?? [];
+    expect(callSites.length).toBe(1);
+  });
+
+  /**
+   * Behavioral half of B2 wire: on a gate-FAIL minute without join_vicinity,
+   * NPC must not take a step. Fails if the loop skips shouldStepThisTick.
+   */
+  it("runAmbientTick skips stepping when shouldStepThisTick fails (B2 gate live)", async () => {
+    clearAllIntentsForTests();
+    const map = createDefaultRoom("tick-b2-gate-live");
+    const gameState = new GameRoomState();
+    const npc = map.npcs.find((n) => n.id === "npc-1")!;
+    npc.x = 20;
+    npc.y = 12;
+    npc.homeX = 20;
+    npc.homeY = 12;
+    npc.maxRadius = 40;
+    map.player.x = 1;
+    map.player.y = 1;
+
+    let failMinute = -1;
+    for (let m = 0; m < 1440; m++) {
+      const seg = resolveScheduleSegment(npc.id, m);
+      if (!seg || shouldSkipMovement(seg)) continue;
+      if (!shouldStepThisTick(npc.id, m, seg.mobility)) {
+        failMinute = m;
+        break;
+      }
+    }
+    expect(failMinute).toBeGreaterThanOrEqual(0);
+    gameState.gameMinute = failMinute === 0 ? 1439 : failMinute - 1;
+
+    setIntent("tick-b2-gate-live", npc.id, {
+      intent: parseAmbientIntent({
+        target: { gx: npc.x + 1, gy: npc.y },
+        reasonZh: "一步测试",
+        untilGameMinute: failMinute + 60,
+      }),
+      trigger: "segment_change",
+      gameMinute: failMinute,
+    });
+
+    const speakJobs = new Map<string, string>();
+    for (const other of map.npcs) {
+      if (other.id === npc.id) continue;
+      speakJobs.set(other.id, "park");
+      other.x = 2;
+      other.y = 2;
+    }
+
+    const before = { x: npc.x, y: npc.y };
+    const loader = await loaderForMap(map);
+    runAmbientTick({
+      roomId: "tick-b2-gate-live",
+      gameState,
+      map,
+      loader,
+      npcSpeakJobs: speakJobs,
+      recentNpcCells: new Map(),
+    });
+
+    expect(npc.x).toBe(before.x);
+    expect(npc.y).toBe(before.y);
+  });
 });
 
 describe("shouldStepThisTick (B2 gate)", () => {
