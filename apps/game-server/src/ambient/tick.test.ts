@@ -10,10 +10,13 @@ import {
 } from "@aetherlife/shared";
 import { GameRoomState } from "../colyseus/schema.js";
 import { clearAllIntentsForTests, setIntent } from "./intent-cache.js";
-import type { Mobility } from "./schedule.js";
+import {
+  resolveScheduleSegment,
+  shouldSkipMovement,
+  type Mobility,
+} from "./schedule.js";
 import {
   applySoftLeashTarget,
-  hashNpcBucket,
   MAIN_AMBIENT_NPC_IDS,
   pickJoinVicinityTarget,
   runAmbientTick,
@@ -252,31 +255,69 @@ describe("runAmbientTick", () => {
     expect([...MAIN_AMBIENT_NPC_IDS].sort()).toEqual([...COUNCIL_NPC_IDS].sort());
   });
 
-  it("only NPCs in the current minute bucket may change position", async () => {
+  it("at least two NPCs move in the same runAmbientTick", async () => {
     clearAllIntentsForTests();
-    const map = createDefaultRoom("tick-bucket");
+    const map = createDefaultRoom("tick-multi-move");
     const gameState = new GameRoomState();
-    const gameMinute = 478;
-    gameState.gameMinute = gameMinute;
-    const activeBucket = (gameMinute + 1) % 12;
-    const activeNpc = map.npcs.find((n) => hashNpcBucket(n.id) === activeBucket)!;
-    activeNpc.maxRadius = 4;
-    const targetGx = activeNpc.x + 1;
-    const targetGy = activeNpc.y;
-    setIntent("tick-bucket", activeNpc.id, {
-      intent: parseAmbientIntent({
-        target: { gx: targetGx, gy: targetGy },
-        reasonZh: "去那边",
-        untilGameMinute: gameMinute + 60,
-      }),
-      trigger: "segment_change",
-      gameMinute,
+
+    let chosenMinute = -1;
+    let chosenIds: string[] = [];
+    for (let m = 0; m < 1440; m++) {
+      const eligible: string[] = [];
+      for (const id of COUNCIL_NPC_IDS) {
+        const segment = resolveScheduleSegment(id, m);
+        if (!segment || shouldSkipMovement(segment)) continue;
+        if (!shouldStepThisTick(id, m, segment.mobility)) continue;
+        eligible.push(id);
+      }
+      if (eligible.length >= 2) {
+        chosenMinute = m;
+        chosenIds = eligible.slice(0, 2);
+        break;
+      }
+    }
+    expect(chosenMinute).toBeGreaterThanOrEqual(0);
+    expect(chosenIds.length).toBe(2);
+
+    gameState.gameMinute = chosenMinute === 0 ? 1439 : chosenMinute - 1;
+    // Park everyone else so they cannot occupy mover targets (MP-07).
+    map.player.x = 1;
+    map.player.y = 1;
+    map.npcs.forEach((npc, i) => {
+      if (!chosenIds.includes(npc.id)) {
+        npc.x = 2;
+        npc.y = 2 + i;
+        npc.maxRadius = 40;
+      }
     });
+    const clearSlots = [
+      { x: 20, y: 12 },
+      { x: 28, y: 12 },
+    ];
+    for (let i = 0; i < chosenIds.length; i += 1) {
+      const id = chosenIds[i]!;
+      const slot = clearSlots[i]!;
+      const npc = map.npcs.find((n) => n.id === id)!;
+      npc.x = slot.x;
+      npc.y = slot.y;
+      npc.homeX = slot.x;
+      npc.homeY = slot.y;
+      npc.maxRadius = 40;
+      setIntent("tick-multi-move", id, {
+        intent: parseAmbientIntent({
+          target: { gx: slot.x + 1, gy: slot.y },
+          reasonZh: "去那边",
+          untilGameMinute: chosenMinute + 60,
+        }),
+        trigger: "segment_change",
+        gameMinute: chosenMinute,
+      });
+    }
     const loader = await loaderForMap(map);
     const before = new Map(map.npcs.map((n) => [n.id, { x: n.x, y: n.y }]));
 
     runAmbientTick({
-      roomId: "tick-bucket",
+      roomId: "tick-multi-move",
       gameState,
       map,
       loader,
@@ -285,34 +326,45 @@ describe("runAmbientTick", () => {
     });
 
     let movedCount = 0;
-    for (const npc of map.npcs) {
-      const start = before.get(npc.id)!;
+    for (const id of chosenIds) {
+      const npc = map.npcs.find((n) => n.id === id)!;
+      const start = before.get(id)!;
       const moved = npc.x !== start.x || npc.y !== start.y;
       if (moved) {
         movedCount += 1;
-        expect(gameState.gameMinute % 12).toBe(hashNpcBucket(npc.id));
+        const dx = Math.abs(npc.x - start.x);
+        const dy = Math.abs(npc.y - start.y);
+        expect(dx + dy).toBeLessThanOrEqual(1);
       }
     }
-    expect(movedCount).toBeGreaterThanOrEqual(1);
+    expect(movedCount).toBeGreaterThanOrEqual(2);
   });
 
   it("maxRadius 0 council seats stay at embassy home during ambient tick", async () => {
     clearAllIntentsForTests();
     const map = createDefaultRoom("tick-stationary");
     const gameState = new GameRoomState();
-    const gameMinute = 478;
-    gameState.gameMinute = gameMinute;
-    const activeBucket = (gameMinute + 1) % 12;
-    const stationaryNpc = map.npcs.find((n) => hashNpcBucket(n.id) === activeBucket)!;
+    const stationaryNpc = map.npcs[0]!;
     stationaryNpc.maxRadius = 0;
+    let passMinute = -1;
+    for (let m = 0; m < 1440; m++) {
+      const seg = resolveScheduleSegment(stationaryNpc.id, m);
+      if (!seg || shouldSkipMovement(seg)) continue;
+      if (shouldStepThisTick(stationaryNpc.id, m, seg.mobility)) {
+        passMinute = m;
+        break;
+      }
+    }
+    expect(passMinute).toBeGreaterThanOrEqual(0);
+    gameState.gameMinute = passMinute === 0 ? 1439 : passMinute - 1;
     setIntent("tick-stationary", stationaryNpc.id, {
       intent: parseAmbientIntent({
-        target: { gx: stationaryNpc.x + 2, gy: stationaryNpc.y },
+        target: { gx: stationaryNpc.x + 20, gy: stationaryNpc.y },
         reasonZh: "想走远一点",
-        untilGameMinute: gameMinute + 60,
+        untilGameMinute: passMinute + 60,
       }),
       trigger: "segment_change",
-      gameMinute,
+      gameMinute: passMinute,
     });
     const loader = await loaderForMap(map);
     const before = { x: stationaryNpc.x, y: stationaryNpc.y };
@@ -328,11 +380,6 @@ describe("runAmbientTick", () => {
 
     expect(stationaryNpc.x).toBe(before.x);
     expect(stationaryNpc.y).toBe(before.y);
-  });
-
-  it("assigns each council seat a distinct hash bucket slot 0..11", () => {
-    const buckets = COUNCIL_NPC_IDS.map((id) => hashNpcBucket(id));
-    expect(new Set(buckets).size).toBe(12);
   });
 
   it("applySoftLeashTarget biases wander target back toward embassy home", () => {

@@ -23,24 +23,6 @@ import { pickZoneTarget } from "./zone-wander.js";
 
 export const MAIN_AMBIENT_NPC_IDS = COUNCIL_NPC_IDS;
 
-const AMBIENT_BUCKET_COUNT = 12;
-
-/** Stable 0..11 bucket per council seat — one NPC moves per bucket per tick (D-MAP-AMB-03). */
-export function hashNpcBucket(npcId: string): number {
-  const match = /^npc-(\d+)$/.exec(npcId);
-  if (match) {
-    const seat = Number.parseInt(match[1]!, 10);
-    if (seat >= 1 && seat <= AMBIENT_BUCKET_COUNT) {
-      return (seat - 1) % AMBIENT_BUCKET_COUNT;
-    }
-  }
-  let hash = 0;
-  for (let i = 0; i < npcId.length; i += 1) {
-    hash = (hash * 31 + npcId.charCodeAt(i)) | 0;
-  }
-  return Math.abs(hash) % AMBIENT_BUCKET_COUNT;
-}
-
 /** Per-tick step probability (0–100) by mobility — wander ~55%, linger (stationary/poi) ~30% (D-23). */
 export function stepPercentForMobility(mobility: Mobility): number {
   return mobility === "wander" ? 55 : 30;
@@ -270,7 +252,7 @@ export function runAmbientTick(ctx: AmbientTickContext): {
       continue;
     }
 
-    if (gameState.gameMinute % AMBIENT_BUCKET_COUNT !== hashNpcBucket(npc.id)) {
+    if (!npc.joinVicinityActive && !shouldStepThisTick(npc.id, gameState.gameMinute, segment.mobility)) {
       continue;
     }
 
