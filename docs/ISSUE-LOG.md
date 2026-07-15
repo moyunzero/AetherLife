@@ -192,6 +192,7 @@
 106. **全员 LPC 角色皮**：本地/远端**所有玩家**与 **`npc-1`…`npc-12`** 使用烘焙 `sprites/lpc-player-1.png` + `sprites/lpc-npc-{1…12}.png`（`createPlayerSprite` → `createLpcNpcSprite`；`spriteProfileForNpc` 映射 npc-1…12）；**禁止**恢复 `sprites/characters.png` 四色 palette 作玩家皮除非新开 phase 决策。`useSpriteEntities()` 门槛：`spritesLpcNpc1` + `spritesNpcs` 均须存在（全部 `lpc-npc-*` 随 `CORE_AREA_ASSETS` 加载）。烘焙：`pnpm assets:sync:lpc-npcs`（源 `npc-asset/player-1.png` + `npc-asset/npc-{1…12}.png`）。文档：[BEGINNING-FIELDS.md](./BEGINNING-FIELDS.md) §角色视觉。回归：`pnpm --filter @aetherlife/web test` + `pnpm verify:phase6:move-only`。
 107. **显示格 CELL_PX=32**：`gridLayout.CELL_PX=32`（16px 源 ×2）；角色显示高 `CHAR_DISPLAY_PX=64`（占 2 逻辑格）。改 `CELL_PX` 须同步 `entityLayout.LABEL_SCALE`、`GRID_STEP_MS`、地图注释与 [BEGINNING-FIELDS.md](./BEGINNING-FIELDS.md)。Phase 13.3 历史仍为 48px 校准记录，**当前运行时以 32px 为准**。
 108. **Phase 26+ verify 禁止断言 bg-villager**：`verify:phase16` / UAT 脚本 **禁止** 要求房间存在 `bg-villager-*`（ISSUE-101）；ambient/铭牌回归用 12 席 council + `verify:phase26`。
+109. **Phase 26 D-MAP-AMB-03 独占 12 分桶（每 tick 仅 1 NPC 移动）已被 26.2 B2 取代**：tick 走步资格必须走 `shouldStepThisTick` 概率门（wander **55** / linger **30**，hash `ambient-step:{npcId}:{gameMinute}`）；**禁止**重新引入 exclusive bucket 或用 `Math.random()` 替换 hash 门；双 SSOT `maxRadius` 改动必须过 `council-spawn-radius.test.ts`。回归：`pnpm --filter @aetherlife/game-server test -- src/ambient/`。
 
 ## 记录
 
