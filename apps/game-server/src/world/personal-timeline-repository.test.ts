@@ -92,7 +92,7 @@ describe("personal-timeline-repository", () => {
     expect(otherNpc.seq).toBe(1);
   });
 
-  it("proposalEligible true for relationship|council|eventAnchorId; false for seed daily without anchor", async () => {
+  it("proposalEligible true for non-seed relationship|council|eventAnchorId; seed always false (D-PROP-01 / BIO-07)", async () => {
     expect(
       computeProposalEligible({ tag: "daily", eventAnchorId: undefined }),
     ).toBe(false);
@@ -116,14 +116,34 @@ describe("personal-timeline-repository", () => {
     const daily = await insertPersonalTimelineEntry(baseInput({ tag: "daily" }));
     expect(daily.proposalEligible).toBe(false);
 
+    // BIO-07 / WR-03: seed life-node skeletons never enter proposal feed
+    const seedRel = await insertPersonalTimelineEntry(
+      baseInput({ tag: "relationship", body: "种子关系骨架不应进饲料。" }),
+    );
+    expect(seedRel.proposalEligible).toBe(false);
+
     const rel = await insertPersonalTimelineEntry(
-      baseInput({ tag: "relationship", body: "我与邻席交谈甚欢。" }),
+      baseInput({
+        tag: "relationship",
+        source: "llm_scheduled",
+        body: "我与邻席交谈甚欢。",
+      }),
     );
     expect(rel.proposalEligible).toBe(true);
+
+    const council = await insertPersonalTimelineEntry(
+      baseInput({
+        tag: "council",
+        source: "llm_event",
+        body: "议席上我投下了关键一票。",
+      }),
+    );
+    expect(council.proposalEligible).toBe(true);
 
     const anchored = await insertPersonalTimelineEntry(
       baseInput({
         tag: "adventure",
+        source: "llm_event",
         eventAnchorId: "evt-shared-1",
         factualSummary: "广场议事",
         body: "我见证了广场上的喧哗。",
