@@ -260,6 +260,7 @@ export async function insertPersonalTimelineEntry(
     computeProposalEligible({
       tag: input.tag,
       eventAnchorId: input.eventAnchorId,
+      source: input.source,
     });
 
   const sql = getSql();

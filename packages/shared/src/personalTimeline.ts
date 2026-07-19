@@ -107,11 +107,15 @@ export function formatAetherCalendarLabel(
   return `太乙${year}年·${season}·${month}月·第${dayOfMonth}日`;
 }
 
-/** D-PROP-01: council|relationship tags or any eventAnchorId → proposalEligible. */
+/** D-PROP-01: council|relationship tags or any eventAnchorId → proposalEligible.
+ * Seed life-nodes stay false (BIO-07) even when tag/anchor would otherwise qualify.
+ */
 export function computeProposalEligible(input: {
   tag: PersonalTimelineTag;
   eventAnchorId?: string | null;
+  source?: PersonalTimelineSource;
 }): boolean {
+  if (input.source === "seed") return false;
   if (input.tag === "council" || input.tag === "relationship") return true;
   if (input.eventAnchorId != null && input.eventAnchorId !== "") return true;
   return false;

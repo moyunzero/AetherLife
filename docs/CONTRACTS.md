@@ -222,7 +222,7 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 | **表** | `npc_personal_timeline` append-only per `(room_id, npc_id, seq)`；**禁止**写入 `npc_memories` / `playerId=__council__`（与 C-07 / C-07b 隔离） |
 | **日历** | `calendar_label` + `aether_epoch_minute` 来自 C-07b / D-CAL SSOT（`formatAetherCalendarLabel` / `aetherCivilFromEpochMinute`） |
 | **标签** | `tag` ∈ `PERSONAL_TIMELINE_TAGS`（daily/adventure/emotion/conflict/reflection/relationship/council）；`body` 为第一人称传记 |
-| **proposalEligible** | D-PROP-01：`tag` 为 `council` \| `relationship` **或** `event_anchor_id` 非空 → `true`；否则默认 `false` |
+| **proposalEligible** | D-PROP-01：`tag` 为 `council` \| `relationship` **或** `event_anchor_id` 非空 → `true`；否则默认 `false`。**例外：** `source=seed`（life-node 骨架）恒为 `false`，不进入 BIO-07 proposal 饲料 |
 | **公开读** | `GET /rooms/:roomId/npcs/:npcId/personal-timeline` 返回完整 `PersonalTimelineEntry[]`（含 `body`）；`X-Player-Id` + `assertScopedPlayerRequest`；**无** public write |
 | **内部写** | `POST /internal/rooms/:roomId/personal-timeline`；`requireWorkerAuth` + Bearer `INTERNAL_WORKER_TOKEN`；Zod + content guard；body 含 `npcId` |
 | **内部润色** | `PATCH /internal/rooms/:roomId/personal-timeline/:entryId` — body 替换（D-SEED-04 polish）；成功后 `broadcastPersonalTimelineSync` hint |

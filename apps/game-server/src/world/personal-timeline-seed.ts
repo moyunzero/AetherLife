@@ -120,7 +120,7 @@ async function seedPersonalTimelineInner(roomId: string): Promise<void> {
         body,
         eventAnchorId: key,
         factualSummary: `${node.age}：${node.event}`,
-        proposalEligible: false,
+        // D-PROP-01 / BIO-07: source=seed → computeProposalEligible false (no override).
         source: "seed",
       });
 

@@ -105,6 +105,13 @@ describe("personal-timeline-repository", () => {
     expect(
       computeProposalEligible({ tag: "daily", eventAnchorId: "anchor-1" }),
     ).toBe(true);
+    expect(
+      computeProposalEligible({
+        tag: "council",
+        eventAnchorId: "life-node:npc-1:0",
+        source: "seed",
+      }),
+    ).toBe(false);
 
     const daily = await insertPersonalTimelineEntry(baseInput({ tag: "daily" }));
     expect(daily.proposalEligible).toBe(false);

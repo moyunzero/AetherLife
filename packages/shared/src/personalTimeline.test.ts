@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   aetherCivilFromEpochMinute,
+  computeProposalEligible,
   formatAetherCalendarLabel,
 } from "./personalTimeline.js";
 
@@ -48,5 +49,24 @@ describe("formatAetherCalendarLabel (month-aware)", () => {
 
   it("year N label includes month", () => {
     expect(formatAetherCalendarLabel(3, "秋", 9, 15)).toBe("太乙3年·秋·9月·第15日");
+  });
+});
+
+describe("computeProposalEligible (D-PROP-01)", () => {
+  it("seed source is never proposal-eligible (BIO-07 / WR-03)", () => {
+    expect(
+      computeProposalEligible({
+        tag: "council",
+        eventAnchorId: "life-node:npc-1:0",
+        source: "seed",
+      }),
+    ).toBe(false);
+    expect(
+      computeProposalEligible({
+        tag: "council",
+        eventAnchorId: "wh-1",
+        source: "llm_event",
+      }),
+    ).toBe(true);
   });
 });
