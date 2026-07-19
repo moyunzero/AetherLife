@@ -138,9 +138,13 @@ export function usePersonalTimeline(roomId: string, roomConnected = false) {
         headers: playerApiHeaders(),
         signal: opts?.signal,
       });
-      if (!res.ok) return [];
+      if (!res.ok) {
+        throw new Error(`personal-timeline ${res.status}`);
+      }
       const body = (await res.json()) as ListResponse;
-      if (!body.ok || !Array.isArray(body.entries)) return [];
+      if (!body.ok || !Array.isArray(body.entries)) {
+        throw new Error("personal-timeline invalid response");
+      }
       return body.entries;
     },
     [roomId, roomConnected],
@@ -151,7 +155,6 @@ export function usePersonalTimeline(roomId: string, roomConnected = false) {
       if (!roomId || !roomConnected || !npcId) return;
       const seq = ++requestSeqRef.current;
       setLoadingNpcId(npcId);
-      setHasUpdateByNpcId((prev) => clearNpcBiographyHint(prev, npcId));
       try {
         const entries = await fetchTimeline(npcId);
         if (seq !== requestSeqRef.current) return;
@@ -162,6 +165,10 @@ export function usePersonalTimeline(roomId: string, roomConnected = false) {
           latest,
         );
         setEntriesByNpcId((prev) => ({ ...prev, [npcId]: entries }));
+        // Only clear hint after a successful fetch (WR-04).
+        setHasUpdateByNpcId((prev) => clearNpcBiographyHint(prev, npcId));
+      } catch {
+        // Leave hint + read cursor unchanged on failure.
       } finally {
         if (seq === requestSeqRef.current) setLoadingNpcId(null);
       }
