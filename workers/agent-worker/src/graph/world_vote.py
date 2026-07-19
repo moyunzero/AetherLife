@@ -38,6 +38,7 @@ from src.council.relationship_deltas import (
     filter_linked_edges_for_ui,
     iter_rel07_trigger_deltas,
 )
+from src.council.personal_timeline_rag import fetch_proposal_eligible_feed
 from src.graph.personal_timeline import (
     enqueue_multi_perspective_jobs,
     enqueue_rel07_bilateral_jobs,
@@ -316,6 +317,8 @@ class VoteContext:
     world_history_tail: list[str] = field(default_factory=list)
     relationship_edges: list[dict[str, Any]] = field(default_factory=list)
     debate_transcript: list[dict[str, Any]] = field(default_factory=list)
+    # BIO-07: read-only proposalEligible personal-timeline paraphrases for proposer.
+    proposal_eligible_feed: list[str] = field(default_factory=list)
     instant_debate: bool = True
     resume_job_id: str | None = None
     deliberation_checkpoint: dict[str, Any] | None = None
@@ -400,6 +403,18 @@ def load_context(
     except Exception as exc:
         print(f"npc-relationships fetch failed: {exc}", file=sys.stderr)
 
+    try:
+        ctx.proposal_eligible_feed = fetch_proposal_eligible_feed(
+            client,
+            settings,
+            room_id,
+            ctx.proposer_id,
+            limit=3,
+        )
+    except Exception as exc:
+        print(f"proposalEligible feed skipped: {exc}", file=sys.stderr)
+        ctx.proposal_eligible_feed = []
+
     return ctx
 
 
@@ -424,12 +439,19 @@ def draft_proposal(ctx: VoteContext, proposer_id: str, settings: Settings) -> di
     if ctx.world_history_tail:
         history_block = "近期编年史：" + "；".join(ctx.world_history_tail[:3])
 
+    bio_block = ""
+    if ctx.proposal_eligible_feed:
+        bio_block = "提案相关个人传记（只读意译，勿改写事实）：\n" + "\n".join(
+            ctx.proposal_eligible_feed[:3]
+        )
+
     prompt = (
         f"{COUNCIL_VOTE_SETTING}\n"
         f"{proposal_prompt_instructions(is_proposer=True)}\n"
         f"审议类型：{ctx.vote_kind}。\n"
         f"{persona_block}\n"
         f"{history_block}\n"
+        f"{bio_block}\n"
         f"{traveler_block}\n"
         "输出 JSON：title(≤80字), proposal(≤600字)。"
         "若有旅者素材，proposal 中 subtle 提及「据近期旅者言行」但不具名玩家。"

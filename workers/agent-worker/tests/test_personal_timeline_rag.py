@@ -129,8 +129,10 @@ def test_bullets_are_paraphrase_not_raw_body_dump():
     )
     assert bullet
     assert raw not in bullet
-    assert len(bullet) < len(raw)
-    assert "意译" in bullet or "勿" in bullet or "·" in bullet
+    # Truncated gist — full closing clause must not appear.
+    assert "这段文字足够长" not in bullet
+    assert "意译" in bullet or "勿" in bullet
+    assert "·" in bullet
 
 
 def test_topic_relevant_personal_matches_overlap():

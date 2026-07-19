@@ -7,6 +7,10 @@ from typing import Any
 import httpx
 
 from src.config import Settings
+from src.council.personal_timeline_rag import (
+    fetch_personal_timeline_context,
+    merge_personal_rag_into_canon,
+)
 from src.council.world_history_rag import (
     fetch_world_history_canon_context,
     format_canon_bullet,
@@ -49,7 +53,7 @@ def fetch_dual_rag_context(
     npc_id: str = "npc-1",
     skip_embed: bool = False,
 ) -> dict[str, Any]:
-    """Combine world_history canon slice + __council__ memory for speak injection."""
+    """Combine world_history canon + __council__ memory + personal timeline (BIO-09)."""
     canon_entries = fetch_world_history_canon_context(client, settings, room_id)
     skip_council_embed = skip_embed or not topic_relevant(query, canon_entries)
     council_ctx = fetch_council_memory_context(
@@ -69,8 +73,19 @@ def fetch_dual_rag_context(
         council_bullets=council_bullets,
         canon_entries=canon_entries,
     )
+    personal_bullets: list[str] = []
+    if npc_id.startswith("npc-"):
+        personal_bullets = fetch_personal_timeline_context(
+            client,
+            settings,
+            room_id,
+            npc_id,
+            query,
+        )
+        canon_context = merge_personal_rag_into_canon(canon_context, personal_bullets)
     return {
         "canon_context": canon_context,
         "canon_entries": canon_entries,
         "council_retrieved": retrieved,
+        "personal_timeline_bullets": personal_bullets,
     }

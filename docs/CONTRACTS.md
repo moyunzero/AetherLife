@@ -226,13 +226,16 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 | **公开读** | `GET /rooms/:roomId/npcs/:npcId/personal-timeline` 返回完整 `PersonalTimelineEntry[]`（含 `body`）；`X-Player-Id` + `assertScopedPlayerRequest`；**无** public write |
 | **内部写** | `POST /internal/rooms/:roomId/personal-timeline`；`requireWorkerAuth` + Bearer `INTERNAL_WORKER_TOKEN`；Zod + content guard；body 含 `npcId` |
 | **内部润色** | `PATCH /internal/rooms/:roomId/personal-timeline/:entryId` — body 替换（D-SEED-04 polish）；成功后 `broadcastPersonalTimelineSync` hint |
+| **Speak RAG（BIO-09）** | Worker `fetch_personal_timeline_context` → topic-gated 1–2 paraphrase bullets；仅当前 speak `npcId`；经 `fetch_dual_rag_context` 注入 `canon_context`（D-RAG-01）；**禁止**跨 NPC 泄漏 / 全文倾倒 |
+| **proposalEligible 读饲料（BIO-07）** | Worker `fetch_proposal_eligible_feed` 过滤 `proposalEligible=true` 条目，只读并入 Phase 25 `draft_proposal` prompt；**不**改写 `world_history` |
 | **Colyseus** | `personalTimelineSync` payload `{ npcId, hasUpdate, latestSeq? }` — **禁止** full body（D-SYNC-01） |
 | **Colyseus（后续 plan）** | 轻量 hint only（`npcId` / `latestSeq` / `hasUpdate`）— **禁止** 把全文经 WS 推送（D-SYNC-01）；本契约以 HTTP bodies 为 SSOT |
 | **隔离** | 个人传记 **不得** 写入 `__council__` 或玩家 speak `npc_memories`；编年史仍走 C-07b `world_history` |
+| **Ship gate** | `pnpm verify:phase27`（真实 LLM + `pnpm dev:stack`；`assertE2eRealLlm`） |
 
-**验证：** `pnpm --filter @aetherlife/shared build` · `pnpm --filter @aetherlife/game-server test -- personal-timeline-repository` · `pnpm --filter @aetherlife/npc-memory db:migrate`
+**验证：** `pnpm --filter @aetherlife/shared build` · `pnpm --filter @aetherlife/game-server test -- personal-timeline` · `cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_personal_timeline_rag.py -q` · `pnpm verify:phase27` · `pnpm --filter @aetherlife/npc-memory db:migrate`
 
-**锚点文件：** `packages/npc-memory/migrations/0011_npc_personal_timeline.sql`, `packages/shared/src/personalTimeline.ts`, `world/personal-timeline-repository.ts`, `routes/personal-timeline.ts`, `routes/internal-personal-timeline.ts`.
+**锚点文件：** `packages/npc-memory/migrations/0011_npc_personal_timeline.sql`, `packages/shared/src/personalTimeline.ts`, `world/personal-timeline-repository.ts`, `routes/personal-timeline.ts`, `routes/internal-personal-timeline.ts`, `workers/agent-worker/src/council/personal_timeline_rag.py`, `scripts/verify-phase27.mjs`.
 
 ---
 
