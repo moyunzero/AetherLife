@@ -11,7 +11,7 @@ import {
 } from "./world-history-repository.js";
 
 const GENESIS_PROPOSER = "议会共识";
-const GENESIS_GAME_YEAR = 1;
+const GENESIS_GAME_YEAR = 0;
 const GENESIS_GAME_MINUTE = 0;
 
 function buildGenesisSignatories(proposalFull: string): GenesisMinutes {

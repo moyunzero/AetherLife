@@ -144,11 +144,13 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 | **公开读** | `GET /rooms/:roomId/world-history?…` 返回 `WorldHistoryListEntry[]`（**无** `minutes`）；`GET /rooms/:roomId/world-history/:entryId` 返回完整 `WorldHistoryPublicEntry`；`X-Player-Id` + `assertScopedPlayerRequest`；**无** embedding / 内部字段 |
 | **查询** | `status` = `accepted` \| `rejected` \| `all`（默认 `accepted`）；`pageSize` clamp 5–8（默认 6） |
 | **内部写** | `POST /internal/rooms/:roomId/world-history`；`requireWorkerAuth` + Bearer `INTERNAL_WORKER_TOKEN`；body Zod + `checkPlayerMessageContent` / `validateWorldHistoryStrings` |
-| **写回字段** | `entryKind` genesis \| vote；vote 行 **必须** `voteEpoch`；`gameYear` 由 `chronicleGameYearFromMinute(gameMinuteSnapshot)` 派生；vote 行 `minutes.kind=vote_minutes` **必须** 含 **11** 条 `ballots[]`（非提案人；`yes` \| `no` + `reasonZh`）；提案人见 entry `proposerDisplayName`；**可选** `debateExcerpts[]`（`fullText` ≤180、`feedQuote` ≤80，辩论完整摘录 — ISSUE-094 / [25-FEED-DUAL-OUTPUT.md](../.planning/phases/25-council-vote-debate/25-FEED-DUAL-OUTPUT.md)） |
+| **写回字段** | `entryKind` genesis \| vote；vote 行 **必须** `voteEpoch`；`gameYear` 由 `chronicleGameYearFromMinute` → **civil Aether year**（`aetherCivilFromEpochMinute`；**360 days/year**，year **0** = 太乙元年；**禁止** 1440 minutes = 1 year）；vote 行 `minutes.kind=vote_minutes` **必须** 含 **11** 条 `ballots[]`（非提案人；`yes` \| `no` + `reasonZh`）；提案人见 entry `proposerDisplayName`；**可选** `debateExcerpts[]`（`fullText` ≤180、`feedQuote` ≤80，辩论完整摘录 — ISSUE-094 / [25-FEED-DUAL-OUTPUT.md](../.planning/phases/25-council-vote-debate/25-FEED-DUAL-OUTPUT.md)） |
 | **Reset** | `POST /rooms/:id/reset` **不得**删除 `world_history`（room-shared append-only chronicle；跨 session / per-player reset 存活，与 C-06 `__council__` seed 同类 room-wide 保留） |
 | **Colyseus** | `worldHistorySync` payload `{ entry: WorldHistoryPublicEntry }`；`broadcastWorldHistorySync`；客户端 `onMessage` + `off()` |
 | **Phase 25** | Worker 写 `entry_kind=vote`；通过后 `status=accepted`；debate minutes `kind=vote_minutes`（提案全文上 / **11** 票决下，提案人单独标注不计票）；`verify:phase25` 断言 `world-history-minutes-ballots` **11** 卡 |
 | **隔离** | 编年史与 C-07 `__council__` memory 读模型分离；禁止 council 种子混入 chronicle GET |
+
+**日历 SSOT（Phase 27 / D-CAL）：** HUD、编年史、`gameYear`、vote epoch spacing、个人时间线共用 `packages/shared` `aetherCivilFromEpochMinute` + `formatAetherCalendarLabel` / `formatChronicleYearLabel`（单 formatter 家族「太乙…」）。**D-CAL-06 实时映射**（默认 `AMBIENT_MS=6000`）：1 游戏日 ≈ **2.4h** 实机；1 年（360 日）≈ **36** 实机日；pace 只改 tick/env，禁止第二套年算法。既有 DB `game_year` 行不 remapping；**新写入**用 civil year。
 
 **验证：** `pnpm --filter @aetherlife/game-server test -- index.test.ts world-history` · `pnpm agent:verify`
 

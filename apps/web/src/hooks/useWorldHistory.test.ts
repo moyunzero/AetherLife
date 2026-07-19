@@ -17,8 +17,8 @@ function genesisEntry(overrides: Partial<WorldHistoryPublicEntry> = {}): WorldHi
     title: "万界崩裂纪",
     proposalExcerpt: "昔有万界…",
     proposerDisplayName: "议会共识",
-    gameYear: 1,
-    gameYearLabel: "太乙纪·元年",
+    gameYear: 0,
+    gameYearLabel: "太乙元年",
     yesCount: null,
     noCount: null,
     tallyLabel: null,
@@ -35,12 +35,12 @@ function genesisEntry(overrides: Partial<WorldHistoryPublicEntry> = {}): WorldHi
 
 const emptyPageState = {
   entries: [] as WorldHistoryPublicEntry[],
-  gameYear: 1,
-  gameYearLabel: "太乙纪·元年",
+  gameYear: 0,
+  gameYearLabel: "太乙元年",
   page: 1,
   pageSize: 6,
   totalPages: 1,
-  availableYears: [1],
+  availableYears: [0],
 };
 
 describe("shouldMergeEntryIntoVisibleList", () => {
@@ -55,7 +55,7 @@ describe("shouldMergeEntryIntoVisibleList", () => {
   });
 
   it("rejects entry when game year mismatches", () => {
-    const entry = genesisEntry({ gameYear: 2, gameYearLabel: "太乙纪·2年" });
+    const entry = genesisEntry({ gameYear: 2, gameYearLabel: "太乙2年" });
     expect(shouldMergeEntryIntoVisibleList(entry, "accepted", emptyPageState)).toBe(false);
   });
 
@@ -82,11 +82,11 @@ describe("mergeEntryIntoPageState", () => {
     expect(inserted).toBe(true);
     expect(next.entries[0]?.id).toBe("wh-new");
     expect(next.page).toBe(1);
-    expect(next.gameYear).toBe(1);
+    expect(next.gameYear).toBe(0);
   });
 
   it("does not insert when filter/year mismatch but marks as new", () => {
-    const entry = genesisEntry({ id: "wh-other-year", gameYear: 3, gameYearLabel: "太乙纪·3年" });
+    const entry = genesisEntry({ id: "wh-other-year", gameYear: 3, gameYearLabel: "太乙3年" });
     const { next, isNew, inserted } = mergeEntryIntoPageState(emptyPageState, entry, {
       statusFilter: "accepted",
     });
@@ -94,7 +94,7 @@ describe("mergeEntryIntoPageState", () => {
     expect(inserted).toBe(false);
     expect(next.entries).toHaveLength(0);
     expect(next.page).toBe(1);
-    expect(next.gameYear).toBe(1);
+    expect(next.gameYear).toBe(0);
     expect(next.availableYears).toContain(3);
   });
 

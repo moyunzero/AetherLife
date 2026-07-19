@@ -52,8 +52,8 @@ describe("seedWorldHistoryIfNeeded", () => {
       expect(entry.entryKind).toBe("genesis");
       expect(entry.status).toBe("accepted");
       expect(entry.proposerDisplayName).toBe("议会共识");
-      expect(entry.gameYear).toBe(1);
-      expect(entry.gameYearLabel).toBe("太乙纪·元年");
+      expect(entry.gameYear).toBe(0);
+      expect(entry.gameYearLabel).toBe("太乙元年");
       expect(entry.yesCount).toBeNull();
       expect(entry.noCount).toBeNull();
       expect(entry.tallyLabel).toBeNull();
@@ -126,7 +126,7 @@ describe("seedWorldHistoryIfNeeded", () => {
         signatories,
         footnote: "此条为奠基文献，非本届廷议表决。",
       },
-      gameYear: 1,
+      gameYear: 0,
       gameMinuteSnapshot: 0,
       voteEpoch: null,
     });
