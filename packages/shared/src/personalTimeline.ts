@@ -14,6 +14,12 @@ export const NPC_PERSONAL_TIMELINE_TABLE = "npc_personal_timeline" as const;
 /** Registry backstory era label for static seed entries (Phase 27 generator). */
 export const AETHER_CALENDAR_EPOCH_YEAR = 0 as const;
 
+/**
+ * Lower bound for `aether_epoch_minute` sort keys (pre-arrival / lifetime stamps).
+ * Negatives sort before any post-arrival Aether clock (≥0). C-11 allows these.
+ */
+export const LIFETIME_EPOCH_MINUTE_BASE = -1_000_000 as const;
+
 export const MINUTES_PER_DAY = 1440 as const;
 export const DAYS_PER_YEAR = 360 as const;
 export const DAYS_PER_MONTH = 30 as const;

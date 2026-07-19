@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import {
+  LIFETIME_EPOCH_MINUTE_BASE,
   PERSONAL_TIMELINE_TAGS,
   validatePersonalTimelineStrings,
 } from "@aetherlife/shared";
@@ -16,7 +17,12 @@ import { requireWorkerAuth } from "./internal.js";
 const writebackBodySchema = z.object({
   npcId: z.string().min(1).max(64),
   calendarLabel: z.string().min(1).max(80),
-  aetherEpochMinute: z.number().int().min(0),
+  // C-11: lifetime/pre-arrival stamps may be negative (LIFETIME_EPOCH_MINUTE_BASE).
+  aetherEpochMinute: z
+    .number()
+    .int()
+    .min(LIFETIME_EPOCH_MINUTE_BASE)
+    .max(1_000_000_000),
   tag: z.enum(PERSONAL_TIMELINE_TAGS),
   body: z.string().min(1).max(8000),
   eventAnchorId: z.string().min(1).max(128).optional().nullable(),
