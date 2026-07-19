@@ -5,7 +5,13 @@ import type { CouncilDeliberationVoteKind } from "@aetherlife/shared";
 export type WorldVoteJobPayload = {
   roomId: string;
   voteKind: CouncilDeliberationVoteKind;
+  /** Colyseus ambient minute-of-day (0–1439) for schedule HUD. */
   gameMinute: number;
+  /**
+   * Monotonic Aether epoch minute (vote-state clock). Prefer for BIO-06 / REL-07
+   * personal-timeline stamps — not the wrapped ambient `gameMinute`.
+   */
+  absoluteGameMinute?: number;
   jobId: string;
   enqueuedAt: string;
   proposerIndex: number;
@@ -75,6 +81,7 @@ export async function addWorldVoteJob(input: {
   roomId: string;
   voteKind: CouncilDeliberationVoteKind;
   gameMinute: number;
+  absoluteGameMinute?: number;
   proposerIndex: number;
   debateRoundsMax: number;
   instant?: boolean;
@@ -102,6 +109,7 @@ export async function addWorldVoteJob(input: {
     roomId: input.roomId,
     voteKind: input.voteKind,
     gameMinute: input.gameMinute,
+    absoluteGameMinute: input.absoluteGameMinute,
     proposerIndex: input.proposerIndex,
     debateRoundsMax: input.debateRoundsMax,
     instant: input.instant ?? true,
@@ -125,6 +133,7 @@ export async function addWorldVoteContinuationJob(input: {
   resumeJobId: string;
   debateRound: number;
   gameMinute: number;
+  absoluteGameMinute?: number;
   voteKind: CouncilDeliberationVoteKind;
   proposerIndex: number;
   debateRoundsMax: number;
@@ -134,6 +143,7 @@ export async function addWorldVoteContinuationJob(input: {
     roomId: input.roomId,
     voteKind: input.voteKind,
     gameMinute: input.gameMinute,
+    absoluteGameMinute: input.absoluteGameMinute,
     proposerIndex: input.proposerIndex,
     debateRoundsMax: input.debateRoundsMax,
     jobId,

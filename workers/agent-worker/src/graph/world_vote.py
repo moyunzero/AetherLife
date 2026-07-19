@@ -312,6 +312,8 @@ class VoteContext:
     proposer_index: int
     debate_rounds_max: int
     job_id: str
+    # Monotonic Aether epoch (vote-state); prefer over wrapped game_minute for BIO/REL stamps.
+    absolute_game_minute: int = 0
     collective_summaries: list[str] = field(default_factory=list)
     speak_summaries: list[str] = field(default_factory=list)
     world_history_tail: list[str] = field(default_factory=list)
@@ -322,6 +324,11 @@ class VoteContext:
     instant_debate: bool = True
     resume_job_id: str | None = None
     deliberation_checkpoint: dict[str, Any] | None = None
+
+    @property
+    def timeline_epoch_minute(self) -> int:
+        """C-11: personal-timeline stamps use monotonic absolute epoch (not %1440 ambient)."""
+        return int(self.absolute_game_minute)
 
     @property
     def proposer_id(self) -> str:
@@ -354,10 +361,16 @@ def load_context(
 ) -> VoteContext:
     room_id = str(payload.get("roomId") or "default")
     resume_raw = payload.get("resumeJobId")
+    game_minute = int(payload.get("gameMinute") or 0)
+    abs_raw = payload.get("absoluteGameMinute")
+    absolute_game_minute = (
+        int(abs_raw) if abs_raw is not None else game_minute
+    )
     ctx = VoteContext(
         room_id=room_id,
         vote_kind=str(payload.get("voteKind") or "regular"),
-        game_minute=int(payload.get("gameMinute") or 0),
+        game_minute=game_minute,
+        absolute_game_minute=absolute_game_minute,
         proposer_index=int(payload.get("proposerIndex") or 0),
         debate_rounds_max=max(1, min(DEBATE_ROUNDS_MAX, int(payload.get("debateRoundsMax") or 2))),
         job_id=str(payload.get("jobId") or "unknown"),
@@ -915,7 +928,7 @@ def apply_relationship_deltas(
             npc_b_id=str(delta["npcBId"]),
             event_anchor_id=anchor,
             affection_delta=int(delta.get("affectionDelta") or 0),
-            aether_epoch_minute=int(ctx.game_minute or 0),
+            aether_epoch_minute=int(ctx.timeline_epoch_minute),
             history_append=str(delta.get("historyAppend") or ""),
             status_tags_changed=bool(delta.get("statusTags")),
             settings=settings,
@@ -1080,7 +1093,7 @@ def _finalize_vote_job(
         room_id=ctx.room_id,
         event_anchor_id=event_anchor,
         factual_summary=factual_summary,
-        aether_epoch_minute=int(ctx.game_minute or 0),
+        aether_epoch_minute=int(ctx.timeline_epoch_minute),
         settings=cfg,
     )
     print(
@@ -1293,10 +1306,16 @@ def run_world_vote_job(
 
 def _minimal_ctx_from_payload(payload: dict[str, Any]) -> VoteContext:
     resume_raw = payload.get("resumeJobId")
+    game_minute = int(payload.get("gameMinute") or 0)
+    abs_raw = payload.get("absoluteGameMinute")
+    absolute_game_minute = (
+        int(abs_raw) if abs_raw is not None else game_minute
+    )
     return VoteContext(
         room_id=str(payload.get("roomId") or "default"),
         vote_kind=str(payload.get("voteKind") or "regular"),
-        game_minute=int(payload.get("gameMinute") or 0),
+        game_minute=game_minute,
+        absolute_game_minute=absolute_game_minute,
         proposer_index=int(payload.get("proposerIndex") or 0),
         debate_rounds_max=max(1, min(DEBATE_ROUNDS_MAX, int(payload.get("debateRoundsMax") or 2))),
         job_id=str(payload.get("jobId") or "unknown"),

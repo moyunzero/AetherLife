@@ -277,6 +277,7 @@ export async function maybeEnqueueDeliberationContinuation(input: {
     resumeJobId: deliberation.jobId,
     debateRound: nextRound,
     gameMinute: input.gameMinute,
+    absoluteGameMinute: getRoomVoteState(input.roomId).absoluteGameMinute,
     voteKind: deliberation.voteKind,
     proposerIndex: deliberation.proposerIndex,
     debateRoundsMax: deliberation.debateRoundsMax,
@@ -312,6 +313,7 @@ export async function maybeEnqueueWorldVote(input: {
     roomId: input.roomId,
     voteKind: result.voteKind,
     gameMinute: input.gameMinute,
+    absoluteGameMinute: getRoomVoteState(input.roomId).absoluteGameMinute,
     proposerIndex: result.proposerIndex,
     debateRoundsMax: result.debateRoundsMax,
     instant: resolveInstantDebate(),
@@ -321,6 +323,7 @@ export async function maybeEnqueueWorldVote(input: {
 export async function forceEnqueueWorldVote(input: {
   roomId: string;
   gameMinute: number;
+  absoluteGameMinute?: number;
   voteKind?: CouncilDeliberationVoteKind;
   debateRoundsMax?: number;
   instant?: boolean;
@@ -350,6 +353,8 @@ export async function forceEnqueueWorldVote(input: {
     roomId: input.roomId,
     voteKind,
     gameMinute: input.gameMinute,
+    absoluteGameMinute:
+      input.absoluteGameMinute ?? state.absoluteGameMinute,
     proposerIndex,
     debateRoundsMax,
     instant: input.instant ?? resolveInstantDebate(),

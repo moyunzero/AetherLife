@@ -179,3 +179,31 @@ def test_multi_jobs_share_anchor_divergent_bodies(monkeypatch):
     assert posted[0]["body"] != posted[1]["body"]
     assert all(p["tag"] == "council" for p in posted)
     assert all(p["source"] == "llm_event" for p in posted)
+
+
+def test_calendar_label_year_one_from_absolute_epoch():
+    """CR-01: absolute epoch ≥ 1440*360 → 太乙1年…, not wrapped 元年."""
+    from src.graph.personal_timeline import _calendar_label_from_epoch
+
+    label = _calendar_label_from_epoch(1440 * 360)
+    assert label.startswith("太乙1年")
+    assert "元年" not in label
+    # Wrapped ambient minute must not be used as epoch for year-1 stamps.
+    wrapped = _calendar_label_from_epoch(360)
+    assert wrapped.startswith("太乙元年")
+
+
+def test_vote_context_timeline_epoch_prefers_absolute():
+    """CR-01: BIO/REL stamps use absoluteGameMinute, not wrapped gameMinute."""
+    from src.graph.world_vote import VoteContext
+
+    ctx = VoteContext(
+        room_id="r",
+        vote_kind="regular",
+        game_minute=360,  # wrapped ambient
+        absolute_game_minute=1440 * 360 + 100,
+        proposer_index=0,
+        debate_rounds_max=2,
+        job_id="j1",
+    )
+    assert ctx.timeline_epoch_minute == 1440 * 360 + 100

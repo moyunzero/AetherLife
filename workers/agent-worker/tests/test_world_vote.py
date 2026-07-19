@@ -39,6 +39,9 @@ def _ctx(**overrides) -> VoteContext:
         room_id=payload["roomId"],
         vote_kind=payload["voteKind"],
         game_minute=payload["gameMinute"],
+        absolute_game_minute=int(
+            payload.get("absoluteGameMinute", payload["gameMinute"])
+        ),
         proposer_index=payload["proposerIndex"],
         debate_rounds_max=payload["debateRoundsMax"],
         job_id=payload["jobId"],
