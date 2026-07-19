@@ -251,3 +251,23 @@ def test_vote_context_timeline_epoch_prefers_absolute():
         job_id="j1",
     )
     assert ctx.timeline_epoch_minute == 1440 * 360 + 100
+
+
+def test_missing_kind_without_entry_id_is_ignored(monkeypatch):
+    """WR-06: empty kind must not default to weekly writeback."""
+    from src.graph.personal_timeline import process_personal_timeline_job
+
+    settings = Settings(llm_mock=True, game_server_url="http://127.0.0.1:2567")
+    called: list[str] = []
+
+    def boom(*_a, **_k):
+        called.append("weekly")
+        raise AssertionError("weekly must not run")
+
+    monkeypatch.setattr("src.graph.personal_timeline._run_weekly", boom)
+    process_personal_timeline_job(
+        MagicMock(),
+        settings,
+        {"jobId": "corrupt", "roomId": "r", "npcId": "npc-1"},
+    )
+    assert called == []

@@ -546,7 +546,11 @@ def process_personal_timeline_job(
     if not kind and payload.get("entryId"):
         kind = "polish"
     if not kind:
-        kind = "weekly"
+        print(
+            f"personal-timeline missing kind jobId={payload.get('jobId')}; ignoring",
+            file=sys.stderr,
+        )
+        return
 
     print(
         f"personal-timeline job kind={kind} jobId={payload.get('jobId')} "
