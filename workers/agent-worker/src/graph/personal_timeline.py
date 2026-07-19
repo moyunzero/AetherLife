@@ -451,7 +451,12 @@ def _run_multi(client: httpx.Client, settings: Settings, payload: dict) -> None:
     npc_id = str(payload.get("npcId") or "")
     event_anchor_id = str(payload.get("eventAnchorId") or "")
     factual = str(payload.get("factualSummary") or "").strip()
-    epoch = int(payload.get("aetherEpochMinute") or 0)
+    # Shared event stamp = hammer epoch; stagger offset is enqueue delay only (WR-01).
+    epoch = int(
+        payload.get("hammerEpochMinute")
+        if payload.get("hammerEpochMinute") is not None
+        else (payload.get("aetherEpochMinute") or 0)
+    )
     if not room_id or not npc_id or not event_anchor_id or not factual:
         raise ValueError("multi job missing roomId/npcId/eventAnchorId/factualSummary")
 

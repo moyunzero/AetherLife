@@ -138,6 +138,50 @@ def test_enqueue_multi_perspective_twelve_staggered_same_anchor():
     offsets = [int(j["staggerOffsetGameMinutes"]) for j in jobs]
     assert len(set(offsets)) == 12
     assert max(offsets) - min(offsets) >= 180  # several SSOT game hours
+    # Shared hammer epoch for label; stagger only on aetherEpochMinute / delay.
+    assert all(int(j["hammerEpochMinute"]) == 10_000 for j in jobs)
+    assert {int(j["aetherEpochMinute"]) for j in jobs} == {
+        10_000 + i * 30 for i in range(12)
+    }
+
+
+def test_multi_writeback_uses_shared_hammer_epoch(monkeypatch):
+    """WR-01: all seats persist the same civil stamp for one eventAnchorId."""
+    from src.graph.personal_timeline import process_personal_timeline_job
+
+    settings = Settings(llm_mock=True, game_server_url="http://127.0.0.1:2567")
+    posted: list[dict] = []
+
+    def fake_post(client, cfg, **kwargs):
+        posted.append(kwargs)
+        return {"ok": True, "entry": {"id": f"e-{kwargs['npc_id']}"}}
+
+    monkeypatch.setattr(
+        "src.graph.personal_timeline.post_personal_timeline_entry",
+        fake_post,
+    )
+
+    factual = "议会通过对旅者开放东苑。"
+    for offset, npc_id in ((0, "npc-1"), (330, "npc-12")):
+        process_personal_timeline_job(
+            MagicMock(),
+            settings,
+            {
+                "kind": "multi",
+                "jobId": f"pt-multi-room-{npc_id}",
+                "roomId": "room-multi",
+                "npcId": npc_id,
+                "eventAnchorId": "wh-anchor-shared",
+                "factualSummary": factual,
+                "aetherEpochMinute": 10_000 + offset,
+                "hammerEpochMinute": 10_000,
+                "staggerOffsetGameMinutes": offset,
+            },
+        )
+
+    assert len(posted) == 2
+    assert posted[0]["aether_epoch_minute"] == posted[1]["aether_epoch_minute"] == 10_000
+    assert posted[0]["calendar_label"] == posted[1]["calendar_label"]
 
 
 def test_multi_jobs_share_anchor_divergent_bodies(monkeypatch):
