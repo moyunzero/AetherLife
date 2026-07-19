@@ -1,19 +1,22 @@
-"""Personal life timeline jobs — polish + weekly digest (BIO-03/05, D-GEN-*).
+"""Personal life timeline jobs — polish, weekly, multi-perspective, REL-07.
 
 Uses reflect/lore providers only — never Zhipu speak slot (D-GEN-04).
-Event / multi / rel kinds are stubs for plan 05.
+BIO-06 / D-MULTI-*: multi after world_history write.
+REL-07 / D-REL-01: bilateral relationship entries at |Δ|≥8.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import sys
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
 
 from src.config import Settings, get_settings
-from src.council.constants import COUNCIL_NPC_IDS
+from src.council.constants import COUNCIL_NPC_IDS, HISTORY_SUMMARY_DELTA_THRESHOLD
 from src.council.registry import display_name
 from src.graph.lore_loop import _invoke_lore_llm
 
@@ -21,6 +24,14 @@ FORBIDDEN_BIO_PROVIDERS = frozenset({"zhipu"})
 
 WEEKLY_MIN_CHARS = 200
 WEEKLY_MAX_CHARS = 400
+MULTI_MAX_CHARS = 80
+REL_MIN_CHARS = 100
+REL_MAX_CHARS = 200
+
+# D-MULTI-04: spread 12 seats across several SSOT game hours (30 min × 11 = 5.5h).
+MULTI_STAGGER_GAME_MINUTES = 30
+
+PERSONAL_TIMELINE_JOBS_KEY = "aetherlife:personal-timeline:jobs"
 
 
 def personal_timeline_llm_attempts(settings: Settings) -> list[tuple[str, str]]:
@@ -56,18 +67,38 @@ def _game_headers(settings: Settings) -> dict[str, str]:
     return headers
 
 
-def _invoke_bio_llm(settings: Settings, prompt: str) -> str:
-    if settings.llm_mock or os.getenv("LLM_MOCK") == "1":
-        # Mock weekly body within D-GEN-05 budget (200–400 字).
+def _mock_bio_body(*, kind: str, npc_id: str) -> str:
+    if kind in {"multi", "multi_perspective"}:
+        # Deterministic per-npc divergence under LLM_MOCK (BIO-06).
+        return f"席位{npc_id}：庭议已定，我心潮难平，却绝不改写既定事实。"[:MULTI_MAX_CHARS]
+    if kind in {"rel", "rel07"}:
         base = (
-            "这一周我在始源庭中走动，听风过竹，也听同僚低声争论。"
-            "白日里我把思绪收进袖中，夜里再摊开细想——人与天地都在缓慢改写。"
-            "我仍以第一人称记下这些日子，既不夸大也不逃避。"
+            f"席位{npc_id}：与同僚之间的情谊因廷议而起波澜。"
+            "我把这份亲近或疏远写进心里，既不夸张也不回避。"
+            "日后若再同席，我会记得此刻的温度。"
         )
-        # Pad to >= 200 chars for contract smoke
-        while len(base) < WEEKLY_MIN_CHARS:
-            base += "我继续观察，继续等待合适的时机。"
-        return base[:WEEKLY_MAX_CHARS]
+        while len(base) < REL_MIN_CHARS:
+            base += "我继续体察这份关系的细微变化。"
+        return base[:REL_MAX_CHARS]
+    base = (
+        "这一周我在始源庭中走动，听风过竹，也听同僚低声争论。"
+        "白日里我把思绪收进袖中，夜里再摊开细想——人与天地都在缓慢改写。"
+        "我仍以第一人称记下这些日子，既不夸大也不逃避。"
+    )
+    while len(base) < WEEKLY_MIN_CHARS:
+        base += "我继续观察，继续等待合适的时机。"
+    return base[:WEEKLY_MAX_CHARS]
+
+
+def _invoke_bio_llm(
+    settings: Settings,
+    prompt: str,
+    *,
+    kind: str = "weekly",
+    npc_id: str = "",
+) -> str:
+    if settings.llm_mock or os.getenv("LLM_MOCK") == "1":
+        return _mock_bio_body(kind=kind, npc_id=npc_id)
 
     last_exc: BaseException | None = None
     for provider, model in personal_timeline_llm_attempts(settings):
@@ -118,11 +149,55 @@ def build_polish_prompt(
     )
 
 
-def _clamp_weekly_body(text: str) -> str:
+def build_multi_perspective_prompt(
+    *,
+    npc_id: str,
+    display_name: str,
+    factual_summary: str,
+    calendar_label: str,
+) -> str:
+    """BIO-06 / D-MULTI-03 / D-GEN-05: emotion/opinion only ≤80 字; facts locked."""
+    return (
+        f"你是议会席位 {npc_id}（{display_name}）。"
+        f"历法：{calendar_label}。\n"
+        f"事实摘要锁定（不得改写、不得补充事实）：{factual_summary}\n"
+        f"请用第一人称只写情绪与看法/观感，字数预算：不超过 {MULTI_MAX_CHARS} 字。\n"
+        "禁止改写事实摘要中的任何事实；不要复述提案全文。\n"
+        "只输出正文，不要标题或 markdown。\n"
+    )
+
+
+def build_rel07_prompt(
+    *,
+    npc_id: str,
+    display_name: str,
+    counterpart_id: str,
+    counterpart_name: str,
+    affection_delta: int,
+    history_append: str = "",
+) -> str:
+    """REL-07 / D-GEN-05: relationship-tagged first-person, 100–200 字."""
+    direction = "亲近" if affection_delta > 0 else "疏远" if affection_delta < 0 else "波动"
+    note = history_append or f"廷议后{direction}（Δ{affection_delta:+d}）"
+    return (
+        f"你是议会席位 {npc_id}（{display_name}）。"
+        f"请用第一人称写一段关于与 {counterpart_name}（{counterpart_id}）关系变化的札记。\n"
+        f"关系线索：{note}\n"
+        f"字数预算：{REL_MIN_CHARS}–{REL_MAX_CHARS} 字（汉字为主）。\n"
+        "聚焦主观感受与关系温度，不要改写世界编年史事实。\n"
+        "只输出正文，不要标题或 markdown。\n"
+    )
+
+
+def _clamp_body(text: str, max_chars: int) -> str:
     body = (text or "").strip()
-    if len(body) > WEEKLY_MAX_CHARS + 40:
-        body = body[:WEEKLY_MAX_CHARS]
+    if len(body) > max_chars + 20:
+        body = body[:max_chars]
     return body
+
+
+def _clamp_weekly_body(text: str) -> str:
+    return _clamp_body(text, WEEKLY_MAX_CHARS)
 
 
 def post_personal_timeline_entry(
@@ -198,6 +273,119 @@ def _calendar_label_from_epoch(epoch: int) -> str:
     return f"太乙{year}年·{season}·{month}月·第{day_of_month}日"
 
 
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _lpush_jobs(
+    jobs: list[dict[str, Any]],
+    *,
+    redis_client: Any | None = None,
+    settings: Settings | None = None,
+) -> None:
+    if not jobs:
+        return
+    if redis_client is not None:
+        for job in jobs:
+            redis_client.lpush(PERSONAL_TIMELINE_JOBS_KEY, json.dumps(job, ensure_ascii=False))
+        return
+    cfg = settings or get_settings()
+    if not cfg.redis_url:
+        return
+    import redis
+
+    client = redis.from_url(cfg.redis_url, decode_responses=False)
+    try:
+        for job in jobs:
+            client.lpush(PERSONAL_TIMELINE_JOBS_KEY, json.dumps(job, ensure_ascii=False))
+    finally:
+        client.close()
+
+
+def enqueue_multi_perspective_jobs(
+    *,
+    room_id: str,
+    event_anchor_id: str,
+    factual_summary: str,
+    aether_epoch_minute: int,
+    redis_client: Any | None = None,
+    settings: Settings | None = None,
+) -> list[dict[str, Any]]:
+    """BIO-06 / D-MULTI-01…04: 12 seats, shared anchor, staggered game-hour offsets."""
+    jobs: list[dict[str, Any]] = []
+    enqueued_at = _now_iso()
+    for index, npc_id in enumerate(COUNCIL_NPC_IDS):
+        offset = index * MULTI_STAGGER_GAME_MINUTES
+        job: dict[str, Any] = {
+            "kind": "multi",
+            "roomId": room_id,
+            "npcId": npc_id,
+            "eventAnchorId": event_anchor_id,
+            "factualSummary": factual_summary,
+            "aetherEpochMinute": aether_epoch_minute + offset,
+            "staggerOffsetGameMinutes": offset,
+            "hammerEpochMinute": aether_epoch_minute,
+            "tag": "council",
+            "jobId": f"pt-multi-{room_id}-{event_anchor_id}-{npc_id}",
+            "enqueuedAt": enqueued_at,
+        }
+        jobs.append(job)
+    _lpush_jobs(jobs, redis_client=redis_client, settings=settings)
+    return jobs
+
+
+def rel07_should_enqueue(
+    *,
+    affection_delta: int,
+    status_tags_changed: bool = False,
+) -> bool:
+    """REL-07: |Δ|≥HISTORY_SUMMARY_DELTA_THRESHOLD (8) or status_tags changed."""
+    if status_tags_changed:
+        return True
+    return abs(int(affection_delta)) >= HISTORY_SUMMARY_DELTA_THRESHOLD
+
+
+def enqueue_rel07_bilateral_jobs(
+    *,
+    room_id: str,
+    npc_a_id: str,
+    npc_b_id: str,
+    event_anchor_id: str,
+    affection_delta: int,
+    aether_epoch_minute: int,
+    history_append: str = "",
+    status_tags_changed: bool = False,
+    redis_client: Any | None = None,
+    settings: Settings | None = None,
+) -> list[dict[str, Any]]:
+    """D-REL-01: both edge endpoints, same eventAnchorId, relationship tag."""
+    if not rel07_should_enqueue(
+        affection_delta=affection_delta,
+        status_tags_changed=status_tags_changed,
+    ):
+        return []
+
+    enqueued_at = _now_iso()
+    jobs: list[dict[str, Any]] = []
+    for npc_id, counterpart in ((npc_a_id, npc_b_id), (npc_b_id, npc_a_id)):
+        job: dict[str, Any] = {
+            "kind": "rel",
+            "roomId": room_id,
+            "npcId": npc_id,
+            "counterpartNpcId": counterpart,
+            "eventAnchorId": event_anchor_id,
+            "affectionDelta": affection_delta,
+            "historyAppend": history_append,
+            "aetherEpochMinute": aether_epoch_minute,
+            "tag": "relationship",
+            "jobId": f"pt-rel-{room_id}-{event_anchor_id}-{npc_id}",
+            "enqueuedAt": enqueued_at,
+        }
+        jobs.append(job)
+    _lpush_jobs(jobs, redis_client=redis_client, settings=settings)
+    return jobs
+
+
 def _run_polish(client: httpx.Client, settings: Settings, payload: dict) -> None:
     room_id = str(payload.get("roomId") or "")
     npc_id = str(payload.get("npcId") or "")
@@ -213,7 +401,7 @@ def _run_polish(client: httpx.Client, settings: Settings, payload: dict) -> None
         event=str(payload.get("event") or ""),
         skeleton_body=str(payload.get("skeletonBody") or ""),
     )
-    polished = _invoke_bio_llm(settings, prompt).strip()
+    polished = _invoke_bio_llm(settings, prompt, kind="polish", npc_id=npc_id).strip()
     if not polished:
         print(f"polish empty body jobId={payload.get('jobId')}", file=sys.stderr)
         return
@@ -241,7 +429,7 @@ def _run_weekly(client: httpx.Client, settings: Settings, payload: dict) -> None
         calendar_label=label,
         recent_bullets=list(payload.get("recentBullets") or []),
     )
-    body = _clamp_weekly_body(_invoke_bio_llm(settings, prompt))
+    body = _clamp_weekly_body(_invoke_bio_llm(settings, prompt, kind="weekly", npc_id=npc_id))
     if not body:
         print(f"weekly empty body jobId={payload.get('jobId')}", file=sys.stderr)
         return
@@ -258,12 +446,87 @@ def _run_weekly(client: httpx.Client, settings: Settings, payload: dict) -> None
     )
 
 
-def _stub_kind(kind: str, payload: dict) -> None:
-    """Plan 05: event / multi / rel — acknowledge only (D-GEN-02 hammer/REL deferred)."""
-    print(
-        f"personal-timeline stub kind={kind} jobId={payload.get('jobId')} "
-        f"(deferred to plan 05)",
-        file=sys.stderr,
+def _run_multi(client: httpx.Client, settings: Settings, payload: dict) -> None:
+    room_id = str(payload.get("roomId") or "")
+    npc_id = str(payload.get("npcId") or "")
+    event_anchor_id = str(payload.get("eventAnchorId") or "")
+    factual = str(payload.get("factualSummary") or "").strip()
+    epoch = int(payload.get("aetherEpochMinute") or 0)
+    if not room_id or not npc_id or not event_anchor_id or not factual:
+        raise ValueError("multi job missing roomId/npcId/eventAnchorId/factualSummary")
+
+    name = display_name(npc_id) if npc_id in COUNCIL_NPC_IDS else npc_id
+    label = _calendar_label_from_epoch(epoch)
+    prompt = build_multi_perspective_prompt(
+        npc_id=npc_id,
+        display_name=name,
+        factual_summary=factual,
+        calendar_label=label,
+    )
+    body = _clamp_body(
+        _invoke_bio_llm(settings, prompt, kind="multi", npc_id=npc_id),
+        MULTI_MAX_CHARS,
+    )
+    if not body:
+        print(f"multi empty body jobId={payload.get('jobId')}", file=sys.stderr)
+        return
+    post_personal_timeline_entry(
+        client,
+        settings,
+        room_id=room_id,
+        npc_id=npc_id,
+        calendar_label=label,
+        aether_epoch_minute=epoch,
+        tag="council",
+        body=body,
+        source="llm_event",
+        event_anchor_id=event_anchor_id,
+        factual_summary=factual,
+    )
+
+
+def _run_rel(client: httpx.Client, settings: Settings, payload: dict) -> None:
+    room_id = str(payload.get("roomId") or "")
+    npc_id = str(payload.get("npcId") or "")
+    counterpart = str(payload.get("counterpartNpcId") or "")
+    event_anchor_id = str(payload.get("eventAnchorId") or "")
+    epoch = int(payload.get("aetherEpochMinute") or 0)
+    affection = int(payload.get("affectionDelta") or 0)
+    history_append = str(payload.get("historyAppend") or "")
+    if not room_id or not npc_id or not counterpart or not event_anchor_id:
+        raise ValueError("rel job missing roomId/npcId/counterpartNpcId/eventAnchorId")
+
+    name = display_name(npc_id) if npc_id in COUNCIL_NPC_IDS else npc_id
+    counterpart_name = (
+        display_name(counterpart) if counterpart in COUNCIL_NPC_IDS else counterpart
+    )
+    label = _calendar_label_from_epoch(epoch)
+    prompt = build_rel07_prompt(
+        npc_id=npc_id,
+        display_name=name,
+        counterpart_id=counterpart,
+        counterpart_name=counterpart_name,
+        affection_delta=affection,
+        history_append=history_append,
+    )
+    body = _clamp_body(
+        _invoke_bio_llm(settings, prompt, kind="rel", npc_id=npc_id),
+        REL_MAX_CHARS,
+    )
+    if not body:
+        print(f"rel empty body jobId={payload.get('jobId')}", file=sys.stderr)
+        return
+    post_personal_timeline_entry(
+        client,
+        settings,
+        room_id=room_id,
+        npc_id=npc_id,
+        calendar_label=label,
+        aether_epoch_minute=epoch,
+        tag="relationship",
+        body=body,
+        source="llm_event",
+        event_anchor_id=event_anchor_id,
     )
 
 
@@ -292,7 +555,18 @@ def process_personal_timeline_job(
     if kind == "weekly":
         _run_weekly(client, cfg, payload)
         return
-    if kind in {"event", "multi", "multi_perspective", "rel", "rel07"}:
-        _stub_kind(kind, payload)
+    if kind in {"multi", "multi_perspective"}:
+        _run_multi(client, cfg, payload)
+        return
+    if kind in {"rel", "rel07"}:
+        _run_rel(client, cfg, payload)
+        return
+    if kind == "event":
+        # Speak-event biography deferred (D-GEN-02); acknowledge only.
+        print(
+            f"personal-timeline stub kind=event jobId={payload.get('jobId')} "
+            f"(speak-event deferred)",
+            file=sys.stderr,
+        )
         return
     print(f"personal-timeline unknown kind={kind}; ignoring", file=sys.stderr)

@@ -1,6 +1,6 @@
 /**
- * Personal timeline job queue (D-SEED-01/04, D-GEN-01/04).
- * Skeleton inserts on room create; reflect/lore polish + weekly digest async — never speak-slot LLM.
+ * Personal timeline job queue (D-SEED-01/04, D-GEN-01/04, BIO-06, REL-07).
+ * Skeleton inserts on room create; reflect/lore polish + weekly + multi/rel async — never speak-slot LLM.
  */
 
 import { Redis } from "ioredis";
@@ -30,9 +30,39 @@ export type PersonalTimelineWeeklyJobPayload = {
   recentBullets?: string[];
 };
 
-/** Plan 05 stubs — hammer/REL only (not full D-GEN-02). */
-export type PersonalTimelineStubJobPayload = {
-  kind: "event" | "multi" | "rel";
+/** BIO-06 multi-perspective after world_history hammer. */
+export type PersonalTimelineMultiJobPayload = {
+  kind: "multi";
+  roomId: string;
+  npcId: string;
+  eventAnchorId: string;
+  factualSummary: string;
+  aetherEpochMinute: number;
+  staggerOffsetGameMinutes: number;
+  hammerEpochMinute?: number;
+  tag?: "council";
+  jobId: string;
+  enqueuedAt: string;
+};
+
+/** REL-07 bilateral relationship biography. */
+export type PersonalTimelineRelJobPayload = {
+  kind: "rel";
+  roomId: string;
+  npcId: string;
+  counterpartNpcId: string;
+  eventAnchorId: string;
+  affectionDelta: number;
+  historyAppend?: string;
+  aetherEpochMinute: number;
+  tag?: "relationship";
+  jobId: string;
+  enqueuedAt: string;
+};
+
+/** Speak-event biography deferred (D-GEN-02). */
+export type PersonalTimelineEventJobPayload = {
+  kind: "event";
   roomId: string;
   npcId: string;
   jobId: string;
@@ -43,9 +73,14 @@ export type PersonalTimelineStubJobPayload = {
 export type PersonalTimelineJobPayload =
   | PersonalTimelinePolishJobPayload
   | PersonalTimelineWeeklyJobPayload
-  | PersonalTimelineStubJobPayload;
+  | PersonalTimelineMultiJobPayload
+  | PersonalTimelineRelJobPayload
+  | PersonalTimelineEventJobPayload;
 
 export const PERSONAL_TIMELINE_JOBS_KEY = "aetherlife:personal-timeline:jobs";
+
+/** D-MULTI-04: 30 game minutes between seats → ~5.5h for 12 seats. */
+export const MULTI_STAGGER_GAME_MINUTES = 30;
 
 const mockJobs = new Map<string, PersonalTimelineJobPayload>();
 
@@ -75,6 +110,22 @@ export function personalTimelineWeeklyJobId(
   dayIndex: number,
 ): string {
   return `pt-weekly-${roomId}-${npcId}-${dayIndex}`;
+}
+
+export function personalTimelineMultiJobId(
+  roomId: string,
+  eventAnchorId: string,
+  npcId: string,
+): string {
+  return `pt-multi-${roomId}-${eventAnchorId}-${npcId}`;
+}
+
+export function personalTimelineRelJobId(
+  roomId: string,
+  eventAnchorId: string,
+  npcId: string,
+): string {
+  return `pt-rel-${roomId}-${eventAnchorId}-${npcId}`;
 }
 
 async function lpushJob(payload: PersonalTimelineJobPayload): Promise<void> {
@@ -142,6 +193,76 @@ export async function enqueuePersonalTimelineWeeklyJob(input: {
     jobId,
     enqueuedAt: new Date().toISOString(),
     recentBullets: input.recentBullets,
+  };
+  await lpushJob(payload);
+  mockJobs.set(jobId, payload);
+  return jobId;
+}
+
+/**
+ * BIO-06: enqueue one multi-perspective seat (caller loops 12 with stagger offsets).
+ */
+export async function enqueuePersonalTimelineMultiJob(input: {
+  roomId: string;
+  npcId: string;
+  eventAnchorId: string;
+  factualSummary: string;
+  aetherEpochMinute: number;
+  staggerOffsetGameMinutes: number;
+  hammerEpochMinute?: number;
+}): Promise<string | null> {
+  const jobId = personalTimelineMultiJobId(
+    input.roomId,
+    input.eventAnchorId,
+    input.npcId,
+  );
+  const payload: PersonalTimelineMultiJobPayload = {
+    kind: "multi",
+    roomId: input.roomId,
+    npcId: input.npcId,
+    eventAnchorId: input.eventAnchorId,
+    factualSummary: input.factualSummary,
+    aetherEpochMinute: input.aetherEpochMinute,
+    staggerOffsetGameMinutes: input.staggerOffsetGameMinutes,
+    hammerEpochMinute: input.hammerEpochMinute,
+    tag: "council",
+    jobId,
+    enqueuedAt: new Date().toISOString(),
+  };
+  await lpushJob(payload);
+  mockJobs.set(jobId, payload);
+  return jobId;
+}
+
+/**
+ * REL-07: enqueue one bilateral endpoint job.
+ */
+export async function enqueuePersonalTimelineRelJob(input: {
+  roomId: string;
+  npcId: string;
+  counterpartNpcId: string;
+  eventAnchorId: string;
+  affectionDelta: number;
+  aetherEpochMinute: number;
+  historyAppend?: string;
+}): Promise<string | null> {
+  const jobId = personalTimelineRelJobId(
+    input.roomId,
+    input.eventAnchorId,
+    input.npcId,
+  );
+  const payload: PersonalTimelineRelJobPayload = {
+    kind: "rel",
+    roomId: input.roomId,
+    npcId: input.npcId,
+    counterpartNpcId: input.counterpartNpcId,
+    eventAnchorId: input.eventAnchorId,
+    affectionDelta: input.affectionDelta,
+    historyAppend: input.historyAppend,
+    aetherEpochMinute: input.aetherEpochMinute,
+    tag: "relationship",
+    jobId,
+    enqueuedAt: new Date().toISOString(),
   };
   await lpushJob(payload);
   mockJobs.set(jobId, payload);

@@ -33,7 +33,15 @@ DEBATE_ROUND_GAME_MINUTES = max(1, _env_int("VOTE_DEBATE_ROUND_GAME_DAYS", 1) * 
 
 from src.council.leaning_drift import effective_voting_leaning, get_leaning_drift
 from src.council.registry import display_name, get_persona
-from src.council.relationship_deltas import compute_relationship_deltas, filter_linked_edges_for_ui
+from src.council.relationship_deltas import (
+    compute_relationship_deltas,
+    filter_linked_edges_for_ui,
+    iter_rel07_trigger_deltas,
+)
+from src.graph.personal_timeline import (
+    enqueue_multi_perspective_jobs,
+    enqueue_rel07_bilateral_jobs,
+)
 from src.council.relationship_prompt import (
     format_all_seats_relationship_context,
     format_debate_transcript_summary,
@@ -854,6 +862,8 @@ def apply_relationship_deltas(
     ctx: VoteContext,
     debate_transcript: list[dict[str, Any]],
     ballots: list[dict[str, Any]],
+    *,
+    event_anchor_id: str | None = None,
 ) -> list[dict[str, str]]:
     deltas = compute_relationship_deltas(
         debate_transcript,  # type: ignore[arg-type]
@@ -873,10 +883,26 @@ def apply_relationship_deltas(
         timeout=90.0,
         attempts=3,
     )
+    # REL-07 / D-REL-01: bilateral personal-timeline jobs at |Δ|≥8 (or status_tags).
+    anchor = (event_anchor_id or "").strip() or str(ctx.vote_epoch or ctx.job_id)
+    rel_jobs = 0
+    for delta in iter_rel07_trigger_deltas(deltas):
+        jobs = enqueue_rel07_bilateral_jobs(
+            room_id=ctx.room_id,
+            npc_a_id=str(delta["npcAId"]),
+            npc_b_id=str(delta["npcBId"]),
+            event_anchor_id=anchor,
+            affection_delta=int(delta.get("affectionDelta") or 0),
+            aether_epoch_minute=int(ctx.game_minute or 0),
+            history_append=str(delta.get("historyAppend") or ""),
+            status_tags_changed=bool(delta.get("statusTags")),
+            settings=settings,
+        )
+        rel_jobs += len(jobs)
     ui_edges = filter_linked_edges_for_ui(deltas)
     print(
         f"relationship-deltas applied={len(deltas)} ui_linked={len(ui_edges)} "
-        f"jobId={ctx.job_id}",
+        f"rel07_jobs={rel_jobs} jobId={ctx.job_id}",
         file=sys.stderr,
     )
     return ui_edges
@@ -1022,9 +1048,34 @@ def _finalize_vote_job(
         minutes=minutes,
     )
     entry_id = (history_res.get("entry") or {}).get("id")
+    # BIO-06 / D-MULTI-01…04: after world_history write, enqueue 12 staggered multi jobs.
+    event_anchor = str(entry_id or ctx.vote_epoch or ctx.job_id)
+    factual_summary = (
+        f"「{title}」表决结果为{status}（赞成{yes_count}/反对{no_count}）。"
+        f"提案要旨：{str(proposal)[:120]}"
+    )
+    multi_jobs = enqueue_multi_perspective_jobs(
+        room_id=ctx.room_id,
+        event_anchor_id=event_anchor,
+        factual_summary=factual_summary,
+        aether_epoch_minute=int(ctx.game_minute or 0),
+        settings=cfg,
+    )
+    print(
+        f"personal-timeline multi enqueued={len(multi_jobs)} "
+        f"anchor={event_anchor} jobId={ctx.job_id}",
+        file=sys.stderr,
+    )
 
     post_vote_complete(client, cfg, ctx)
-    linked_edges = apply_relationship_deltas(client, cfg, ctx, ctx.debate_transcript, ballots)
+    linked_edges = apply_relationship_deltas(
+        client,
+        cfg,
+        ctx,
+        ctx.debate_transcript,
+        ballots,
+        event_anchor_id=event_anchor,
+    )
     append_council_memories(client, cfg, ctx, minutes["ballots"])
     writeback_sequence(
         client,
