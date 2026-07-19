@@ -125,12 +125,12 @@ describe("worldHistory minutes schemas", () => {
 });
 
 describe("formatChronicleYearLabel", () => {
-  it("returns 太乙纪·元年 for year 1", () => {
-    expect(formatChronicleYearLabel(1)).toBe("太乙纪·元年");
+  it("returns 太乙元年 for civil year 0", () => {
+    expect(formatChronicleYearLabel(0)).toBe("太乙元年");
   });
 
-  it("returns 太乙纪·N年 for year > 1", () => {
-    expect(formatChronicleYearLabel(3)).toBe("太乙纪·3年");
+  it("returns 太乙N年 for civil year > 0", () => {
+    expect(formatChronicleYearLabel(3)).toBe("太乙3年");
   });
 });
 
@@ -144,8 +144,8 @@ describe("toWorldHistoryListEntry", () => {
       title: "t",
       proposalExcerpt: "ex",
       proposerDisplayName: "p",
-      gameYear: 1,
-      gameYearLabel: "太乙纪·元年",
+      gameYear: 0,
+      gameYearLabel: "太乙元年",
       yesCount: null,
       noCount: null,
       tallyLabel: null,
@@ -163,9 +163,10 @@ describe("toWorldHistoryListEntry", () => {
 });
 
 describe("chronicleGameYearFromMinute", () => {
-  it("derives game year from room clock snapshot (1440 min/day)", () => {
-    expect(chronicleGameYearFromMinute(0)).toBe(1);
-    expect(chronicleGameYearFromMinute(1440)).toBe(2);
+  it("derives civil Aether year (360 days/year; not 1440-min=1-year)", () => {
+    expect(chronicleGameYearFromMinute(0)).toBe(0);
+    expect(chronicleGameYearFromMinute(1440)).toBe(0);
+    expect(chronicleGameYearFromMinute(1440 * 360)).toBe(1);
   });
 });
 
