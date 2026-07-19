@@ -58,6 +58,22 @@ describe("personal-timeline weekly stagger", () => {
     expect(job).toMatchObject({ kind: "weekly", roomId });
   });
 
+  it("durable jobId claim blocks re-enqueue after in-memory debounce cleared (WR-02)", async () => {
+    const roomId = "room-pt-weekly-durable";
+    const first = await maybeEnqueuePersonalTimelineWeekly({
+      roomId,
+      absoluteGameMinute: 1440 * 4,
+    });
+    expect(first.enqueued.length).toBeGreaterThan(0);
+
+    clearPersonalTimelineWeeklyState();
+    const again = await maybeEnqueuePersonalTimelineWeekly({
+      roomId,
+      absoluteGameMinute: 1440 * 4 + 5,
+    });
+    expect(again.enqueued).toEqual([]);
+  });
+
   it("yields enqueue when speak in flight", async () => {
     const out = await maybeEnqueuePersonalTimelineWeekly({
       roomId: "room-busy",

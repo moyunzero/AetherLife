@@ -79,10 +79,19 @@ export type PersonalTimelineJobPayload =
 
 export const PERSONAL_TIMELINE_JOBS_KEY = "aetherlife:personal-timeline:jobs";
 
+/** Durable enqueue claim — survives game-server restart (WR-02). */
+export const PERSONAL_TIMELINE_JOB_CLAIM_PREFIX =
+  "aetherlife:personal-timeline:job-claimed:";
+
 /** D-MULTI-04: 30 game minutes between seats → ~5.5h for 12 seats. */
 export const MULTI_STAGGER_GAME_MINUTES = 30;
 
+/** Claim TTL: ~16 Aether days in wall-clock is overkill; 14d wall is enough for restart dedupe. */
+const JOB_CLAIM_TTL_SECONDS = 60 * 60 * 24 * 14;
+
 const mockJobs = new Map<string, PersonalTimelineJobPayload>();
+/** Process-local claim mirror when Redis is unavailable (tests / no REDIS_URL). */
+const localJobClaims = new Set<string>();
 
 function getRedisUrl(): string | undefined {
   return process.env.REDIS_URL;
@@ -94,6 +103,31 @@ function createRedis(url: string): Redis {
     console.error("[redis]", err.message);
   });
   return client;
+}
+
+/**
+ * SET NX claim before LPUSH so restart/multi-instance cannot re-enqueue the same jobId.
+ * Without Redis: process-local Set (tests + single-process).
+ */
+export async function claimPersonalTimelineJobId(jobId: string): Promise<boolean> {
+  const url = getRedisUrl();
+  if (!url) {
+    if (localJobClaims.has(jobId)) return false;
+    localJobClaims.add(jobId);
+    return true;
+  }
+  const client = createRedis(url);
+  try {
+    const key = `${PERSONAL_TIMELINE_JOB_CLAIM_PREFIX}${jobId}`;
+    const ok = await client.set(key, "1", "EX", JOB_CLAIM_TTL_SECONDS, "NX");
+    return ok === "OK";
+  } finally {
+    await client.quit();
+  }
+}
+
+export function clearPersonalTimelineJobClaimsForTest(): void {
+  localJobClaims.clear();
 }
 
 export function personalTimelinePolishJobId(
@@ -184,6 +218,9 @@ export async function enqueuePersonalTimelineWeeklyJob(input: {
     input.npcId,
     input.dayIndex,
   );
+  const claimed = await claimPersonalTimelineJobId(jobId);
+  if (!claimed) return null;
+
   const payload: PersonalTimelineWeeklyJobPayload = {
     kind: "weekly",
     roomId: input.roomId,
@@ -286,8 +323,10 @@ export function getMockPersonalTimelinePolishJob(
 
 export function clearMockPersonalTimelinePolishJobs(): void {
   mockJobs.clear();
+  localJobClaims.clear();
 }
 
 export function clearMockPersonalTimelineJobs(): void {
   mockJobs.clear();
+  localJobClaims.clear();
 }
