@@ -19,6 +19,7 @@ from src.graph.action_intent import player_requests_physical_action
 from src.graph.speak_intent import can_use_casual_fast_lane, can_use_social_edge_fast_lane
 from src.graph.social_edge_fast_lane import run_social_edge_fast_lane
 from src.graph.world_vote import process_world_vote_job
+from src.graph.personal_timeline import process_personal_timeline_job
 from src.graph.job_context import reset_job_context, set_job_context
 from src.llm.call_budget import (
     get_recorder,
@@ -37,6 +38,7 @@ BRIDGE_LIST_KEY = "aetherlife:npc-turn:jobs"
 LORE_BRIDGE_LIST_KEY = "aetherlife:chunk-lore:jobs"
 AMBIENT_INTENT_BRIDGE_LIST_KEY = "aetherlife:npc-ambient-intent:jobs"
 WORLD_VOTE_BRIDGE_LIST_KEY = "aetherlife:world-vote:jobs"
+PERSONAL_TIMELINE_BRIDGE_LIST_KEY = "aetherlife:personal-timeline:jobs"
 BLPOP_TIMEOUT_S = 5
 LORE_BLPOP_TIMEOUT_S = 1
 AMBIENT_BLPOP_TIMEOUT_S = 1
@@ -165,6 +167,28 @@ def drain_one_world_vote_job(r: redis.Redis, client: httpx.Client, settings: Set
         process_world_vote_job_wrapper(client, settings, payload)
     except Exception as exc:
         print(f"world-vote job error jobId={payload.get('jobId')}: {exc}", file=sys.stderr)
+    return True
+
+
+def drain_one_personal_timeline_job(
+    r: redis.Redis, client: httpx.Client, settings: Settings
+) -> bool:
+    """Biography jobs — yield to speak / npc-turn (D-GEN-04); same gate as world-vote."""
+    if _is_speak_in_progress() or r.llen(BRIDGE_LIST_KEY) > 0:
+        return False
+    raw = r.rpop(PERSONAL_TIMELINE_BRIDGE_LIST_KEY)
+    if not raw:
+        return False
+    payload = _parse_bridge_payload(raw, queue="personal-timeline")
+    if not payload:
+        return True
+    try:
+        process_personal_timeline_job(client, settings, payload)
+    except Exception as exc:
+        print(
+            f"personal-timeline job error jobId={payload.get('jobId')}: {exc}",
+            file=sys.stderr,
+        )
     return True
 
 
@@ -434,7 +458,7 @@ def run_worker() -> None:
             f"npc-turn bridge queue cleared on startup ({stale_npc} stale jobs)",
             file=sys.stderr,
         )
-    print("connected to Redis; waiting for npc-turn + chunk-lore + ambient-intent jobs", file=sys.stderr)
+    print("connected to Redis; waiting for npc-turn + chunk-lore + ambient-intent + personal-timeline jobs", file=sys.stderr)
 
     with create_http_client() as client:
         while True:
@@ -458,6 +482,7 @@ def run_worker() -> None:
 
             if not item or not queue:
                 drain_one_world_vote_job(r, client, settings)
+                drain_one_personal_timeline_job(r, client, settings)
                 continue
             _, raw = item
             payload = _parse_bridge_payload(raw, queue=queue)
@@ -492,6 +517,7 @@ def run_worker() -> None:
                 drain_one_lore_job(r, client, settings)
                 drain_one_ambient_intent_job(r, client, settings)
                 drain_one_world_vote_job(r, client, settings)
+                drain_one_personal_timeline_job(r, client, settings)
                 continue
             if queue == "lore":
                 try:
@@ -499,12 +525,14 @@ def run_worker() -> None:
                 except Exception as exc:
                     print(f"lore job error jobId={payload.get('jobId')}: {exc}", file=sys.stderr)
                 drain_one_world_vote_job(r, client, settings)
+                drain_one_personal_timeline_job(r, client, settings)
                 continue
             try:
                 process_ambient_intent_job(client, settings, payload)
             except Exception as exc:
                 print(f"ambient intent job error jobId={payload.get('jobId')}: {exc}", file=sys.stderr)
             drain_one_world_vote_job(r, client, settings)
+            drain_one_personal_timeline_job(r, client, settings)
 
 
 def main() -> None:

@@ -225,6 +225,8 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 | **proposalEligible** | D-PROP-01：`tag` 为 `council` \| `relationship` **或** `event_anchor_id` 非空 → `true`；否则默认 `false` |
 | **公开读** | `GET /rooms/:roomId/npcs/:npcId/personal-timeline` 返回完整 `PersonalTimelineEntry[]`（含 `body`）；`X-Player-Id` + `assertScopedPlayerRequest`；**无** public write |
 | **内部写** | `POST /internal/rooms/:roomId/personal-timeline`；`requireWorkerAuth` + Bearer `INTERNAL_WORKER_TOKEN`；Zod + content guard；body 含 `npcId` |
+| **内部润色** | `PATCH /internal/rooms/:roomId/personal-timeline/:entryId` — body 替换（D-SEED-04 polish）；成功后 `broadcastPersonalTimelineSync` hint |
+| **Colyseus** | `personalTimelineSync` payload `{ npcId, hasUpdate, latestSeq? }` — **禁止** full body（D-SYNC-01） |
 | **Colyseus（后续 plan）** | 轻量 hint only（`npcId` / `latestSeq` / `hasUpdate`）— **禁止** 把全文经 WS 推送（D-SYNC-01）；本契约以 HTTP bodies 为 SSOT |
 | **隔离** | 个人传记 **不得** 写入 `__council__` 或玩家 speak `npc_memories`；编年史仍走 C-07b `world_history` |
 

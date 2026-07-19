@@ -269,6 +269,57 @@ export async function insertPersonalTimelineEntry(
   return toPublicEntry(row);
 }
 
+async function updateMemoryBody(
+  roomId: string,
+  entryId: string,
+  body: string,
+): Promise<PersonalTimelineRow | null> {
+  for (const rows of memoryByNpc.values()) {
+    const row = rows.find((r) => r.id === entryId && r.roomId === roomId);
+    if (row) {
+      row.body = body;
+      return row;
+    }
+  }
+  return null;
+}
+
+async function updateSqlBody(
+  roomId: string,
+  entryId: string,
+  body: string,
+): Promise<PersonalTimelineRow | null> {
+  const sql = getSql();
+  if (!sql) throw new Error("sql client unavailable");
+
+  const rows = await sql<DbRow[]>`
+    UPDATE npc_personal_timeline
+    SET body = ${body}
+    WHERE room_id = ${roomId} AND id = ${entryId}::uuid
+    RETURNING *
+  `;
+  if (!rows[0]) return null;
+  return rowFromDb(rows[0]);
+}
+
+/** D-SEED-04: replace skeleton body in place when polish succeeds. */
+export async function updatePersonalTimelineBody(input: {
+  roomId: string;
+  entryId: string;
+  body: string;
+}): Promise<PersonalTimelineEntry | null> {
+  const blocked = validatePersonalTimelineStrings({ body: input.body });
+  if (blocked) {
+    throw new Error(`personal timeline content blocked: ${blocked}`);
+  }
+
+  const sql = getSql();
+  const row = sql
+    ? await updateSqlBody(input.roomId, input.entryId, input.body)
+    : await updateMemoryBody(input.roomId, input.entryId, input.body);
+  return row ? toPublicEntry(row) : null;
+}
+
 function clampLimit(raw?: number): number {
   const n = raw ?? 50;
   if (!Number.isFinite(n)) return 50;

@@ -6,7 +6,11 @@ import {
 } from "@aetherlife/shared";
 import { getContentBlockedResponse } from "../colyseus/npc-chat.js";
 import { getOrCreate } from "../room/store.js";
-import { insertPersonalTimelineEntry } from "../world/personal-timeline-repository.js";
+import { broadcastPersonalTimelineSync } from "../world/personal-timeline-broadcast.js";
+import {
+  insertPersonalTimelineEntry,
+  updatePersonalTimelineBody,
+} from "../world/personal-timeline-repository.js";
 import { requireWorkerAuth } from "./internal.js";
 
 const writebackBodySchema = z.object({
@@ -20,6 +24,28 @@ const writebackBodySchema = z.object({
   source: z.enum(["seed", "llm_scheduled", "llm_event", "llm_reflection"]),
   proposalEligible: z.boolean().optional(),
 });
+
+const polishBodySchema = z.object({
+  body: z.string().min(1).max(8000),
+});
+
+function emitTimelineHint(
+  roomId: string,
+  entry: { npcId: string; seq: number },
+): void {
+  try {
+    broadcastPersonalTimelineSync(roomId, {
+      npcId: entry.npcId,
+      hasUpdate: true,
+      latestSeq: entry.seq,
+    });
+  } catch (err) {
+    console.error(
+      "[personal-timeline] broadcastPersonalTimelineSync failed",
+      err,
+    );
+  }
+}
 
 export function createInternalPersonalTimelineRouter(): Router {
   const router = Router();
@@ -77,6 +103,7 @@ export function createInternalPersonalTimelineRouter(): Router {
         proposalEligible: data.proposalEligible,
         source: data.source,
       });
+      emitTimelineHint(roomId, entry);
       res.json({ ok: true, entry });
     } catch (err) {
       const message = err instanceof Error ? err.message : "insert failed";
@@ -87,6 +114,62 @@ export function createInternalPersonalTimelineRouter(): Router {
       res.status(500).json({ ok: false, error: message });
     }
   });
+
+  /** D-SEED-04 polish replace — body only; hint broadcast after success. */
+  router.patch(
+    "/:roomId/personal-timeline/:entryId",
+    async (req: Request, res: Response) => {
+      const roomId = req.params.roomId;
+      const entryId = req.params.entryId;
+      if (!roomId || !entryId) {
+        res.status(400).json({ ok: false, error: "roomId and entryId required" });
+        return;
+      }
+
+      const parsed = polishBodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ ok: false, error: parsed.error.flatten() });
+        return;
+      }
+
+      const blockedBody = getContentBlockedResponse(parsed.data.body);
+      if (blockedBody) {
+        res
+          .status(400)
+          .json({ ok: false, ...blockedBody, error: blockedBody.message });
+        return;
+      }
+      const stringBlock = validatePersonalTimelineStrings({
+        body: parsed.data.body,
+      });
+      if (stringBlock) {
+        res.status(400).json({ ok: false, error: `content blocked: ${stringBlock}` });
+        return;
+      }
+
+      try {
+        getOrCreate(roomId);
+        const entry = await updatePersonalTimelineBody({
+          roomId,
+          entryId,
+          body: parsed.data.body,
+        });
+        if (!entry) {
+          res.status(404).json({ ok: false, error: "entry not found" });
+          return;
+        }
+        emitTimelineHint(roomId, entry);
+        res.json({ ok: true, entry });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "update failed";
+        if (message.includes("content blocked")) {
+          res.status(400).json({ ok: false, error: message });
+          return;
+        }
+        res.status(500).json({ ok: false, error: message });
+      }
+    },
+  );
 
   return router;
 }

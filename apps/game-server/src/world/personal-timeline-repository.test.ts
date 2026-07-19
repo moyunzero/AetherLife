@@ -7,6 +7,7 @@ import {
   computeProposalEligible,
   insertPersonalTimelineEntry,
   listPersonalTimelineForNpc,
+  updatePersonalTimelineBody,
 } from "./personal-timeline-repository.js";
 
 const ROOM = "room-pt";
@@ -122,6 +123,27 @@ describe("personal-timeline-repository", () => {
       }),
     );
     expect(anchored.proposalEligible).toBe(true);
+  });
+
+  it("updatePersonalTimelineBody replaces body in place (D-SEED-04 polish)", async () => {
+    const seeded = await insertPersonalTimelineEntry(
+      baseInput({ body: "骨架：幼年往事。" }),
+    );
+    const updated = await updatePersonalTimelineBody({
+      roomId: ROOM,
+      entryId: seeded.id,
+      body: "润色后的第一人称幼年往事，语气更像本人。",
+    });
+    expect(updated).not.toBeNull();
+    expect(updated!.id).toBe(seeded.id);
+    expect(updated!.seq).toBe(seeded.seq);
+    expect(updated!.body).toContain("润色后");
+
+    const listed = await listPersonalTimelineForNpc({
+      roomId: ROOM,
+      npcId: NPC_A,
+    });
+    expect(listed.entries[0]!.body).toContain("润色后");
   });
 
   it("isolation: repository source never targets npc_memories / __council__ / appendPlayerMemory", () => {
