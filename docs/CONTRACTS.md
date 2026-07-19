@@ -215,6 +215,25 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 
 ---
 
+## C-11 — Personal life timeline [Phase 27]
+
+| 层 | 契约 |
+|----|------|
+| **表** | `npc_personal_timeline` append-only per `(room_id, npc_id, seq)`；**禁止**写入 `npc_memories` / `playerId=__council__`（与 C-07 / C-07b 隔离） |
+| **日历** | `calendar_label` + `aether_epoch_minute` 来自 C-07b / D-CAL SSOT（`formatAetherCalendarLabel` / `aetherCivilFromEpochMinute`） |
+| **标签** | `tag` ∈ `PERSONAL_TIMELINE_TAGS`（daily/adventure/emotion/conflict/reflection/relationship/council）；`body` 为第一人称传记 |
+| **proposalEligible** | D-PROP-01：`tag` 为 `council` \| `relationship` **或** `event_anchor_id` 非空 → `true`；否则默认 `false` |
+| **公开读** | `GET /rooms/:roomId/npcs/:npcId/personal-timeline` 返回完整 `PersonalTimelineEntry[]`（含 `body`）；`X-Player-Id` + `assertScopedPlayerRequest`；**无** public write |
+| **内部写** | `POST /internal/rooms/:roomId/personal-timeline`；`requireWorkerAuth` + Bearer `INTERNAL_WORKER_TOKEN`；Zod + content guard；body 含 `npcId` |
+| **Colyseus（后续 plan）** | 轻量 hint only（`npcId` / `latestSeq` / `hasUpdate`）— **禁止** 把全文经 WS 推送（D-SYNC-01）；本契约以 HTTP bodies 为 SSOT |
+| **隔离** | 个人传记 **不得** 写入 `__council__` 或玩家 speak `npc_memories`；编年史仍走 C-07b `world_history` |
+
+**验证：** `pnpm --filter @aetherlife/shared build` · `pnpm --filter @aetherlife/game-server test -- personal-timeline-repository` · `pnpm --filter @aetherlife/npc-memory db:migrate`
+
+**锚点文件：** `packages/npc-memory/migrations/0011_npc_personal_timeline.sql`, `packages/shared/src/personalTimeline.ts`, `world/personal-timeline-repository.ts`, `routes/personal-timeline.ts`, `routes/internal-personal-timeline.ts`.
+
+---
+
 ## 变更检查清单（PR / Agent 自检）
 
 - [ ] 本 PR 触及上表哪几条 C-xx？

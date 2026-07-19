@@ -6,6 +6,8 @@
  * @see .planning/phases/23-council-persona-foundation/23-CONTEXT.md D-RESERVE-BIO-*
  */
 
+import { checkPlayerMessageContent } from "./contentGuard.js";
+
 /** SQL table name — dedicated store; not `npc_memories` / not `__council__`. */
 export const NPC_PERSONAL_TIMELINE_TABLE = "npc_personal_timeline" as const;
 
@@ -52,6 +54,12 @@ export type PersonalTimelineEventAnchor = {
   factualSummary: string;
 };
 
+export type PersonalTimelineSource =
+  | "seed"
+  | "llm_scheduled"
+  | "llm_event"
+  | "llm_reflection";
+
 /**
  * Row shape for Phase 27 migration (append-only per room + npc).
  * `body` is first-person narrative from the NPC's perspective.
@@ -62,10 +70,14 @@ export type PersonalTimelineEntry = {
   npcId: string;
   seq: number;
   calendarLabel: AetherCalendarLabel;
+  aetherEpochMinute?: number;
   tag: PersonalTimelineTag;
   body: string;
   eventAnchorId?: string;
-  source: "seed" | "llm_scheduled" | "llm_event" | "llm_reflection";
+  factualSummary?: string;
+  /** D-PROP-01: auto-true when tag is council|relationship or eventAnchorId set. */
+  proposalEligible?: boolean;
+  source: PersonalTimelineSource;
   createdAt: string;
 };
 
@@ -93,4 +105,28 @@ export function formatAetherCalendarLabel(
     return `太乙元年·${season}·${month}月·第${dayOfMonth}日`;
   }
   return `太乙${year}年·${season}·${month}月·第${dayOfMonth}日`;
+}
+
+/** D-PROP-01: council|relationship tags or any eventAnchorId → proposalEligible. */
+export function computeProposalEligible(input: {
+  tag: PersonalTimelineTag;
+  eventAnchorId?: string | null;
+}): boolean {
+  if (input.tag === "council" || input.tag === "relationship") return true;
+  if (input.eventAnchorId != null && input.eventAnchorId !== "") return true;
+  return false;
+}
+
+/** Returns first blocklist failure reason, or null if body passes. */
+export function validatePersonalTimelineStrings(fields: {
+  body: string;
+  factualSummary?: string | null;
+}): string | null {
+  const texts = [fields.body];
+  if (fields.factualSummary) texts.push(fields.factualSummary);
+  for (const text of texts) {
+    const result = checkPlayerMessageContent(text);
+    if (!result.allowed) return result.reason;
+  }
+  return null;
 }

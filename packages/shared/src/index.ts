@@ -294,12 +294,15 @@ export {
   NPC_PERSONAL_TIMELINE_TABLE,
   PERSONAL_TIMELINE_TAGS,
   aetherCivilFromEpochMinute,
+  computeProposalEligible,
   formatAetherCalendarLabel,
+  validatePersonalTimelineStrings,
   type AetherCalendarLabel,
   type AetherCivilDate,
   type AetherSeason,
   type PersonalTimelineEntry,
   type PersonalTimelineEventAnchor,
+  type PersonalTimelineSource,
   type PersonalTimelineTag,
 } from "./personalTimeline.js";
 

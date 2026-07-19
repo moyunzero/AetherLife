@@ -196,6 +196,10 @@
 109. **Phase 26 D-MAP-AMB-03 独占 12 分桶（每 tick 仅 1 NPC 移动）已被 26.2 B2 取代**：禁止重新引入 exclusive bucket。走步资格 = **B2 `shouldStepThisTick`**（新开一程；join 绕过）**+ walk/pause**（mid-walk 不重掷 B2）。双 SSOT `maxRadius` 改动必须过 `council-spawn-radius.test.ts`。回归：`pnpm --filter @aetherlife/game-server test -- src/ambient/`。
 110. **Ambient 动森式闲逛（26.2 gap）**：`shouldSkipMovement` **仅** `resting`；日程发呆用 `wandering`+`wander`。`stationary` 在 zone 外须 **通勤到最近 zone 格**。选目标 **永不叠格**（占用 + 本 tick reserved）；偏好 `PERSONAL_SPACE≥2`，擦肩可。白天主漫游 zone 为 `beginning-fields@v1:home`（全图）；子 zone orchard/plaza/pond 仅短时人设 linger。改 zones 须双 SSOT（`zones.json` + `defaultBeginningFieldsBundle`）。回归：`src/ambient/` + 新 `roomId` + `?gridDebug=1` 看 zone。
 111. **禁止移除 `runAmbientTick` 内 B2 调用**：`shouldStepThisTick(npc.id, …)` 须在 `maxRadius===0` 钉死与 walk/pause 之后、resolve 之前保留（mid-walk / join 绕过）。`45b6455` 曾只留 walk/pause 导致门失效（ISSUE-105）；改 `tick.ts` 须保留 canary `wires shouldStepThisTick(npc.id)` + `skips stepping when shouldStepThisTick fails`。
+
+### Phase 27 — Personal life timeline（C-11）
+
+112. **个人传记隔离**：`npc_personal_timeline` 是唯一个人人生时间线存储；**禁止**把个人 biography 写入 `__council__`（C-07）或玩家 speak `npc_memories`（C-05）。Worker/seed 只经 `insertPersonalTimelineEntry` / internal POST；改写路径须 `pnpm --filter @aetherlife/game-server test -- personal-timeline-repository`（含 isolation 源码断言）。
 ## 记录
 
 ### ISSUE-001 — thinking 中切换 NPC Tab 后无法移动（UI 冻结）

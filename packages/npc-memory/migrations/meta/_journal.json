@@ -64,6 +64,13 @@
       "when": 1751068800000,
       "tag": "0010_npc_leaning_drift",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1751155200000,
+      "tag": "0011_npc_personal_timeline",
+      "breakpoints": true
     }
   ]
 }
