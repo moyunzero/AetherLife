@@ -1,6 +1,7 @@
 import { createDefaultRoom, type RoomState } from "@aetherlife/shared";
 import { seedCouncilMemoriesIfNeeded } from "../memory/councilSeed.js";
 import { seedCouncilRelationshipsIfNeeded } from "../memory/councilRelationshipSeed.js";
+import { seedPersonalTimelineIfNeeded } from "../world/personal-timeline-seed.js";
 import { seedWorldHistoryIfNeeded } from "../world/world-history-seed.js";
 import { normalizeRoomCouncilState } from "./council-migrate.js";
 
@@ -44,6 +45,9 @@ export function getOrCreate(roomId: string): RoomRecord {
   });
   void seedCouncilRelationshipsIfNeeded(roomId).catch((err) => {
     console.error("[council-relationship-seed] failed for room", roomId, err);
+  });
+  void seedPersonalTimelineIfNeeded(roomId).catch((err) => {
+    console.error("[personal-timeline-seed] failed for room", roomId, err);
   });
   return record;
 }

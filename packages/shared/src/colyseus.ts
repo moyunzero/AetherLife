@@ -36,6 +36,8 @@ export const COLYSEUS_SERVER_MESSAGES = {
   loreSync: "loreSync",
   worldHistorySync: "worldHistorySync",
   councilDeliberationSync: "councilDeliberationSync",
+  /** Light personal-timeline hint (D-SYNC-01) — never full bodies. */
+  personalTimelineSync: "personalTimelineSync",
 } as const;
 
 export type ColyseusMovePayload =
@@ -133,6 +135,13 @@ export type ColyseusLoreSyncPayload = {
 /** Broadcast when a new world chronicle entry is appended (append-only). */
 export type ColyseusWorldHistorySyncPayload = {
   entry: WorldHistoryPublicEntry;
+};
+
+/** Light personal-timeline update hint (D-SYNC-01) — no body payloads. */
+export type ColyseusPersonalTimelineSyncPayload = {
+  npcId: string;
+  hasUpdate: boolean;
+  latestSeq?: number;
 };
 
 /** Incremental council deliberation state for Council Tab feed / chip (Phase 25). */
