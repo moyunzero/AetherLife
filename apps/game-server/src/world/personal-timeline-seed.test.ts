@@ -5,6 +5,12 @@ import {
   PERSONAL_TIMELINE_TAGS,
 } from "@aetherlife/shared";
 import {
+  clearMockPersonalTimelineJobs,
+  clearPersonalTimelineJobClaimsForTest,
+  getMockPersonalTimelineJob,
+  personalTimelinePolishJobId,
+} from "../queue/personal-timeline.js";
+import {
   clearPersonalTimelineMemory,
   listPersonalTimelineForNpc,
 } from "./personal-timeline-repository.js";
@@ -19,8 +25,11 @@ const TAG_SET = new Set<string>(PERSONAL_TIMELINE_TAGS);
 describe("seedPersonalTimelineIfNeeded (D-SEED-02/03/05)", () => {
   beforeEach(() => {
     delete process.env.DATABASE_URL;
+    delete process.env.REDIS_URL;
     clearPersonalTimelineMemory();
     clearPersonalTimelineSeedCache();
+    clearMockPersonalTimelineJobs();
+    clearPersonalTimelineJobClaimsForTest();
   });
 
   it("inserts 1:1 seed entry per lifeNode for every council npc", async () => {
@@ -144,5 +153,21 @@ describe("seedPersonalTimelineIfNeeded (D-SEED-02/03/05)", () => {
     const repaired = after.find((e) => e.id === first.id);
     expect(repaired?.calendarLabel.startsWith("生平·")).toBe(true);
     expect(repaired?.calendarLabel.startsWith("太乙")).toBe(false);
+  });
+
+  it("polish job claim blocks duplicate enqueue on re-seed (IN-01)", async () => {
+    await seedPersonalTimelineIfNeeded(ROOM);
+    const polishId = personalTimelinePolishJobId(
+      ROOM,
+      "npc-1",
+      "life-node:npc-1:0",
+    );
+    expect(getMockPersonalTimelineJob(polishId)?.kind).toBe("polish");
+
+    clearPersonalTimelineSeedCache();
+    clearMockPersonalTimelineJobs();
+    // Keep claims — second seed repair must not re-LPUSH same polish jobId.
+    await seedPersonalTimelineIfNeeded(ROOM);
+    expect(getMockPersonalTimelineJob(polishId)).toBeUndefined();
   });
 });

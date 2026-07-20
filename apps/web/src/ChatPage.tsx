@@ -133,6 +133,7 @@ export function ChatPage() {
     entriesByNpcId: personalTimelineEntriesByNpcId,
     hasUpdateByNpcId: personalTimelineHasUpdate,
     loadingNpcId: personalTimelineLoadingNpcId,
+    errorByNpcId: personalTimelineErrorByNpcId,
     openBiography: openPersonalBiography,
     mergePersonalTimelineSync,
   } = usePersonalTimeline(mapRoomId, connected);
@@ -577,6 +578,7 @@ export function ChatPage() {
             personalTimelineEntriesByNpcId={personalTimelineEntriesByNpcId}
             personalTimelineHasUpdate={personalTimelineHasUpdate}
             personalTimelineLoadingNpcId={personalTimelineLoadingNpcId}
+            personalTimelineErrorByNpcId={personalTimelineErrorByNpcId}
             onOpenPersonalBiography={openPersonalBiography}
             roomId={mapRoomId}
             roomConnected={connected}

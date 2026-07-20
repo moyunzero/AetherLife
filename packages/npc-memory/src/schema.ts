@@ -199,7 +199,7 @@ export const npcPersonalTimeline = pgTable(
     index("npc_personal_timeline_room_npc_seq_idx").on(
       table.roomId,
       table.npcId,
-      table.seq,
+      table.seq.desc(),
     ),
     index("npc_personal_timeline_room_anchor_idx").on(
       table.roomId,

@@ -346,8 +346,12 @@ class VoteContext:
 
     @property
     def vote_epoch(self) -> str:
-        year = max(1, self.game_minute // 1440 + 1)
-        return f"vote-{self.room_id}-y{year}-{self.game_minute}-{self.vote_epoch_base_job_id}"
+        # D-CAL-05: civil year from monotonic absolute epoch (360 days/year), not %1440 ambient.
+        minutes_per_year = 1440 * 360
+        epoch = int(self.absolute_game_minute)
+        civil_year = max(0, epoch // minutes_per_year)
+        year = max(1, civil_year + 1)
+        return f"vote-{self.room_id}-y{year}-{epoch}-{self.vote_epoch_base_job_id}"
 
 
 def pick_proposer(ctx: VoteContext) -> str:
@@ -922,18 +926,25 @@ def apply_relationship_deltas(
     anchor = (event_anchor_id or "").strip() or str(ctx.vote_epoch or ctx.job_id)
     rel_jobs = 0
     for delta in iter_rel07_trigger_deltas(deltas):
-        jobs = enqueue_rel07_bilateral_jobs(
-            room_id=ctx.room_id,
-            npc_a_id=str(delta["npcAId"]),
-            npc_b_id=str(delta["npcBId"]),
-            event_anchor_id=anchor,
-            affection_delta=int(delta.get("affectionDelta") or 0),
-            aether_epoch_minute=int(ctx.timeline_epoch_minute),
-            history_append=str(delta.get("historyAppend") or ""),
-            status_tags_changed=bool(delta.get("statusTags")),
-            settings=settings,
-        )
-        rel_jobs += len(jobs)
+        try:
+            jobs = enqueue_rel07_bilateral_jobs(
+                room_id=ctx.room_id,
+                npc_a_id=str(delta["npcAId"]),
+                npc_b_id=str(delta["npcBId"]),
+                event_anchor_id=anchor,
+                affection_delta=int(delta.get("affectionDelta") or 0),
+                aether_epoch_minute=int(ctx.timeline_epoch_minute),
+                history_append=str(delta.get("historyAppend") or ""),
+                status_tags_changed=bool(delta.get("statusTags")),
+                settings=settings,
+            )
+            rel_jobs += len(jobs)
+        except Exception as exc:
+            print(
+                f"rel07 enqueue failed pair={delta.get('npcAId')}/{delta.get('npcBId')} "
+                f"jobId={ctx.job_id}: {exc}",
+                file=sys.stderr,
+            )
     ui_edges = filter_linked_edges_for_ui(deltas)
     print(
         f"relationship-deltas applied={len(deltas)} ui_linked={len(ui_edges)} "
@@ -1089,18 +1100,25 @@ def _finalize_vote_job(
         f"「{title}」表决结果为{status}（赞成{yes_count}/反对{no_count}）。"
         f"提案要旨：{str(proposal)[:120]}"
     )
-    multi_jobs = enqueue_multi_perspective_jobs(
-        room_id=ctx.room_id,
-        event_anchor_id=event_anchor,
-        factual_summary=factual_summary,
-        aether_epoch_minute=int(ctx.timeline_epoch_minute),
-        settings=cfg,
-    )
-    print(
-        f"personal-timeline multi enqueued={len(multi_jobs)} "
-        f"anchor={event_anchor} jobId={ctx.job_id}",
-        file=sys.stderr,
-    )
+    try:
+        multi_jobs = enqueue_multi_perspective_jobs(
+            room_id=ctx.room_id,
+            event_anchor_id=event_anchor,
+            factual_summary=factual_summary,
+            aether_epoch_minute=int(ctx.timeline_epoch_minute),
+            settings=cfg,
+        )
+        print(
+            f"personal-timeline multi enqueued={len(multi_jobs)} "
+            f"anchor={event_anchor} jobId={ctx.job_id}",
+            file=sys.stderr,
+        )
+    except Exception as exc:
+        print(
+            f"personal-timeline multi enqueue failed anchor={event_anchor} "
+            f"jobId={ctx.job_id}: {exc}",
+            file=sys.stderr,
+        )
 
     post_vote_complete(client, cfg, ctx)
     linked_edges = apply_relationship_deltas(

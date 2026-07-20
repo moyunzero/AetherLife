@@ -142,8 +142,12 @@ def test_multi_prompt_locks_factual_summary_and_budget():
 def test_enqueue_multi_perspective_twelve_staggered_same_anchor():
     """D-MULTI-02/04: all 12 seats, shared eventAnchorId, staggered offsets."""
     from src.council.constants import COUNCIL_NPC_IDS
-    from src.graph.personal_timeline import enqueue_multi_perspective_jobs
+    from src.graph.personal_timeline import (
+        clear_personal_timeline_job_claims_for_test,
+        enqueue_multi_perspective_jobs,
+    )
 
+    clear_personal_timeline_job_claims_for_test()
     factual = "庭议通过东苑开放案。"
     jobs = enqueue_multi_perspective_jobs(
         room_id="room-multi",
@@ -273,6 +277,41 @@ def test_vote_context_timeline_epoch_prefers_absolute():
         job_id="j1",
     )
     assert ctx.timeline_epoch_minute == 1440 * 360 + 100
+
+
+def test_vote_epoch_uses_civil_year_from_absolute():
+    """D-CAL-05: vote_epoch year from absolute civil clock, not game_minute//1440."""
+    from src.graph.world_vote import VoteContext
+
+    ctx = VoteContext(
+        room_id="r",
+        vote_kind="regular",
+        game_minute=360,
+        absolute_game_minute=1440 * 360 + 50,
+        proposer_index=0,
+        debate_rounds_max=2,
+        job_id="j-civil",
+    )
+    # civil year 1 → id year 2; stamp uses absolute epoch (not wrapped 360 alone).
+    assert "-y2-" in ctx.vote_epoch
+    assert str(1440 * 360 + 50) in ctx.vote_epoch
+
+
+def test_vote_epoch_preserves_absolute_zero():
+    """absolute_game_minute=0 must not fall back to wrapped game_minute via truthiness."""
+    from src.graph.world_vote import VoteContext
+
+    ctx = VoteContext(
+        room_id="r",
+        vote_kind="regular",
+        game_minute=999,
+        absolute_game_minute=0,
+        proposer_index=0,
+        debate_rounds_max=2,
+        job_id="j-zero",
+    )
+    assert ctx.vote_epoch.endswith("-0-j-zero") or "-0-j-zero" in ctx.vote_epoch
+    assert "999" not in ctx.vote_epoch
 
 
 def test_missing_kind_without_entry_id_is_ignored(monkeypatch):

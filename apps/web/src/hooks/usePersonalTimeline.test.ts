@@ -3,9 +3,11 @@ import type { PersonalTimelineEntry } from "@aetherlife/shared";
 import {
   clearNpcBiographyHint,
   filterPersonalTimelineEntries,
+  mergeLatestSeqMaps,
   personalTimelineSyncToasts,
   previewPersonalTimelineBody,
   reconcileHintsFromLatestSeq,
+  shouldRefreshOpenBiography,
   shouldShowBiographyHint,
 } from "./usePersonalTimeline.js";
 
@@ -89,6 +91,21 @@ describe("biography hint lifecycle", () => {
     expect(hints["npc-1"]).toBe(true);
     expect(hints["npc-2"]).toBe(false);
     expect(hints["npc-3"]).toBe(true);
+  });
+
+  it("shouldRefreshOpenBiography only when cache already exists", () => {
+    expect(shouldRefreshOpenBiography(true, true)).toBe(true);
+    expect(shouldRefreshOpenBiography(false, true)).toBe(false);
+    expect(shouldRefreshOpenBiography(true, false)).toBe(false);
+  });
+
+  it("mergeLatestSeqMaps keeps the higher seq from live vs fetched", () => {
+    expect(
+      mergeLatestSeqMaps(
+        { "npc-1": 9, "npc-2": 3 },
+        { "npc-1": 5, "npc-2": 4, "npc-3": 1 },
+      ),
+    ).toEqual({ "npc-1": 9, "npc-2": 4, "npc-3": 1 });
   });
 });
 

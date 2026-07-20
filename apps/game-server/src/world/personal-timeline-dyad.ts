@@ -1,6 +1,9 @@
 /**
  * Non-vote dyad personal-timeline events (speak-mention + ambient co-presence).
  * Enqueues kind=event only — no LLM in game-server tick/speak path.
+ *
+ * D-GEN-02 (UAT revise): speak/ambient dyads are in-scope with medium bar —
+ * keyword-biased affection only; durable Redis/local job claims for pair + ambient slots.
  */
 
 import {
@@ -11,7 +14,10 @@ import {
   normalizeEdgeIds,
   stableStringHash,
 } from "@aetherlife/shared";
-import { enqueuePersonalTimelineEventJob } from "../queue/personal-timeline.js";
+import {
+  claimPersonalTimelineJobId,
+  enqueuePersonalTimelineEventJob,
+} from "../queue/personal-timeline.js";
 import { getRoomVoteState } from "./world-vote-state.js";
 
 const DYAD_CHEBYSHEV_MAX = 2;
@@ -19,6 +25,8 @@ const DYAD_CHEBYSHEV_MAX = 2;
 const AMBIENT_MAX_PER_DAY = 2;
 /** Ambient pair selection rate (~8%). */
 const AMBIENT_SELECT_PCT = 8;
+/** Medium bar: |Δ| must reach this before speak/ambient writes REL diaries. */
+export const DYAD_MIN_ABS_DELTA = 4;
 
 const dyadDayClaims = new Set<string>();
 const ambientCountByRoomDay = new Map<string, number>();
@@ -34,6 +42,19 @@ function pairClaimKey(roomId: string, dayIndex: number, a: string, b: string): s
 
 function roomDayKey(roomId: string, dayIndex: number): string {
   return `${roomId}:${dayIndex}`;
+}
+
+function durablePairClaimId(roomId: string, dayIndex: number, a: string, b: string): string {
+  const { npcAId, npcBId } = normalizeEdgeIds(a, b);
+  return `pt-dyad-pair-${roomId}-${dayIndex}-${npcAId}-${npcBId}`;
+}
+
+function durableAmbientSlotClaimId(
+  roomId: string,
+  dayIndex: number,
+  slot: number,
+): string {
+  return `pt-dyad-ambient-slot-${roomId}-${dayIndex}-${slot}`;
 }
 
 function chebyshev(ax: number, ay: number, bx: number, by: number): number {
@@ -62,14 +83,17 @@ export function detectCouncilPeerMention(
   return null;
 }
 
-/** Keyword-biased small affection Δ for speak dyads (clamped ±3..±5). */
+/**
+ * Keyword-biased affection Δ for speak dyads.
+ * Casual mention (no pos/neg keywords) → 0 (medium bar — no REL diary).
+ */
 export function affectionDeltaFromSpeakText(text: string): number {
   const t = text || "";
   const negative = /争执|反对|愚蠢|叛徒|敌对|恨|怒|斥|骂/.test(t);
   const positive = /赞|敬|谢|友|同盟|支持|亲近|喜|夸/.test(t);
   if (negative && !positive) return -4;
   if (positive && !negative) return 4;
-  return 3;
+  return 0;
 }
 
 function truncateFact(text: string, max = 120): string {
@@ -91,6 +115,9 @@ export async function maybeEnqueueDyadFromSpeak(input: {
   const peer = detectCouncilPeerMention(combined, input.speakerNpcId);
   if (!peer) return null;
 
+  const affectionDelta = affectionDeltaFromSpeakText(combined);
+  if (Math.abs(affectionDelta) < DYAD_MIN_ABS_DELTA) return null;
+
   const abs =
     input.absoluteGameMinute ?? getRoomVoteState(input.roomId).absoluteGameMinute;
   const dayIndex = dayIndexFromAbsoluteMinute(abs);
@@ -98,6 +125,14 @@ export async function maybeEnqueueDyadFromSpeak(input: {
 
   const claim = pairClaimKey(input.roomId, dayIndex, input.speakerNpcId, peer);
   if (dyadDayClaims.has(claim)) return null;
+
+  const durableId = durablePairClaimId(
+    input.roomId,
+    dayIndex,
+    input.speakerNpcId,
+    peer,
+  );
+  if (!(await claimPersonalTimelineJobId(durableId))) return null;
   dyadDayClaims.add(claim);
 
   const { npcAId, npcBId } = normalizeEdgeIds(input.speakerNpcId, peer);
@@ -105,7 +140,6 @@ export async function maybeEnqueueDyadFromSpeak(input: {
   const factualSummary = truncateFact(
     `提及同僚：${truncateFact(combined, 100)}`,
   );
-  const affectionDelta = affectionDeltaFromSpeakText(combined);
 
   const jobId = await enqueuePersonalTimelineEventJob({
     roomId: input.roomId,
@@ -118,7 +152,6 @@ export async function maybeEnqueueDyadFromSpeak(input: {
     historyAppend: factualSummary,
   });
   if (!jobId) {
-    // Durable claim already held — keep day claim to avoid spam.
     return null;
   }
   return jobId;
@@ -181,6 +214,17 @@ export async function maybeEnqueueDyadFromAmbient(input: {
     if (remaining <= 0) break;
     const claim = pairClaimKey(input.roomId, dayIndex, a.id, b.id);
     if (dyadDayClaims.has(claim)) continue;
+
+    const durablePair = durablePairClaimId(input.roomId, dayIndex, a.id, b.id);
+    if (!(await claimPersonalTimelineJobId(durablePair))) continue;
+
+    const slot = AMBIENT_MAX_PER_DAY - remaining;
+    const durableSlot = durableAmbientSlotClaimId(input.roomId, dayIndex, slot);
+    if (!(await claimPersonalTimelineJobId(durableSlot))) {
+      // Pair claimed but no ambient slot — stop (cap reached durably).
+      break;
+    }
+
     dyadDayClaims.add(claim);
 
     const { npcAId, npcBId } = normalizeEdgeIds(a.id, b.id);
@@ -195,7 +239,7 @@ export async function maybeEnqueueDyadFromAmbient(input: {
       counterpartNpcId: b.id,
       eventAnchorId,
       factualSummary,
-      affectionDelta: 3,
+      affectionDelta: DYAD_MIN_ABS_DELTA,
       aetherEpochMinute: abs,
       historyAppend: factualSummary,
     });

@@ -40,6 +40,55 @@ _DIARY_ANTI_GENERIC = (
 MULTI_STAGGER_GAME_MINUTES = 30
 
 PERSONAL_TIMELINE_JOBS_KEY = "aetherlife:personal-timeline:jobs"
+PERSONAL_TIMELINE_JOB_CLAIM_PREFIX = "aetherlife:personal-timeline:job-claimed:"
+JOB_CLAIM_TTL_SECONDS = 60 * 60 * 24 * 14
+# Dyad event path medium bar (speak/ambient) — below vote REL-07 threshold of 8.
+DYAD_REL_MIN_ABS_DELTA = 4
+
+_local_job_claims: set[str] = set()
+
+
+def clear_personal_timeline_job_claims_for_test() -> None:
+    """Test helper — reset process-local claim mirror."""
+    _local_job_claims.clear()
+
+
+def claim_personal_timeline_job_id(
+    job_id: str,
+    *,
+    redis_client: Any | None = None,
+    settings: Settings | None = None,
+) -> bool:
+    """SET NX claim before LPUSH — mirrors game-server claimPersonalTimelineJobId."""
+    if not job_id:
+        return False
+    if job_id in _local_job_claims:
+        return False
+
+    client = redis_client
+    close_client = False
+    if client is None:
+        cfg = settings or get_settings()
+        if cfg.redis_url:
+            import redis
+
+            client = redis.from_url(cfg.redis_url, decode_responses=True)
+            close_client = True
+
+    if client is not None:
+        try:
+            key = f"{PERSONAL_TIMELINE_JOB_CLAIM_PREFIX}{job_id}"
+            ok = client.set(key, "1", nx=True, ex=JOB_CLAIM_TTL_SECONDS)
+            if not ok:
+                return False
+            _local_job_claims.add(job_id)
+            return True
+        finally:
+            if close_client:
+                client.close()
+
+    _local_job_claims.add(job_id)
+    return True
 
 
 def personal_timeline_llm_attempts(settings: Settings) -> list[tuple[str, str]]:
@@ -345,6 +394,11 @@ def enqueue_multi_perspective_jobs(
     enqueued_at = _now_iso()
     for index, npc_id in enumerate(COUNCIL_NPC_IDS):
         offset = index * MULTI_STAGGER_GAME_MINUTES
+        job_id = f"pt-multi-{room_id}-{event_anchor_id}-{npc_id}"
+        if not claim_personal_timeline_job_id(
+            job_id, redis_client=redis_client, settings=settings
+        ):
+            continue
         job: dict[str, Any] = {
             "kind": "multi",
             "roomId": room_id,
@@ -355,7 +409,7 @@ def enqueue_multi_perspective_jobs(
             "staggerOffsetGameMinutes": offset,
             "hammerEpochMinute": aether_epoch_minute,
             "tag": "council",
-            "jobId": f"pt-multi-{room_id}-{event_anchor_id}-{npc_id}",
+            "jobId": job_id,
             "enqueuedAt": enqueued_at,
         }
         jobs.append(job)
@@ -367,11 +421,19 @@ def rel07_should_enqueue(
     *,
     affection_delta: int,
     status_tags_changed: bool = False,
+    min_abs_delta: int | None = None,
 ) -> bool:
-    """REL-07: |Δ|≥HISTORY_SUMMARY_DELTA_THRESHOLD (8) or status_tags changed."""
+    """REL-07: |Δ|≥threshold or status_tags changed.
+
+    Default threshold is HISTORY_SUMMARY_DELTA_THRESHOLD (8).
+    Dyad event path passes ``min_abs_delta=DYAD_REL_MIN_ABS_DELTA`` (4).
+    """
     if status_tags_changed:
         return True
-    return abs(int(affection_delta)) >= HISTORY_SUMMARY_DELTA_THRESHOLD
+    threshold = (
+        HISTORY_SUMMARY_DELTA_THRESHOLD if min_abs_delta is None else int(min_abs_delta)
+    )
+    return abs(int(affection_delta)) >= threshold
 
 
 def enqueue_rel07_bilateral_jobs(
@@ -385,22 +447,29 @@ def enqueue_rel07_bilateral_jobs(
     history_append: str = "",
     status_tags_changed: bool = False,
     force: bool = False,
+    min_abs_delta: int | None = None,
     redis_client: Any | None = None,
     settings: Settings | None = None,
 ) -> list[dict[str, Any]]:
     """D-REL-01: both edge endpoints, same eventAnchorId, relationship tag.
 
-    ``force=True`` skips |Δ|≥8 (used by kind=event dyad path); vote path keeps threshold.
+    ``force=True`` skips threshold (legacy tests). Prefer ``min_abs_delta`` for dyads.
     """
     if not force and not rel07_should_enqueue(
         affection_delta=affection_delta,
         status_tags_changed=status_tags_changed,
+        min_abs_delta=min_abs_delta,
     ):
         return []
 
     enqueued_at = _now_iso()
     jobs: list[dict[str, Any]] = []
     for npc_id, counterpart in ((npc_a_id, npc_b_id), (npc_b_id, npc_a_id)):
+        job_id = f"pt-rel-{room_id}-{event_anchor_id}-{npc_id}"
+        if not claim_personal_timeline_job_id(
+            job_id, redis_client=redis_client, settings=settings
+        ):
+            continue
         job: dict[str, Any] = {
             "kind": "rel",
             "roomId": room_id,
@@ -411,7 +480,7 @@ def enqueue_rel07_bilateral_jobs(
             "historyAppend": history_append,
             "aetherEpochMinute": aether_epoch_minute,
             "tag": "relationship",
-            "jobId": f"pt-rel-{room_id}-{event_anchor_id}-{npc_id}",
+            "jobId": job_id,
             "enqueuedAt": enqueued_at,
         }
         jobs.append(job)
@@ -636,7 +705,7 @@ def _run_event(client: httpx.Client, settings: Settings, payload: dict) -> None:
         affection_delta=affection,
         aether_epoch_minute=epoch,
         history_append=history_append or factual[:120],
-        force=True,
+        min_abs_delta=DYAD_REL_MIN_ABS_DELTA,
         settings=settings,
     )
     print(

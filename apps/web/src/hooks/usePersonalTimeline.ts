@@ -80,6 +80,14 @@ export function reconcileHintsFromLatestSeq(
   return next;
 }
 
+/** IN-02: refresh open biography when sync arrives and cache is already populated. */
+export function shouldRefreshOpenBiography(
+  hasCachedEntries: boolean,
+  hasUpdate: boolean,
+): boolean {
+  return hasUpdate && hasCachedEntries;
+}
+
 /** D-UI-04: biography/REL never enqueue chronicle-style toasts. */
 export function personalTimelineSyncToasts(
   _payload: ColyseusPersonalTimelineSyncPayload,
@@ -110,6 +118,18 @@ type ListResponse = {
   entries?: PersonalTimelineEntry[];
 };
 
+/** Merge fetched latestSeq with live ref values — Math.max per npc (never overwrite higher). */
+export function mergeLatestSeqMaps(
+  live: Record<string, number>,
+  fetched: Record<string, number>,
+): Record<string, number> {
+  const merged: Record<string, number> = { ...live };
+  for (const [npcId, latest] of Object.entries(fetched)) {
+    merged[npcId] = Math.max(merged[npcId] ?? 0, latest);
+  }
+  return merged;
+}
+
 export function usePersonalTimeline(roomId: string, roomConnected = false) {
   const [entriesByNpcId, setEntriesByNpcId] = useState<
     Record<string, PersonalTimelineEntry[]>
@@ -118,11 +138,16 @@ export function usePersonalTimeline(roomId: string, roomConnected = false) {
     {},
   );
   const [loadingNpcId, setLoadingNpcId] = useState<string | null>(null);
+  const [errorByNpcId, setErrorByNpcId] = useState<Record<string, string>>({});
   const readCursorRef = useRef<Record<string, number>>({});
   const latestSeqRef = useRef<Record<string, number>>({});
-  const requestSeqRef = useRef(0);
+  const entriesByNpcIdRef = useRef<Record<string, PersonalTimelineEntry[]>>({});
+  /** Per-NPC request seq — opening B must not invalidate in-flight A. */
+  const requestSeqByNpcRef = useRef<Record<string, number>>({});
   /** First connect bootstraps cursors silently; later reconnects restore hints (D-SYNC-03). */
   const hasBootstrappedRef = useRef(false);
+
+  entriesByNpcIdRef.current = entriesByNpcId;
 
   const fetchTimeline = useCallback(
     async (
@@ -150,36 +175,49 @@ export function usePersonalTimeline(roomId: string, roomConnected = false) {
     [roomId, roomConnected],
   );
 
+  const applyFetchedEntries = useCallback((npcId: string, entries: PersonalTimelineEntry[]) => {
+    const latest = maxEntrySeq(entries);
+    readCursorRef.current[npcId] = latest;
+    latestSeqRef.current[npcId] = Math.max(latestSeqRef.current[npcId] ?? 0, latest);
+    setEntriesByNpcId((prev) => ({ ...prev, [npcId]: entries }));
+    setErrorByNpcId((prev) => {
+      if (!prev[npcId]) return prev;
+      const next = { ...prev };
+      delete next[npcId];
+      return next;
+    });
+    setHasUpdateByNpcId((prev) => clearNpcBiographyHint(prev, npcId));
+  }, []);
+
   const openBiography = useCallback(
     async (npcId: string) => {
       if (!roomId || !roomConnected || !npcId) return;
-      const seq = ++requestSeqRef.current;
+      const seq = (requestSeqByNpcRef.current[npcId] ?? 0) + 1;
+      requestSeqByNpcRef.current[npcId] = seq;
       setLoadingNpcId(npcId);
       try {
         const entries = await fetchTimeline(npcId);
-        if (seq !== requestSeqRef.current) return;
-        const latest = maxEntrySeq(entries);
-        readCursorRef.current[npcId] = latest;
-        latestSeqRef.current[npcId] = Math.max(
-          latestSeqRef.current[npcId] ?? 0,
-          latest,
-        );
-        setEntriesByNpcId((prev) => ({ ...prev, [npcId]: entries }));
-        // Only clear hint after a successful fetch (WR-04).
-        setHasUpdateByNpcId((prev) => clearNpcBiographyHint(prev, npcId));
-      } catch {
-        // Leave hint + read cursor unchanged on failure.
+        if (requestSeqByNpcRef.current[npcId] !== seq) return;
+        applyFetchedEntries(npcId, entries);
+      } catch (err) {
+        if (requestSeqByNpcRef.current[npcId] !== seq) return;
+        const message =
+          err instanceof Error && err.message
+            ? err.message
+            : "传记加载失败，请稍后重试";
+        setErrorByNpcId((prev) => ({ ...prev, [npcId]: message }));
       } finally {
-        if (seq === requestSeqRef.current) setLoadingNpcId(null);
+        if (requestSeqByNpcRef.current[npcId] === seq) {
+          setLoadingNpcId((cur) => (cur === npcId ? null : cur));
+        }
       }
     },
-    [fetchTimeline, roomId, roomConnected],
+    [applyFetchedEntries, fetchTimeline, roomId, roomConnected],
   );
 
   const mergePersonalTimelineSync = useCallback(
     (payload: ColyseusPersonalTimelineSyncPayload) => {
       if (!isPersonalTimelineSyncPayload(payload)) return;
-      // Explicit no-toast path (D-UI-04) — keep call for regression tests / symmetry.
       void personalTimelineSyncToasts(payload);
 
       const { npcId, hasUpdate, latestSeq } = payload;
@@ -192,36 +230,51 @@ export function usePersonalTimeline(roomId: string, roomConnected = false) {
       const knownLatest = latestSeqRef.current[npcId];
       const show =
         hasUpdate &&
-        shouldShowBiographyHint(knownLatest ?? latestSeq ?? Number.POSITIVE_INFINITY, readCursorRef.current[npcId]);
+        shouldShowBiographyHint(
+          knownLatest ?? latestSeq ?? Number.POSITIVE_INFINITY,
+          readCursorRef.current[npcId],
+        );
       if (!show) return;
       setHasUpdateByNpcId((prev) =>
         prev[npcId] ? prev : { ...prev, [npcId]: true },
       );
+
+      const hasCache = Object.prototype.hasOwnProperty.call(
+        entriesByNpcIdRef.current,
+        npcId,
+      );
+      if (shouldRefreshOpenBiography(hasCache, true)) {
+        void fetchTimeline(npcId)
+          .then((entries) => {
+            applyFetchedEntries(npcId, entries);
+          })
+          .catch(() => {
+            /* keep hint; leave error for next explicit open */
+          });
+      }
     },
-    [],
+    [applyFetchedEntries, fetchTimeline],
   );
 
   const pullLatestSeqs = useCallback(async (): Promise<Record<string, number>> => {
-    const aborter = new AbortController();
-    const latestByNpc: Record<string, number> = { ...latestSeqRef.current };
+    const fetched: Record<string, number> = {};
     await Promise.all(
       COUNCIL_NPC_IDS.map(async (npcId) => {
         try {
-          const entries = await fetchTimeline(npcId, {
-            signal: aborter.signal,
-            limit: 1,
-          });
+          const entries = await fetchTimeline(npcId, { limit: 1 });
           const latest = maxEntrySeq(entries);
           if (latest > 0) {
-            latestByNpc[npcId] = Math.max(latestByNpc[npcId] ?? 0, latest);
+            fetched[npcId] = latest;
           }
         } catch {
           /* ignore per-npc failures */
         }
       }),
     );
-    latestSeqRef.current = { ...latestSeqRef.current, ...latestByNpc };
-    return latestByNpc;
+    // Merge with live ref (may have advanced via sync during fetch) — Math.max per npc.
+    const merged = mergeLatestSeqMaps(latestSeqRef.current, fetched);
+    latestSeqRef.current = merged;
+    return merged;
   }, [fetchTimeline]);
 
   const reconcileOnReconnect = useCallback(async () => {
@@ -250,8 +303,10 @@ export function usePersonalTimeline(roomId: string, roomConnected = false) {
       hasBootstrappedRef.current = false;
       readCursorRef.current = {};
       latestSeqRef.current = {};
+      requestSeqByNpcRef.current = {};
       setEntriesByNpcId({});
       setHasUpdateByNpcId({});
+      setErrorByNpcId({});
       return;
     }
     if (!roomConnected) return;
@@ -262,6 +317,7 @@ export function usePersonalTimeline(roomId: string, roomConnected = false) {
     entriesByNpcId,
     hasUpdateByNpcId,
     loadingNpcId,
+    errorByNpcId,
     openBiography,
     fetchTimeline,
     mergePersonalTimelineSync,

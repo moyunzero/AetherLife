@@ -406,7 +406,7 @@ async function main() {
     });
     const speak = await sendSpeakOverlay(
       page,
-      "楚浅歌最近在议会里怎样？请直说你的看法。",
+      "我支持楚浅歌最近的议会提案，你怎么看？请直说。",
       {
         speakTimeoutMs: Math.min(speakTimeoutMs, remainingMs()),
         skipEngage: true,
@@ -420,8 +420,8 @@ async function main() {
     );
 
     const mentionHit =
-      /楚浅歌|npc-9/.test(`${speak.reply}\n楚浅歌最近在议会里怎样？`);
-    recordAssertion("T3-mention-context", mentionHit, "player message mentions 楚浅歌");
+      /楚浅歌|npc-9/.test(`${speak.reply}\n我支持楚浅歌最近的议会提案`);
+    recordAssertion("T3-mention-context", mentionHit, "player message mentions 楚浅歌 with support keyword");
 
     // Force bilateral relationship diaries with persona prompts (same as event→rel path).
     // Direct LLM invoke — Redis personal-timeline may be stuck behind seed polish backlog.
@@ -436,7 +436,7 @@ settings = get_settings()
 prompt = build_rel07_prompt(
   npc_id="npc-2", display_name="阿斯托利亚",
   counterpart_id="npc-9", counterpart_name="楚浅歌",
-  affection_delta=3, history_append="旅者提及同僚楚浅歌，席间谈及观感。",
+  affection_delta=4, history_append="旅者提及同僚楚浅歌，席间谈及观感。",
 )
 body = _clamp_body(_invoke_bio_llm(settings, prompt, kind="rel", npc_id="npc-2"), REL_MAX_CHARS)
 print(json.dumps({"body": body}, ensure_ascii=False))
@@ -460,7 +460,7 @@ settings = get_settings()
 prompt = build_rel07_prompt(
   npc_id="npc-9", display_name="楚浅歌",
   counterpart_id="npc-2", counterpart_name="阿斯托利亚",
-  affection_delta=3, history_append="旅者向阿斯托利亚问起自己，席间谈及观感。",
+  affection_delta=4, history_append="旅者向阿斯托利亚问起自己，席间谈及观感。",
 )
 body = _clamp_body(_invoke_bio_llm(settings, prompt, kind="rel", npc_id="npc-9"), REL_MAX_CHARS)
 print(json.dumps({"body": body}, ensure_ascii=False))

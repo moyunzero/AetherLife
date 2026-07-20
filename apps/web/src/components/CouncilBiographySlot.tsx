@@ -16,6 +16,8 @@ export type CouncilBiographySlotProps = {
   expandedId?: string | null;
   onExpandedIdChange?: (id: string | null) => void;
   loading?: boolean;
+  /** Fetch failure message — shown instead of empty when set. */
+  error?: string | null;
 };
 
 const FILTER_OPTIONS: { id: BiographyFilter; label: string }[] = [
@@ -39,6 +41,7 @@ export function CouncilBiographySlot({
   expandedId: expandedProp,
   onExpandedIdChange,
   loading = false,
+  error = null,
 }: CouncilBiographySlotProps) {
   const [internalFilter, setInternalFilter] = useState<BiographyFilter>("all");
   const [internalExpanded, setInternalExpanded] = useState<string | null>(null);
@@ -94,7 +97,17 @@ export function CouncilBiographySlot({
         </p>
       ) : null}
 
-      {!loading && visible.length === 0 ? (
+      {!loading && error ? (
+        <p
+          className="council-biography-slot__empty council-biography-slot__error"
+          data-testid="council-biography-error"
+          role="alert"
+        >
+          {error}
+        </p>
+      ) : null}
+
+      {!loading && !error && visible.length === 0 ? (
         <p className="council-biography-slot__empty" data-testid="council-biography-empty">
           尚无传记条目
         </p>

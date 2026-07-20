@@ -12,6 +12,7 @@ type Props = {
   entriesByNpcId?: Record<string, PersonalTimelineEntry[]>;
   hasUpdateByNpcId?: Record<string, boolean>;
   loadingNpcId?: string | null;
+  errorByNpcId?: Record<string, string>;
   onOpenBiography?: (npcId: string) => void;
 };
 
@@ -33,6 +34,7 @@ export function CouncilRosterPanel({
   entriesByNpcId = {},
   hasUpdateByNpcId = {},
   loadingNpcId = null,
+  errorByNpcId = {},
   onOpenBiography,
 }: Props = {}) {
   return (
@@ -92,6 +94,7 @@ export function CouncilRosterPanel({
                     <CouncilBiographySlot
                       entries={biographyEntries}
                       loading={loadingNpcId === npcId}
+                      error={errorByNpcId[npcId] ?? null}
                     />
                   </div>
                   <section className="council-roster-panel__section">

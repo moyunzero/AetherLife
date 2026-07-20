@@ -141,4 +141,56 @@ describe("seedWorldHistoryIfNeeded", () => {
     expect(entries).toHaveLength(3);
     expect(new Set(entries.map((e) => e.title)).size).toBe(3);
   });
+
+  it("repairs legacy genesis gameYear to civil 0 on early-exit path", async () => {
+    const signatories = COUNCIL_NPC_IDS.map((npcId) => {
+      const persona = getPersona(npcId);
+      return {
+        npcId,
+        displayName: persona.displayName,
+        faction: persona.faction,
+      };
+    });
+    for (const title of GENESIS_TITLES) {
+      await insertWorldHistoryEntry({
+        roomId: "room-legacy-year",
+        entryKind: "genesis",
+        status: "accepted",
+        title,
+        proposal: AETHER_NEXUS_LORE.origin,
+        proposerDisplayName: "议会共识",
+        yesCount: null,
+        noCount: null,
+        minutes: {
+          kind: "genesis_signatories",
+          proposalFull: AETHER_NEXUS_LORE.origin,
+          signatories,
+          footnote: "此条为奠基文献，非本届廷议表决。",
+        },
+        gameYear: 1, // legacy stamp
+        gameMinuteSnapshot: 0,
+        voteEpoch: null,
+      });
+    }
+    clearGenesisSeedCache();
+    await seedWorldHistoryIfNeeded("room-legacy-year");
+
+    const year0 = await listWorldHistory({
+      roomId: "room-legacy-year",
+      status: "all",
+      gameYear: 0,
+    });
+    expect(year0.entries).toHaveLength(3);
+    expect(year0.entries.every((e) => e.gameYear === 0)).toBe(true);
+
+    // Idempotent second pass
+    clearGenesisSeedCache();
+    await seedWorldHistoryIfNeeded("room-legacy-year");
+    const again = await listWorldHistory({
+      roomId: "room-legacy-year",
+      status: "all",
+      gameYear: 0,
+    });
+    expect(again.entries).toHaveLength(3);
+  });
 });

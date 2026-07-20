@@ -131,6 +131,39 @@ export async function claimPersonalTimelineJobId(jobId: string): Promise<boolean
   }
 }
 
+/** Release a claim after failed LPUSH so the jobId can be retried. */
+export async function releasePersonalTimelineJobId(jobId: string): Promise<void> {
+  localJobClaims.delete(jobId);
+  const url = getRedisUrl();
+  if (!url) return;
+  const client = createRedis(url);
+  try {
+    await client.del(`${PERSONAL_TIMELINE_JOB_CLAIM_PREFIX}${jobId}`);
+  } finally {
+    await client.quit();
+  }
+}
+
+/**
+ * Claim then LPUSH; on any enqueue failure release the claim so retries remain possible.
+ * Successful queues keep the claim for dedupe.
+ */
+async function claimAndLpushJob(
+  jobId: string,
+  payload: PersonalTimelineJobPayload,
+): Promise<boolean> {
+  const claimed = await claimPersonalTimelineJobId(jobId);
+  if (!claimed) return false;
+  try {
+    await lpushJob(payload);
+    mockJobs.set(jobId, payload);
+    return true;
+  } catch (err) {
+    await releasePersonalTimelineJobId(jobId);
+    throw err;
+  }
+}
+
 export function clearPersonalTimelineJobClaimsForTest(): void {
   localJobClaims.clear();
 }
@@ -187,7 +220,7 @@ async function lpushJob(payload: PersonalTimelineJobPayload): Promise<void> {
 
 /**
  * Enqueue a polish job (Redis LPUSH when REDIS_URL set; always recorded in mock map for tests).
- * Returns jobId, or null only if payload invalid.
+ * Returns jobId, or null only if payload invalid / already claimed.
  */
 export async function enqueuePersonalTimelinePolishJob(input: {
   roomId: string;
@@ -209,10 +242,8 @@ export async function enqueuePersonalTimelinePolishJob(input: {
     jobId,
     enqueuedAt: new Date().toISOString(),
   };
-
-  await lpushJob(payload);
-  mockJobs.set(jobId, payload);
-  return jobId;
+  const ok = await claimAndLpushJob(jobId, payload);
+  return ok ? jobId : null;
 }
 
 /**
@@ -230,9 +261,6 @@ export async function enqueuePersonalTimelineWeeklyJob(input: {
     input.npcId,
     input.dayIndex,
   );
-  const claimed = await claimPersonalTimelineJobId(jobId);
-  if (!claimed) return null;
-
   const payload: PersonalTimelineWeeklyJobPayload = {
     kind: "weekly",
     roomId: input.roomId,
@@ -243,9 +271,8 @@ export async function enqueuePersonalTimelineWeeklyJob(input: {
     enqueuedAt: new Date().toISOString(),
     recentBullets: input.recentBullets,
   };
-  await lpushJob(payload);
-  mockJobs.set(jobId, payload);
-  return jobId;
+  const ok = await claimAndLpushJob(jobId, payload);
+  return ok ? jobId : null;
 }
 
 /**
@@ -278,9 +305,8 @@ export async function enqueuePersonalTimelineMultiJob(input: {
     jobId,
     enqueuedAt: new Date().toISOString(),
   };
-  await lpushJob(payload);
-  mockJobs.set(jobId, payload);
-  return jobId;
+  const ok = await claimAndLpushJob(jobId, payload);
+  return ok ? jobId : null;
 }
 
 /**
@@ -313,9 +339,8 @@ export async function enqueuePersonalTimelineRelJob(input: {
     jobId,
     enqueuedAt: new Date().toISOString(),
   };
-  await lpushJob(payload);
-  mockJobs.set(jobId, payload);
-  return jobId;
+  const ok = await claimAndLpushJob(jobId, payload);
+  return ok ? jobId : null;
 }
 
 /**
@@ -333,9 +358,6 @@ export async function enqueuePersonalTimelineEventJob(input: {
   historyAppend?: string;
 }): Promise<string | null> {
   const jobId = personalTimelineEventJobId(input.roomId, input.eventAnchorId);
-  const claimed = await claimPersonalTimelineJobId(jobId);
-  if (!claimed) return null;
-
   const payload: PersonalTimelineEventJobPayload = {
     kind: "event",
     roomId: input.roomId,
@@ -349,9 +371,8 @@ export async function enqueuePersonalTimelineEventJob(input: {
     jobId,
     enqueuedAt: new Date().toISOString(),
   };
-  await lpushJob(payload);
-  mockJobs.set(jobId, payload);
-  return jobId;
+  const ok = await claimAndLpushJob(jobId, payload);
+  return ok ? jobId : null;
 }
 
 export function getMockPersonalTimelineJob(

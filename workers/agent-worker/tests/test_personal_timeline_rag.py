@@ -159,3 +159,36 @@ def test_fetch_scopes_to_active_npc_only(settings):
     url, _params = client.gets[0]
     assert "npc-7" in url
     assert "npc-1" not in url or "npc-7" in url
+
+
+def test_fetch_403_soft_fails_speak_continues(settings):
+    """IN-03: auth failure on public GET → empty bullets, no raise."""
+
+    class ForbiddenClient:
+        def __init__(self):
+            self.gets: list[str] = []
+
+        def get(self, url, *args, **kwargs):
+            self.gets.append(url)
+
+            class Forbidden:
+                status_code = 403
+
+                def raise_for_status(self):
+                    raise RuntimeError("HTTP 403")
+
+                def json(self):
+                    return {"ok": False}
+
+            return Forbidden()
+
+    client = ForbiddenClient()
+    bullets = fetch_personal_timeline_context(
+        client,
+        settings,
+        "room-1",
+        "npc-1",
+        "议会边境防务？",
+    )
+    assert bullets == []
+    assert any("personal-timeline" in u for u in client.gets)

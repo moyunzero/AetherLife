@@ -200,7 +200,8 @@
 ### Phase 27 — Personal life timeline（C-11）
 
 112. **个人传记隔离**：`npc_personal_timeline` 是唯一个人人生时间线存储；**禁止**把个人 biography 写入 `__council__`（C-07）或玩家 speak `npc_memories`（C-05）。Worker/seed 只经 `insertPersonalTimelineEntry` / internal POST；改写路径须 `pnpm --filter @aetherlife/game-server test -- personal-timeline-repository`（含 isolation 源码断言）。
-113. **个人日记须按席位人设写**：weekly/polish/multi/rel/event prompt **必须** `persona_block_for`（speak mirror）；**禁止**无口吻的「人生札记」通稿导致 ENTJ/ESFP 写同款文艺腔（ISSUE-106）。周记须带 `recentBullets`；非廷议双边走 `kind=event` + force REL。回归：`pytest tests/test_personal_timeline.py tests/test_personal_timeline_rel07.py -q` · `pnpm --filter @aetherlife/game-server test -- personal-timeline-dyad personal-timeline-weekly`。
+113. **个人日记须按席位人设写**：weekly/polish/multi/rel/event prompt **必须** `persona_block_for`（speak mirror）；**禁止**无口吻的「人生札记」通稿导致 ENTJ/ESFP 写同款文艺腔（ISSUE-106）。周记须带 `recentBullets`；非廷议双边走 `kind=event` + `min_abs_delta=DYAD_REL_MIN_ABS_DELTA`（|Δ|≥4，禁止无关键词 casual mention）。回归：`pytest tests/test_personal_timeline.py tests/test_personal_timeline_rel07.py -q` · `pnpm --filter @aetherlife/game-server test -- personal-timeline-dyad personal-timeline-weekly`。
+114. **Personal-timeline job 入队须 durable claim**：`claimPersonalTimelineJobId` / worker `claim_personal_timeline_job_id`（SET NX，前缀 `aetherlife:personal-timeline:job-claimed:`）覆盖 polish/weekly/multi/rel/event **以及** dyad pair/ambient-slot；**禁止**仅靠进程内存 debounce（重启会重复 LPUSH → 重复 LLM 行）。传记 UI：fetch 失败须展示 error（勿静默空列表）；已缓存条目在 `personalTimelineSync` 时须后台 refetch。回归：`personal-timeline.claim.test.ts` · `personal-timeline-dyad.test.ts` · `usePersonalTimeline.test.ts` · `pnpm uat:phase27:persona-diary`。
 
 ## 记录
 

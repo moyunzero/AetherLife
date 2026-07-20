@@ -1972,6 +1972,10 @@ body {
   color: var(--shell-muted, #7a6f5c);
 }
 
+.council-biography-slot__error {
+  color: var(--shell-danger, #a33a2c);
+}
+
 .council-deliberation-chip {
   display: inline-flex;
   align-items: center;

@@ -61,6 +61,7 @@ type Props = {
   personalTimelineEntriesByNpcId?: Record<string, PersonalTimelineEntry[]>;
   personalTimelineHasUpdate?: Record<string, boolean>;
   personalTimelineLoadingNpcId?: string | null;
+  personalTimelineErrorByNpcId?: Record<string, string>;
   onOpenPersonalBiography?: (npcId: string) => void;
   roomId: string;
   roomConnected: boolean;
@@ -155,6 +156,7 @@ export function ShellDrawer({
   personalTimelineEntriesByNpcId = {},
   personalTimelineHasUpdate = {},
   personalTimelineLoadingNpcId = null,
+  personalTimelineErrorByNpcId = {},
   onOpenPersonalBiography,
   roomId,
   roomConnected,
@@ -256,6 +258,7 @@ export function ShellDrawer({
                 entriesByNpcId={personalTimelineEntriesByNpcId}
                 hasUpdateByNpcId={personalTimelineHasUpdate}
                 loadingNpcId={personalTimelineLoadingNpcId}
+                errorByNpcId={personalTimelineErrorByNpcId}
                 onOpenBiography={onOpenPersonalBiography}
               />
             </div>
