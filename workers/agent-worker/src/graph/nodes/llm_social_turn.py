@@ -180,6 +180,9 @@ def _deterministic_social_turn(
         else:
             reply = f"我听到了：{msg[:120]}"
         return SocialTurnOut(social=inferred, reply=reply)
+    # With session history, never emit CASUAL/meta stubs — interactive LLM must see turns.
+    if recent_turns:
+        return None
     if speak_intent == SpeakIntent.CASUAL.value or _META_BRIEF_RE.search(msg):
         if not player_requests_physical_action(msg):
             return SocialTurnOut(

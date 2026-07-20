@@ -13,18 +13,14 @@ export function recentDialogueTurnsForNpc(
   for (const m of messages) {
     if (m.role === "error") continue;
     if (m.role === "player") {
-      if (m.npcId && m.npcId !== npcId) {
-        pendingPlayers = [];
-        continue;
-      }
+      // Skip other-NPC lines without clearing pending for this thread.
+      if (m.npcId && m.npcId !== npcId) continue;
       pendingPlayers.push({ role: "player", text: m.text });
       continue;
     }
     if (m.role === "npc") {
-      if (m.npcId !== npcId) {
-        pendingPlayers = [];
-        continue;
-      }
+      // Unrelated NPC replies must not drop an in-flight player line for npcId.
+      if (m.npcId !== npcId) continue;
       turns.push(...pendingPlayers);
       pendingPlayers = [];
       turns.push({ role: "npc", text: m.text });

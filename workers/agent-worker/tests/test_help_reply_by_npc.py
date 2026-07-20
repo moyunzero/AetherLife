@@ -33,3 +33,27 @@ def test_uat_hack_thread_offer_no_deterministic_stub():
     assert turn is None
     stub = _deterministic_social_turn("我可以帮你！", recent_turns=history, npc_id="npc-4")
     assert stub is None
+
+
+def test_deterministic_casual_blocked_with_history():
+    history = [
+        {"role": "player", "text": "干嘛呢？"},
+        {"role": "npc", "text": "在忙"},
+    ]
+    msg = "你好，用一句话简短回复一下你的计划安排吧"
+    stub = _deterministic_social_turn(
+        msg,
+        speak_intent=SpeakIntent.CASUAL.value,
+        recent_turns=history,
+        npc_id="npc-1",
+    )
+    assert stub is None
+    # First-turn CASUAL still allowed
+    first = _deterministic_social_turn(
+        msg,
+        speak_intent=SpeakIntent.CASUAL.value,
+        recent_turns=[],
+        npc_id="npc-1",
+    )
+    assert first is not None
+    assert first.reply

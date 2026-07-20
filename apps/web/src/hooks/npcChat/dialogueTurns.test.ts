@@ -10,7 +10,9 @@ describe("recentDialogueTurnsForNpc", () => {
       { id: "3", role: "player", text: "b", npcId: "npc-5" },
       { id: "4", role: "npc", text: "r5", npcId: "npc-5" },
     ];
+    // Other-NPC replies must not drop pending player lines for npc-5.
     expect(recentDialogueTurnsForNpc(messages, "npc-5")).toEqual([
+      { role: "player", text: "a" },
       { role: "player", text: "b" },
       { role: "npc", text: "r5" },
     ]);
@@ -31,6 +33,19 @@ describe("recentDialogueTurnsForNpc", () => {
       { role: "player", text: "to-1b" },
       { role: "npc", text: "from-1b" },
     ]);
+    expect(recentDialogueTurnsForNpc(messages, "npc-5")).toEqual([
+      { role: "player", text: "to-5" },
+      { role: "npc", text: "from-5" },
+    ]);
+  });
+
+  it("preserves pending player turn when another NPC replies first", () => {
+    const messages: ChatMessage[] = [
+      { id: "1", role: "player", text: "to-5", npcId: "npc-5" },
+      { id: "2", role: "player", text: "to-1", npcId: "npc-1" },
+      { id: "3", role: "npc", text: "from-1", npcId: "npc-1" },
+      { id: "4", role: "npc", text: "from-5", npcId: "npc-5" },
+    ];
     expect(recentDialogueTurnsForNpc(messages, "npc-5")).toEqual([
       { role: "player", text: "to-5" },
       { role: "npc", text: "from-5" },
