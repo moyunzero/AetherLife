@@ -59,7 +59,12 @@ def claim_personal_timeline_job_id(
     redis_client: Any | None = None,
     settings: Settings | None = None,
 ) -> bool:
-    """SET NX claim before LPUSH — mirrors game-server claimPersonalTimelineJobId."""
+    """SET NX claim before LPUSH — mirrors game-server claimPersonalTimelineJobId.
+
+    Redis is used only when ``redis_client`` is passed, or ``settings.redis_url`` is set.
+    Do not fall back to ``get_settings()`` — unit tests pass neither and must stay
+    process-local (root ``.env`` durable claims otherwise poison fixed jobIds).
+    """
     if not job_id:
         return False
     if job_id in _local_job_claims:
@@ -67,13 +72,11 @@ def claim_personal_timeline_job_id(
 
     client = redis_client
     close_client = False
-    if client is None:
-        cfg = settings or get_settings()
-        if cfg.redis_url:
-            import redis
+    if client is None and settings is not None and settings.redis_url:
+        import redis
 
-            client = redis.from_url(cfg.redis_url, decode_responses=True)
-            close_client = True
+        client = redis.from_url(settings.redis_url, decode_responses=True)
+        close_client = True
 
     if client is not None:
         try:
@@ -367,12 +370,12 @@ def _lpush_jobs(
         for job in jobs:
             redis_client.lpush(PERSONAL_TIMELINE_JOBS_KEY, json.dumps(job, ensure_ascii=False))
         return
-    cfg = settings or get_settings()
-    if not cfg.redis_url:
+    # Explicit settings only — mirror claim_personal_timeline_job_id (no get_settings/.env).
+    if settings is None or not settings.redis_url:
         return
     import redis
 
-    client = redis.from_url(cfg.redis_url, decode_responses=False)
+    client = redis.from_url(settings.redis_url, decode_responses=False)
     try:
         for job in jobs:
             client.lpush(PERSONAL_TIMELINE_JOBS_KEY, json.dumps(job, ensure_ascii=False))
