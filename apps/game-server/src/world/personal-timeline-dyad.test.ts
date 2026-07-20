@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   clearMockPersonalTimelineJobs,
+  clearPersonalTimelineJobClaimsForTest,
   getMockPersonalTimelineJob,
 } from "../queue/personal-timeline.js";
 import {
@@ -13,8 +14,15 @@ import {
 
 describe("personal-timeline dyad", () => {
   beforeEach(() => {
+    // Avoid hanging Redis claims when sibling suites load root .env REDIS_URL.
+    delete process.env.REDIS_URL;
     clearPersonalTimelineDyadState();
     clearMockPersonalTimelineJobs();
+    clearPersonalTimelineJobClaimsForTest();
+  });
+
+  afterEach(() => {
+    delete process.env.REDIS_URL;
   });
 
   it("detects peer by displayName and npc id", () => {

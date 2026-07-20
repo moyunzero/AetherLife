@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   clearMockPersonalTimelineJobs,
+  clearPersonalTimelineJobClaimsForTest,
   getMockPersonalTimelineJob,
 } from "../queue/personal-timeline.js";
 import {
@@ -15,8 +16,15 @@ import { COLYSEUS_SERVER_MESSAGES } from "@aetherlife/shared";
 
 describe("personal-timeline weekly stagger", () => {
   beforeEach(() => {
+    // Avoid hanging Redis claims when sibling suites load root .env REDIS_URL.
+    delete process.env.REDIS_URL;
     clearPersonalTimelineWeeklyState();
     clearMockPersonalTimelineJobs();
+    clearPersonalTimelineJobClaimsForTest();
+  });
+
+  afterEach(() => {
+    delete process.env.REDIS_URL;
   });
 
   it("maps absolute minutes to dayIndex", () => {
