@@ -93,6 +93,28 @@ def test_weekly_prompt_first_person_and_budget():
     )
     assert "第一人称" in prompt
     assert "200" in prompt and "400" in prompt
+    assert "口吻" in prompt or "人设" in prompt
+    assert "听风过竹" in prompt  # anti-generic rule cites banned tropes
+
+
+def test_weekly_prompt_persona_diverges_for_astoria_vs_chuoqian():
+    from src.graph.personal_timeline import build_weekly_digest_prompt
+
+    p2 = build_weekly_digest_prompt(
+        npc_id="npc-2",
+        display_name="阿斯托利亚",
+        calendar_label="太乙元年·春·1月·第2日",
+    )
+    p9 = build_weekly_digest_prompt(
+        npc_id="npc-9",
+        display_name="楚浅歌",
+        calendar_label="太乙元年·春·1月·第2日",
+    )
+    assert "阿斯托利亚" in p2 and "口吻" in p2
+    assert "楚浅歌" in p9 and "口吻" in p9
+    assert "洪亮" in p2 or "激进" in p2 or "元帅" in p2
+    assert "慵懒" in p9 or "享乐" in p9 or "ESFP" in p9
+    assert p2 != p9
 
 
 def test_multi_prompt_locks_factual_summary_and_budget():

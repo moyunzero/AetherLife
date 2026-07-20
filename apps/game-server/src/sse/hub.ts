@@ -8,6 +8,8 @@ import { getOrCreate, setState } from "../room/store.js";
 import { applyMapAndBumpVersion } from "../colyseus/version.js";
 import { setNpcSpeakPhase } from "../colyseus/speak-schema.js";
 import type { RoomState } from "@aetherlife/shared";
+import { maybeEnqueueDyadFromSpeak } from "../world/personal-timeline-dyad.js";
+import { getRoomVoteState } from "../world/world-vote-state.js";
 
 export type JobEventType = "thinking" | "speakPartial" | "done" | "error";
 
@@ -129,6 +131,16 @@ function routeColyseusEvent(jobId: string, type: JobEventType, data: unknown): v
         npcId: entry.npcId,
         playerMessage: entry.playerMessage,
         npcReply: reply,
+      });
+      const abs = getRoomVoteState(entry.roomId).absoluteGameMinute;
+      void maybeEnqueueDyadFromSpeak({
+        roomId: entry.roomId,
+        speakerNpcId: entry.npcId,
+        playerMessage: entry.playerMessage,
+        npcReply: reply,
+        absoluteGameMinute: abs,
+      }).catch((err) => {
+        console.error("[hub] personal-timeline dyad speak enqueue failed", err);
       });
     }
 

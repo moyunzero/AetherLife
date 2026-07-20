@@ -56,6 +56,9 @@ describe("personal-timeline weekly stagger", () => {
 
     const job = getMockPersonalTimelineJob(first.enqueued[0]!);
     expect(job).toMatchObject({ kind: "weekly", roomId });
+    expect(Array.isArray((job as { recentBullets?: string[] }).recentBullets)).toBe(
+      true,
+    );
   });
 
   it("durable jobId claim blocks re-enqueue after in-memory debounce cleared (WR-02)", async () => {

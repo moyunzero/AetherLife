@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 from src.council.constants import HISTORY_SUMMARY_DELTA_THRESHOLD
 
 
@@ -86,3 +88,58 @@ def test_rel07_prompt_relationship_budget_100_200():
     assert "第一人称" in prompt
     assert "100" in prompt and "200" in prompt
     assert "关系" in prompt or "relationship" in prompt.lower()
+    assert "口吻" in prompt or "人设" in prompt
+
+
+def test_rel07_force_enqueues_below_threshold():
+    from src.graph.personal_timeline import enqueue_rel07_bilateral_jobs
+
+    jobs = enqueue_rel07_bilateral_jobs(
+        room_id="room-rel-force",
+        npc_a_id="npc-1",
+        npc_b_id="npc-2",
+        event_anchor_id="dyad-speak-1",
+        affection_delta=3,
+        aether_epoch_minute=5000,
+        force=True,
+        redis_client=None,
+    )
+    assert len(jobs) == 2
+    assert all(j["eventAnchorId"] == "dyad-speak-1" for j in jobs)
+
+
+def test_run_event_applies_delta_and_force_enqueues(monkeypatch):
+    from src.graph import personal_timeline as pt
+
+    applied: list[dict] = []
+    enqueued: list[dict] = []
+
+    def fake_apply(client, settings, **kwargs):
+        applied.append(kwargs)
+
+    def fake_enqueue(**kwargs):
+        enqueued.append(kwargs)
+        return [{"kind": "rel"}, {"kind": "rel"}]
+
+    monkeypatch.setattr(pt, "apply_single_relationship_delta", fake_apply)
+    monkeypatch.setattr(pt, "enqueue_rel07_bilateral_jobs", fake_enqueue)
+
+    pt._run_event(
+        MagicMock(),
+        MagicMock(),
+        {
+            "jobId": "pt-event-1",
+            "roomId": "room-e",
+            "npcId": "npc-2",
+            "counterpartNpcId": "npc-9",
+            "eventAnchorId": "dyad-speak-room-e-1-npc-2-npc-9",
+            "affectionDelta": 3,
+            "aetherEpochMinute": 2000,
+            "factualSummary": "提及同僚：楚浅歌",
+        },
+    )
+    assert len(applied) == 1
+    assert applied[0]["affection_delta"] == 3
+    assert len(enqueued) == 1
+    assert enqueued[0]["force"] is True
+    assert enqueued[0]["affection_delta"] == 3

@@ -68,10 +68,37 @@ describe("seedPersonalTimelineIfNeeded (D-SEED-02/03/05)", () => {
     }
   });
 
-  it("seed calendarLabels are year-0 with 月; tags ∈ PERSONAL_TIMELINE_TAGS", async () => {
+  it("seed calendarLabels are 生平·{age}; tags ∈ PERSONAL_TIMELINE_TAGS", async () => {
     await seedPersonalTimelineIfNeeded(ROOM);
 
-    const monthsSeen = new Set<number>();
+    const agesSeen = new Set<string>();
+    for (const npcId of COUNCIL_NPC_IDS) {
+      const persona = getPersona(npcId);
+      const nodes = persona.lifeNodes ?? [];
+      const { entries } = await listPersonalTimelineForNpc({
+        roomId: ROOM,
+        npcId,
+        limit: 100,
+      });
+      expect(entries).toHaveLength(nodes.length);
+      for (const entry of entries) {
+        expect(entry.calendarLabel.startsWith("生平·")).toBe(true);
+        expect(entry.calendarLabel.startsWith("太乙")).toBe(false);
+        expect(TAG_SET.has(entry.tag)).toBe(true);
+        agesSeen.add(entry.calendarLabel);
+      }
+      for (const node of nodes) {
+        expect(
+          entries.some((e) => e.calendarLabel === `生平·${node.age}`),
+        ).toBe(true);
+      }
+    }
+
+    expect(agesSeen.size).toBeGreaterThan(10);
+  });
+
+  it("seed bodies are fact skeletons without shared oath boilerplate", async () => {
+    await seedPersonalTimelineIfNeeded(ROOM);
     for (const npcId of COUNCIL_NPC_IDS) {
       const { entries } = await listPersonalTimelineForNpc({
         roomId: ROOM,
@@ -79,24 +106,43 @@ describe("seedPersonalTimelineIfNeeded (D-SEED-02/03/05)", () => {
         limit: 100,
       });
       for (const entry of entries) {
-        expect(entry.calendarLabel.startsWith("太乙元年")).toBe(true);
-        expect(entry.calendarLabel).toMatch(/\d+月/);
-        expect(TAG_SET.has(entry.tag)).toBe(true);
-
-        const monthMatch = entry.calendarLabel.match(/(\d+)月/);
-        expect(monthMatch).not.toBeNull();
-        const month = Number(monthMatch![1]);
-        expect(month).toBeGreaterThanOrEqual(1);
-        expect(month).toBeLessThanOrEqual(12);
-        monthsSeen.add(month);
+        expect(entry.body).not.toContain("将此铭记于心");
+        expect(entry.body).not.toContain("以为立身之基");
+        expect(entry.body).toMatch(/^那年/);
+        expect(entry.body.length).toBeGreaterThan(20);
       }
     }
+  });
 
-    // D-SEED-05: stamps spread across 太乙元年 months 1–12 (not all month 1)
-    expect(monthsSeen.size).toBeGreaterThanOrEqual(8);
-    expect(monthsSeen.has(1)).toBe(true);
-    expect(monthsSeen.has(12) || monthsSeen.has(11) || monthsSeen.has(10)).toBe(
-      true,
+  it("repairs stale 太乙 seed labels to 生平 on re-seed", async () => {
+    await seedPersonalTimelineIfNeeded(ROOM);
+    const { entries: before } = await listPersonalTimelineForNpc({
+      roomId: ROOM,
+      npcId: "npc-1",
+      limit: 10,
+    });
+    const first = before[0]!;
+    // Simulate old D-SEED-05 stamp
+    const { updatePersonalTimelineCalendarStamp } = await import(
+      "./personal-timeline-repository.js"
     );
+    await updatePersonalTimelineCalendarStamp({
+      roomId: ROOM,
+      entryId: first.id,
+      calendarLabel: "太乙元年·春·1月·第1日",
+      aetherEpochMinute: 0,
+    });
+
+    clearPersonalTimelineSeedCache();
+    await seedPersonalTimelineIfNeeded(ROOM);
+
+    const { entries: after } = await listPersonalTimelineForNpc({
+      roomId: ROOM,
+      npcId: "npc-1",
+      limit: 100,
+    });
+    const repaired = after.find((e) => e.id === first.id);
+    expect(repaired?.calendarLabel.startsWith("生平·")).toBe(true);
+    expect(repaired?.calendarLabel.startsWith("太乙")).toBe(false);
   });
 });

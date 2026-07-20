@@ -30,6 +30,10 @@ export function getOrCreate(roomId: string): RoomRecord {
   const existing = rooms.get(roomId);
   if (existing) {
     existing.state = normalizeRoomCouncilState(roomId, existing.state);
+    // Idempotent: repair seed stamps/bodies on live rooms (UAT dual-track + oath strip).
+    void seedPersonalTimelineIfNeeded(roomId).catch((err) => {
+      console.error("[personal-timeline-seed] repair failed for room", roomId, err);
+    });
     return touchRoom(roomId, existing);
   }
   evictOldestRoomIfNeeded();

@@ -4,9 +4,9 @@
  * Requires: pnpm dev:stack (no LLM_MOCK=1), real API keys in .env.
  * Never run with LLM_MOCK=1 or dev:stack:mock — see docs/E2E-POLICY.md.
  *
- * Flow: health → dedicated room → GET seeds (≥1/npc, year-0 labels with month) →
+ * Flow: health → dedicated room → GET seeds (≥1/npc, 生平·{age} labels) →
  * force hammer / multi-perspective path → poll ≥2 NPCs same eventAnchorId,
- * divergent bodies → calendar label contains season+month.
+ * divergent bodies → post-arrival calendar label contains 太乙 + season+month.
  *
  * Timeout: VERIFY_PHASE27_TIMEOUT_MS (default 900000).
  */
@@ -26,9 +26,9 @@ const phaseTimeoutMs =
 
 const COUNCIL_NPC_IDS = Array.from({ length: 12 }, (_, i) => `npc-${i + 1}`);
 
-/** Year-0 seed labels include season + month: 太乙元年·春·1月·第1日 */
-const YEAR0_MONTH_RE = /太乙元年·[春夏秋冬]·\d{1,2}月/;
-const SEASON_MONTH_RE = /[春夏秋冬]·\d{1,2}月/;
+const LIFETIME_LABEL_RE = /^生平·.+/;
+/** Post-arrival Aether labels include season + month */
+const AETHER_SEASON_MONTH_RE = /太乙(?:元年|\d+年)·[春夏秋冬]·\d{1,2}月/;
 
 /** @returns {Record<string, string>} */
 function internalHeaders() {
@@ -86,34 +86,43 @@ async function fetchTimeline(npcId) {
   return Array.isArray(data.entries) ? data.entries : [];
 }
 
-/** BIO-04 / BIO-02: ≥1 seed per npc with 太乙元年 + month. */
-async function assertSeedsYearZeroWithMonth() {
+/** BIO-04: ≥1 seed per npc with 生平·{age} (not 太乙). */
+async function assertSeedsLifetimeLabels() {
   const missing = [];
   for (const npcId of COUNCIL_NPC_IDS) {
     const entries = await fetchTimeline(npcId);
-    const seeds = entries.filter((e) => e.source === "seed" || YEAR0_MONTH_RE.test(String(e.calendarLabel || "")));
-    const year0 = entries.filter((e) => YEAR0_MONTH_RE.test(String(e.calendarLabel || "")));
-    if (entries.length < 1 || year0.length < 1) {
-      missing.push(`${npcId}(entries=${entries.length},year0=${year0.length},seeds=${seeds.length})`);
+    const seeds = entries.filter((e) => e.source === "seed");
+    const lifetime = seeds.filter((e) =>
+      LIFETIME_LABEL_RE.test(String(e.calendarLabel || "")),
+    );
+    const badAether = seeds.filter((e) =>
+      String(e.calendarLabel || "").startsWith("太乙"),
+    );
+    if (entries.length < 1 || lifetime.length < 1 || badAether.length > 0) {
+      missing.push(
+        `${npcId}(entries=${entries.length},lifetime=${lifetime.length},badAether=${badAether.length})`,
+      );
     }
   }
   if (missing.length) {
-    throw new Error(`seeds year-0+month missing for: ${missing.join(", ")}`);
+    throw new Error(`seeds 生平 labels missing/wrong for: ${missing.join(", ")}`);
   }
-  console.log("[verify:phase27] seeds ≥1/npc with 太乙元年·season·month OK");
+  console.log("[verify:phase27] seeds ≥1/npc with 生平·{age} OK");
 }
 
-/** Calendar labels include season + month (BIO-02 / D-CAL-04). */
-async function assertCalendarLabelSeasonMonth() {
+/** Post-arrival Aether labels include season + month (BIO-02 / D-CAL-04). */
+async function assertAetherCalendarLabelSeasonMonth() {
   const sample = await fetchTimeline("npc-1");
   if (!sample.length) throw new Error("no timeline entries for calendar assert");
-  const hit = sample.find((e) => SEASON_MONTH_RE.test(String(e.calendarLabel || "")));
+  const hit = sample.find((e) =>
+    AETHER_SEASON_MONTH_RE.test(String(e.calendarLabel || "")),
+  );
   if (!hit) {
     throw new Error(
-      `calendarLabel missing season+month; sample=${JSON.stringify(sample[0]?.calendarLabel)}`,
+      `post-arrival 太乙 calendarLabel missing; sample=${JSON.stringify(sample.map((e) => e.calendarLabel).slice(0, 3))}`,
     );
   }
-  console.log(`[verify:phase27] calendar label OK: ${hit.calendarLabel}`);
+  console.log(`[verify:phase27] Aether calendar label OK: ${hit.calendarLabel}`);
 }
 
 /**
@@ -208,23 +217,32 @@ async function main() {
   await ensureRoom();
   console.log("[verify:phase27] room ready");
 
-  // Seeds may land async after getOrCreate — poll briefly.
+  // Seeds land async after getOrCreate (12 NPCs × lifeNodes, sequential SQL).
+  // Wait until EVERY council seat has ≥1 生平· seed — not just npc-1 (race flake).
   await waitFor(
     async () => {
       try {
-        const e = await fetchTimeline("npc-1");
-        return e.some((x) => YEAR0_MONTH_RE.test(String(x.calendarLabel || "")));
+        for (const npcId of COUNCIL_NPC_IDS) {
+          const e = await fetchTimeline(npcId);
+          const ok = e.some(
+            (x) =>
+              x.source === "seed" &&
+              LIFETIME_LABEL_RE.test(String(x.calendarLabel || "")),
+          );
+          if (!ok) return false;
+        }
+        return true;
       } catch {
         return false;
       }
     },
-    Math.min(120_000, remainingMs()),
-    "npc-1 seed year-0 label",
+    Math.min(180_000, remainingMs()),
+    "all 12 NPCs seed 生平· labels",
   );
 
-  await assertSeedsYearZeroWithMonth();
-  await assertCalendarLabelSeasonMonth();
+  await assertSeedsLifetimeLabels();
   await assertMultiPerspectiveDivergence(remainingMs);
+  await assertAetherCalendarLabelSeasonMonth();
 
   const elapsedSec = ((Date.now() - t0) / 1000).toFixed(1);
   console.log(`[verify:phase27] PASS in ${elapsedSec}s`);

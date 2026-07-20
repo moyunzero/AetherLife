@@ -60,14 +60,19 @@ export type PersonalTimelineRelJobPayload = {
   enqueuedAt: string;
 };
 
-/** Speak-event biography deferred (D-GEN-02). */
+/** Non-vote dyad event → apply-deltas + forced bilateral REL diaries. */
 export type PersonalTimelineEventJobPayload = {
   kind: "event";
   roomId: string;
   npcId: string;
+  counterpartNpcId: string;
+  eventAnchorId: string;
+  factualSummary: string;
+  affectionDelta: number;
+  aetherEpochMinute: number;
+  historyAppend?: string;
   jobId: string;
   enqueuedAt: string;
-  [key: string]: unknown;
 };
 
 export type PersonalTimelineJobPayload =
@@ -160,6 +165,13 @@ export function personalTimelineRelJobId(
   npcId: string,
 ): string {
   return `pt-rel-${roomId}-${eventAnchorId}-${npcId}`;
+}
+
+export function personalTimelineEventJobId(
+  roomId: string,
+  eventAnchorId: string,
+): string {
+  return `pt-event-${roomId}-${eventAnchorId}`;
 }
 
 async function lpushJob(payload: PersonalTimelineJobPayload): Promise<void> {
@@ -298,6 +310,42 @@ export async function enqueuePersonalTimelineRelJob(input: {
     historyAppend: input.historyAppend,
     aetherEpochMinute: input.aetherEpochMinute,
     tag: "relationship",
+    jobId,
+    enqueuedAt: new Date().toISOString(),
+  };
+  await lpushJob(payload);
+  mockJobs.set(jobId, payload);
+  return jobId;
+}
+
+/**
+ * Non-vote dyad event (speak-mention / ambient co-presence).
+ * Worker applies Δ then force-enqueues bilateral REL diaries.
+ */
+export async function enqueuePersonalTimelineEventJob(input: {
+  roomId: string;
+  npcId: string;
+  counterpartNpcId: string;
+  eventAnchorId: string;
+  factualSummary: string;
+  affectionDelta: number;
+  aetherEpochMinute: number;
+  historyAppend?: string;
+}): Promise<string | null> {
+  const jobId = personalTimelineEventJobId(input.roomId, input.eventAnchorId);
+  const claimed = await claimPersonalTimelineJobId(jobId);
+  if (!claimed) return null;
+
+  const payload: PersonalTimelineEventJobPayload = {
+    kind: "event",
+    roomId: input.roomId,
+    npcId: input.npcId,
+    counterpartNpcId: input.counterpartNpcId,
+    eventAnchorId: input.eventAnchorId,
+    factualSummary: input.factualSummary,
+    affectionDelta: input.affectionDelta,
+    aetherEpochMinute: input.aetherEpochMinute,
+    historyAppend: input.historyAppend,
     jobId,
     enqueuedAt: new Date().toISOString(),
   };

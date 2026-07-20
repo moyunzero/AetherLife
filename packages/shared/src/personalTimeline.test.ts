@@ -3,6 +3,11 @@ import {
   aetherCivilFromEpochMinute,
   computeProposalEligible,
   formatAetherCalendarLabel,
+  formatLifetimeCalendarLabel,
+  isAetherCalendarLabel,
+  isLifetimeCalendarLabel,
+  lifetimeEpochMinute,
+  LIFETIME_EPOCH_MINUTE_BASE,
 } from "./personalTimeline.js";
 
 describe("aetherCivilFromEpochMinute", () => {
@@ -68,5 +73,21 @@ describe("computeProposalEligible (D-PROP-01)", () => {
         source: "llm_event",
       }),
     ).toBe(true);
+  });
+});
+
+describe("lifetime calendar (pre-arrival)", () => {
+  it("formatLifetimeCalendarLabel uses 生平· prefix, not 太乙", () => {
+    expect(formatLifetimeCalendarLabel("16岁")).toBe("生平·16岁");
+    expect(formatLifetimeCalendarLabel("派驻后")).toBe("生平·派驻后");
+    expect(isLifetimeCalendarLabel("生平·16岁")).toBe(true);
+    expect(isAetherCalendarLabel("生平·16岁")).toBe(false);
+    expect(isAetherCalendarLabel("太乙元年·春·1月·第1日")).toBe(true);
+  });
+
+  it("lifetimeEpochMinute is always before Aether epoch 0", () => {
+    expect(lifetimeEpochMinute(0)).toBe(LIFETIME_EPOCH_MINUTE_BASE);
+    expect(lifetimeEpochMinute(4)).toBe(LIFETIME_EPOCH_MINUTE_BASE + 4);
+    expect(lifetimeEpochMinute(0)).toBeLessThan(0);
   });
 });

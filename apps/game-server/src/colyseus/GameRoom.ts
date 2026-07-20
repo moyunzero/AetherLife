@@ -44,6 +44,9 @@ import { addNpcAmbientIntentJob } from "../queue/npc-ambient-intent.js";
 import { maybeEnqueueWorldVote, recordPlayerSpeak } from "../world/world-vote-trigger.js";
 import { getRoomVoteState } from "../world/world-vote-state.js";
 import { maybeEnqueuePersonalTimelineWeekly } from "../world/personal-timeline-weekly.js";
+import {
+  maybeEnqueueDyadFromAmbient,
+} from "../world/personal-timeline-dyad.js";
 import { setNpcSpeakPhase } from "./speak-schema.js";
 
 export const AMBIENT_MS = 6000;
@@ -433,6 +436,7 @@ export class GameRoom extends Room {
     }
     this.enqueueWorldVoteIfDue();
     this.enqueuePersonalTimelineWeeklyIfDue();
+    this.enqueuePersonalTimelineDyadAmbientIfDue();
   }
 
   private enqueueWorldVoteIfDue(): void {
@@ -455,6 +459,20 @@ export class GameRoom extends Room {
       npcSpeakInFlight: false,
     }).catch((err) => {
       console.error("[GameRoom] personal-timeline weekly enqueue failed", err);
+    });
+  }
+
+  private enqueuePersonalTimelineDyadAmbientIfDue(): void {
+    if (this.npcSpeakJobs.size > 0) return;
+    const abs = getRoomVoteState(this.mapRoomId).absoluteGameMinute;
+    const { state: mapState } = getOrCreate(this.mapRoomId);
+    void maybeEnqueueDyadFromAmbient({
+      roomId: this.mapRoomId,
+      npcs: mapState.npcs.map((n) => ({ id: n.id, x: n.x, y: n.y })),
+      absoluteGameMinute: abs,
+      busyNpcIds: this.npcSpeakJobs,
+    }).catch((err) => {
+      console.error("[GameRoom] personal-timeline dyad ambient enqueue failed", err);
     });
   }
 

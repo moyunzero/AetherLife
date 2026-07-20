@@ -1,15 +1,16 @@
 /**
  * Personal timeline seed on room create (BIO-04 / D-SEED-01…05).
  * Skeleton insert only — no sync LLM; polish enqueued async.
+ *
+ * Pre-arrival lifeNodes use `生平·{age}` labels (not 太乙).
+ * 太乙元年 = 12-NPC gather start — reserved for post-arrival entries.
  */
 
 import {
-  AETHER_SEASONS,
   COUNCIL_NPC_IDS,
-  DAYS_PER_MONTH,
-  formatAetherCalendarLabel,
+  formatLifetimeCalendarLabel,
   getPersona,
-  MINUTES_PER_DAY,
+  lifetimeEpochMinute,
   type CouncilLifeNode,
   type CouncilPersona,
   type PersonalTimelineTag,
@@ -18,33 +19,12 @@ import { enqueuePersonalTimelinePolishJob } from "../queue/personal-timeline.js"
 import {
   insertPersonalTimelineEntry,
   listPersonalTimelineForNpc,
+  updatePersonalTimelineBody,
+  updatePersonalTimelineCalendarStamp,
 } from "./personal-timeline-repository.js";
 
 const seedInflight = new Map<string, Promise<void>>();
 const seedReadyRooms = new Set<string>();
-
-/** Deterministic civil stamp: spread lifeNode index across 太乙元年 months 1–12. */
-export function seedCivilForIndex(
-  index: number,
-  total: number,
-): {
-  year: 0;
-  season: (typeof AETHER_SEASONS)[number];
-  month: number;
-  dayOfMonth: number;
-  aetherEpochMinute: number;
-} {
-  const n = Math.max(1, total);
-  const i = Math.max(0, Math.min(index, n - 1));
-  const month =
-    n === 1 ? 1 : Math.min(12, Math.floor((i * 12) / n) + 1);
-  const dayOfMonth = 1 + (i % 15);
-  const season = AETHER_SEASONS[Math.floor((month - 1) / 3)]!;
-  const aetherEpochMinute =
-    (month - 1) * DAYS_PER_MONTH * MINUTES_PER_DAY +
-    (dayOfMonth - 1) * MINUTES_PER_DAY;
-  return { year: 0, season, month, dayOfMonth, aetherEpochMinute };
-}
 
 /** Heuristic map from lifeNode.event text → PERSONAL_TIMELINE_TAGS (D-SEED-05). */
 export function tagFromLifeNodeEvent(event: string): PersonalTimelineTag {
@@ -58,22 +38,113 @@ export function tagFromLifeNodeEvent(event: string): PersonalTimelineTag {
   return "daily";
 }
 
-function skeletonFirstPerson(
+const SKELETON_OATH_MARKER = "将此铭记于心，以为立身之基";
+
+/** Fact skeleton + one persona-specific line — no shared oath. Polish LLM expands async. */
+export function skeletonFirstPerson(
   persona: CouncilPersona,
   node: CouncilLifeNode,
 ): string {
-  return (
-    `那年${node.age}，${node.event}。` +
-    `我，${persona.displayName}，将此铭记于心，以为立身之基。`
-  );
+  const stance = (persona.stanceManifestoShort || "").trim();
+  const color = stance
+    ? stance.length > 36
+      ? `${stance.slice(0, 36)}…`
+      : stance
+    : `${persona.displayName}记下这一笔。`;
+  return `那年${node.age}，${node.event}。我，${persona.displayName}——${color}`;
+}
+
+function looksUnpolishedSkeleton(body: string): boolean {
+  const t = body.trim();
+  if (t.includes(SKELETON_OATH_MARKER)) return true;
+  // Old fact-only stub after oath strip: 「那年…。」 with no persona line yet.
+  if (/^那年.+。$/.test(t) && !t.includes("——") && t.length < 50) return true;
+  return false;
 }
 
 function lifeNodeKey(npcId: string, index: number): string {
   return `life-node:${npcId}:${index}`;
 }
 
+/** Rewrite stale 太乙-stamped seeds to 生平·{age} (UAT dual-track revise). */
+async function repairSeedLifetimeLabels(
+  roomId: string,
+  npcId: string,
+  nodes: CouncilLifeNode[],
+  existing: Awaited<
+    ReturnType<typeof listPersonalTimelineForNpc>
+  >["entries"],
+): Promise<void> {
+  for (const [i, node] of nodes.entries()) {
+    const key = lifeNodeKey(npcId, i);
+    const entry = existing.find(
+      (e) => e.source === "seed" && e.eventAnchorId === key,
+    );
+    if (!entry) continue;
+    const wantLabel = formatLifetimeCalendarLabel(node.age);
+    const wantEpoch = lifetimeEpochMinute(i);
+    if (
+      entry.calendarLabel === wantLabel &&
+      entry.aetherEpochMinute === wantEpoch
+    ) {
+      continue;
+    }
+    await updatePersonalTimelineCalendarStamp({
+      roomId,
+      entryId: entry.id,
+      calendarLabel: wantLabel,
+      aetherEpochMinute: wantEpoch,
+    });
+  }
+}
+
+/** Strip shared skeleton oath / refresh short stubs; re-enqueue polish. */
+async function repairSeedSkeletonBodies(
+  roomId: string,
+  npcId: string,
+  persona: CouncilPersona,
+  nodes: CouncilLifeNode[],
+  existing: Awaited<
+    ReturnType<typeof listPersonalTimelineForNpc>
+  >["entries"],
+): Promise<void> {
+  for (const [i, node] of nodes.entries()) {
+    const key = lifeNodeKey(npcId, i);
+    const entry = existing.find(
+      (e) => e.source === "seed" && e.eventAnchorId === key,
+    );
+    if (!entry) continue;
+    if (!looksUnpolishedSkeleton(entry.body)) continue;
+
+    const body = skeletonFirstPerson(persona, node);
+    if (entry.body !== body) {
+      await updatePersonalTimelineBody({
+        roomId,
+        entryId: entry.id,
+        body,
+      });
+    }
+    void enqueuePersonalTimelinePolishJob({
+      roomId,
+      npcId,
+      entryId: entry.id,
+      lifeNodeKey: key,
+      age: node.age,
+      event: node.event,
+      skeletonBody: body,
+    }).catch((err) => {
+      console.error(
+        "[personal-timeline-polish] re-enqueue after skeleton repair failed",
+        roomId,
+        npcId,
+        err,
+      );
+    });
+  }
+}
+
 async function seedPersonalTimelineInner(roomId: string): Promise<void> {
-  if (seedReadyRooms.has(roomId)) return;
+  const insertsDone = seedReadyRooms.has(roomId);
 
   let allReady = true;
   for (const npcId of COUNCIL_NPC_IDS) {
@@ -86,13 +157,21 @@ async function seedPersonalTimelineInner(roomId: string): Promise<void> {
       npcId,
       limit: 200,
     });
+    await repairSeedLifetimeLabels(roomId, npcId, nodes, existing);
+    await repairSeedSkeletonBodies(roomId, npcId, persona, nodes, existing);
+
+    if (insertsDone) continue;
+
     const seedAnchors = new Set(
       existing
         .filter((e) => e.source === "seed" && e.eventAnchorId)
         .map((e) => e.eventAnchorId!),
     );
     const seedCount = existing.filter((e) => e.source === "seed").length;
-    if (seedCount >= nodes.length && nodes.every((_, i) => seedAnchors.has(lifeNodeKey(npcId, i)))) {
+    if (
+      seedCount >= nodes.length &&
+      nodes.every((_, i) => seedAnchors.has(lifeNodeKey(npcId, i)))
+    ) {
       continue;
     }
     allReady = false;
@@ -101,13 +180,7 @@ async function seedPersonalTimelineInner(roomId: string): Promise<void> {
       const key = lifeNodeKey(npcId, i);
       if (seedAnchors.has(key)) continue;
 
-      const civil = seedCivilForIndex(i, nodes.length);
-      const calendarLabel = formatAetherCalendarLabel(
-        civil.year,
-        civil.season,
-        civil.month,
-        civil.dayOfMonth,
-      );
+      const calendarLabel = formatLifetimeCalendarLabel(node.age);
       const tag = tagFromLifeNodeEvent(node.event);
       const body = skeletonFirstPerson(persona, node);
 
@@ -115,7 +188,7 @@ async function seedPersonalTimelineInner(roomId: string): Promise<void> {
         roomId,
         npcId,
         calendarLabel,
-        aetherEpochMinute: civil.aetherEpochMinute,
+        aetherEpochMinute: lifetimeEpochMinute(i),
         tag,
         body,
         eventAnchorId: key,
@@ -144,7 +217,7 @@ async function seedPersonalTimelineInner(roomId: string): Promise<void> {
     }
   }
 
-  if (allReady) {
+  if (insertsDone || allReady) {
     seedReadyRooms.add(roomId);
     return;
   }

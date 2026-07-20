@@ -2,6 +2,10 @@
  * Personal Life Timeline — architecture reservation (Phase 27).
  * Calendar SSOT (D-CAL-01…07): civil year from 360-day years; month in labels.
  *
+ * Dual track (UAT revise):
+ * - Pre-arrival lifeNodes → `生平·{age}` (independent lifetime; NOT 太乙)
+ * - Post-arrival / shared world → `formatAetherCalendarLabel` (太乙元年 = 12-NPC gather start)
+ *
  * @see .planning/phases/27-personal-life-timeline/27-PRD.md
  * @see .planning/phases/23-council-persona-foundation/23-CONTEXT.md D-RESERVE-BIO-*
  */
@@ -15,8 +19,9 @@ export const NPC_PERSONAL_TIMELINE_TABLE = "npc_personal_timeline" as const;
 export const AETHER_CALENDAR_EPOCH_YEAR = 0 as const;
 
 /**
- * Lower bound for `aether_epoch_minute` sort keys (pre-arrival / lifetime stamps).
- * Negatives sort before any post-arrival Aether clock (≥0). C-11 allows these.
+ * Sort key base for pre-arrival seed rows stored in `aether_epoch_minute`.
+ * Negatives sort before any post-arrival Aether clock (≥0). C-11 allows these;
+ * not a civil calendar value.
  */
 export const LIFETIME_EPOCH_MINUTE_BASE = -1_000_000 as const;
 
@@ -31,6 +36,14 @@ export type AetherSeason = (typeof AETHER_SEASONS)[number];
 export type AetherCalendarLabel =
   | `太乙元年·${AetherSeason}·${number}月·第${number}日`
   | `太乙${number}年·${AetherSeason}·${number}月·第${number}日`;
+
+/** Pre-arrival personal lifetime stamp — e.g. 生平·16岁 / 生平·派驻后 */
+export type LifetimeCalendarLabel = `生平·${string}`;
+
+/** Entry display stamp: lifetime (pre-gather) or Aether civil (post-gather). */
+export type PersonalTimelineCalendarLabel =
+  | AetherCalendarLabel
+  | LifetimeCalendarLabel;
 
 export type AetherCivilDate = {
   year: number;
@@ -53,7 +66,7 @@ export const PERSONAL_TIMELINE_TAGS = [
 
 export type PersonalTimelineTag = (typeof PERSONAL_TIMELINE_TAGS)[number];
 
-/** Cross-NPC shared event — same anchor, per-npc subjective body. */
+/** Cross-NPC shared event — same anchor, per-npc subjective body (post-arrival Aether). */
 export type PersonalTimelineEventAnchor = {
   anchorId: string;
   calendarLabel: AetherCalendarLabel;
@@ -75,7 +88,7 @@ export type PersonalTimelineEntry = {
   roomId: string;
   npcId: string;
   seq: number;
-  calendarLabel: AetherCalendarLabel;
+  calendarLabel: PersonalTimelineCalendarLabel;
   aetherEpochMinute?: number;
   tag: PersonalTimelineTag;
   body: string;
@@ -100,7 +113,7 @@ export function aetherCivilFromEpochMinute(epoch: number): AetherCivilDate {
   return { year, season, month, dayOfMonth, minuteOfDay, dayIndex };
 }
 
-/** Unified display label including month (D-CAL-04 / BIO-02). */
+/** Unified display label including month (D-CAL-04 / BIO-02). Post-arrival only. */
 export function formatAetherCalendarLabel(
   year: number,
   season: AetherSeason,
@@ -111,6 +124,30 @@ export function formatAetherCalendarLabel(
     return `太乙元年·${season}·${month}月·第${dayOfMonth}日`;
   }
   return `太乙${year}年·${season}·${month}月·第${dayOfMonth}日`;
+}
+
+/** Pre-arrival lifeNode stamp — independent of 太乙 civil calendar. */
+export function formatLifetimeCalendarLabel(age: string): LifetimeCalendarLabel {
+  const trimmed = age.trim() || "未知";
+  return `生平·${trimmed}`;
+}
+
+export function isLifetimeCalendarLabel(
+  label: string,
+): label is LifetimeCalendarLabel {
+  return label.startsWith("生平·");
+}
+
+export function isAetherCalendarLabel(
+  label: string,
+): label is AetherCalendarLabel {
+  return label.startsWith("太乙");
+}
+
+/** Sort key for lifeNode index `i` (0-based); always negative (before Aether clock). */
+export function lifetimeEpochMinute(index: number): number {
+  const i = Math.max(0, Math.floor(index));
+  return LIFETIME_EPOCH_MINUTE_BASE + i;
 }
 
 /** D-PROP-01: council|relationship tags or any eventAnchorId → proposalEligible.

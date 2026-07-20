@@ -18,6 +18,7 @@ import httpx
 from src.config import Settings, get_settings
 from src.council.constants import COUNCIL_NPC_IDS, HISTORY_SUMMARY_DELTA_THRESHOLD
 from src.council.registry import display_name
+from src.council.speak_registry import persona_block_for
 from src.graph.lore_loop import _invoke_lore_llm
 
 FORBIDDEN_BIO_PROVIDERS = frozenset({"zhipu"})
@@ -27,6 +28,13 @@ WEEKLY_MAX_CHARS = 400
 MULTI_MAX_CHARS = 80
 REL_MIN_CHARS = 100
 REL_MAX_CHARS = 200
+
+# Anti-generic literary voice — all seats must keep dossier speakStyle (BIO persona fix).
+_DIARY_ANTI_GENERIC = (
+    "禁止所有席位共用的空泛文艺套话（听风过竹、袖中思绪、天地改写、玉兰留余地、"
+    "独坐品茗等与人设无关的意象）；必须用该席位自己的口吻、价值观与惯用比喻。"
+    "线索不足时写短、写实、写性格，勿硬编诗意。"
+)
 
 # D-MULTI-04: spread 12 seats across several SSOT game hours (30 min × 11 = 5.5h).
 MULTI_STAGGER_GAME_MINUTES = 30
@@ -80,6 +88,13 @@ def _mock_bio_body(*, kind: str, npc_id: str) -> str:
         while len(base) < REL_MIN_CHARS:
             base += "我继续体察这份关系的细微变化。"
         return base[:REL_MAX_CHARS]
+    if kind == "polish":
+        base = (
+            f"席位{npc_id}：那年的事我仍记得清楚。"
+            "风声、誓言与抉择叠在一起，成了我后来所有站位的底色。"
+            "我不愿用套话收束——只把这一幕按自己的语气写进心里。"
+        )
+        return base
     base = (
         "这一周我在始源庭中走动，听风过竹，也听同僚低声争论。"
         "白日里我把思绪收进袖中，夜里再摊开细想——人与天地都在缓慢改写。"
@@ -122,13 +137,17 @@ def build_weekly_digest_prompt(
     """BIO-03 / D-GEN-05: first-person weekly digest, 200–400 字; D-GEN-03 folds reflection."""
     bullets = recent_bullets or []
     bullet_block = "\n".join(f"- {b}" for b in bullets) if bullets else "- （本周暂无额外要点）"
+    persona = persona_block_for(npc_id)
     return (
-        f"你是议会席位 {npc_id}（{display_name}）。"
-        f"请用第一人称写一篇本周人生札记，对应历法标签：{calendar_label}。\n"
-        f"字数预算：{WEEKLY_MIN_CHARS}–{WEEKLY_MAX_CHARS} 字（汉字为主）。\n"
+        f"你是议会席位 {npc_id}（{display_name}）。严格按下列人设写日记，不得串味：\n"
+        f"{persona}\n\n"
+        f"历法标签：{calendar_label}。\n"
+        f"请用第一人称写一篇本周日记（人生札记），字数预算：{WEEKLY_MIN_CHARS}–{WEEKLY_MAX_CHARS} 字。\n"
+        "日记骨架（自然融入正文，勿列小标题）：今日见闻 → 对某人/某事的态度 → 一句符合人设的收束。\n"
         "把闲暇反思自然写进正文（不要单独另开「反思」段落）。\n"
-        "只输出札记正文，不要标题、不要 markdown、不要第三人称旁白。\n"
-        f"近期线索：\n{bullet_block}\n"
+        f"{_DIARY_ANTI_GENERIC}\n"
+        "只输出日记正文，不要标题、不要 markdown、不要第三人称旁白。\n"
+        f"近期线索（可选用，勿捏造未出现的事实）：\n{bullet_block}\n"
     )
 
 
@@ -140,11 +159,15 @@ def build_polish_prompt(
     event: str,
     skeleton_body: str,
 ) -> str:
+    persona = persona_block_for(npc_id)
     return (
-        f"你是议会席位 {npc_id}（{display_name}）。"
+        f"你是议会席位 {npc_id}（{display_name}）。严格按下列人设润色，不得串味：\n"
+        f"{persona}\n\n"
         f"请用第一人称润色下列人生节点骨架，保留事实，增强语感与个性。\n"
         f"年龄/阶段：{age}\n事件：{event}\n"
         f"骨架正文：\n{skeleton_body}\n"
+        f"{_DIARY_ANTI_GENERIC}\n"
+        "禁止使用「将此铭记于心，以为立身之基」或任何所有角色共用的固定收尾句。\n"
         "只输出润色后的第一人称正文，不要标题或解释。"
     )
 
@@ -157,12 +180,15 @@ def build_multi_perspective_prompt(
     calendar_label: str,
 ) -> str:
     """BIO-06 / D-MULTI-03 / D-GEN-05: emotion/opinion only ≤80 字; facts locked."""
+    persona = persona_block_for(npc_id)
     return (
-        f"你是议会席位 {npc_id}（{display_name}）。"
+        f"你是议会席位 {npc_id}（{display_name}）。严格按下列人设写观感，不得串味：\n"
+        f"{persona}\n\n"
         f"历法：{calendar_label}。\n"
         f"事实摘要锁定（不得改写、不得补充事实）：{factual_summary}\n"
         f"请用第一人称只写情绪与看法/观感，字数预算：不超过 {MULTI_MAX_CHARS} 字。\n"
         "禁止改写事实摘要中的任何事实；不要复述提案全文。\n"
+        f"{_DIARY_ANTI_GENERIC}\n"
         "只输出正文，不要标题或 markdown。\n"
     )
 
@@ -179,12 +205,15 @@ def build_rel07_prompt(
     """REL-07 / D-GEN-05: relationship-tagged first-person, 100–200 字."""
     direction = "亲近" if affection_delta > 0 else "疏远" if affection_delta < 0 else "波动"
     note = history_append or f"廷议后{direction}（Δ{affection_delta:+d}）"
+    persona = persona_block_for(npc_id)
     return (
-        f"你是议会席位 {npc_id}（{display_name}）。"
-        f"请用第一人称写一段关于与 {counterpart_name}（{counterpart_id}）关系变化的札记。\n"
+        f"你是议会席位 {npc_id}（{display_name}）。严格按下列人设写关系日记，不得串味：\n"
+        f"{persona}\n\n"
+        f"请用第一人称写一段关于与 {counterpart_name}（{counterpart_id}）关系变化的日记。\n"
         f"关系线索：{note}\n"
         f"字数预算：{REL_MIN_CHARS}–{REL_MAX_CHARS} 字（汉字为主）。\n"
         "聚焦主观感受与关系温度，不要改写世界编年史事实。\n"
+        f"{_DIARY_ANTI_GENERIC}\n"
         "只输出正文，不要标题或 markdown。\n"
     )
 
@@ -355,11 +384,15 @@ def enqueue_rel07_bilateral_jobs(
     aether_epoch_minute: int,
     history_append: str = "",
     status_tags_changed: bool = False,
+    force: bool = False,
     redis_client: Any | None = None,
     settings: Settings | None = None,
 ) -> list[dict[str, Any]]:
-    """D-REL-01: both edge endpoints, same eventAnchorId, relationship tag."""
-    if not rel07_should_enqueue(
+    """D-REL-01: both edge endpoints, same eventAnchorId, relationship tag.
+
+    ``force=True`` skips |Δ|≥8 (used by kind=event dyad path); vote path keeps threshold.
+    """
+    if not force and not rel07_should_enqueue(
         affection_delta=affection_delta,
         status_tags_changed=status_tags_changed,
     ):
@@ -384,6 +417,37 @@ def enqueue_rel07_bilateral_jobs(
         jobs.append(job)
     _lpush_jobs(jobs, redis_client=redis_client, settings=settings)
     return jobs
+
+
+def apply_single_relationship_delta(
+    client: httpx.Client,
+    settings: Settings,
+    *,
+    room_id: str,
+    npc_a_id: str,
+    npc_b_id: str,
+    affection_delta: int,
+    history_append: str = "",
+) -> None:
+    """POST undirected edge Δ (game-server normalizes pair order)."""
+    url = (
+        f"{settings.game_server_url.rstrip('/')}/internal/rooms/{room_id}"
+        "/npc-relationships/apply-deltas"
+    )
+    delta: dict[str, Any] = {
+        "npcAId": npc_a_id,
+        "npcBId": npc_b_id,
+        "affectionDelta": int(affection_delta),
+    }
+    if history_append.strip():
+        delta["historyAppend"] = history_append.strip()
+    res = client.post(
+        url,
+        json={"deltas": [delta]},
+        headers=_game_headers(settings),
+        timeout=60.0,
+    )
+    res.raise_for_status()
 
 
 def _run_polish(client: httpx.Client, settings: Settings, payload: dict) -> None:
@@ -411,6 +475,10 @@ def _run_polish(client: httpx.Client, settings: Settings, payload: dict) -> None
         room_id=room_id,
         entry_id=entry_id,
         body=polished,
+    )
+    print(
+        f"polish ok jobId={payload.get('jobId')} npc={npc_id} chars={len(polished)}",
+        file=sys.stderr,
     )
 
 
@@ -535,6 +603,49 @@ def _run_rel(client: httpx.Client, settings: Settings, payload: dict) -> None:
     )
 
 
+def _run_event(client: httpx.Client, settings: Settings, payload: dict) -> None:
+    """Non-vote dyad: apply undirected Δ, then force bilateral relationship diaries."""
+    room_id = str(payload.get("roomId") or "")
+    npc_id = str(payload.get("npcId") or "")
+    counterpart = str(payload.get("counterpartNpcId") or "")
+    event_anchor_id = str(payload.get("eventAnchorId") or "")
+    epoch = int(payload.get("aetherEpochMinute") or 0)
+    affection = int(payload.get("affectionDelta") or 0)
+    history_append = str(payload.get("historyAppend") or "")
+    factual = str(payload.get("factualSummary") or "").strip()
+    if not room_id or not npc_id or not counterpart or not event_anchor_id:
+        raise ValueError("event job missing roomId/npcId/counterpartNpcId/eventAnchorId")
+
+    if not history_append and factual:
+        history_append = factual[:120]
+
+    apply_single_relationship_delta(
+        client,
+        settings,
+        room_id=room_id,
+        npc_a_id=npc_id,
+        npc_b_id=counterpart,
+        affection_delta=affection,
+        history_append=history_append,
+    )
+    jobs = enqueue_rel07_bilateral_jobs(
+        room_id=room_id,
+        npc_a_id=npc_id,
+        npc_b_id=counterpart,
+        event_anchor_id=event_anchor_id,
+        affection_delta=affection,
+        aether_epoch_minute=epoch,
+        history_append=history_append or factual[:120],
+        force=True,
+        settings=settings,
+    )
+    print(
+        f"event ok jobId={payload.get('jobId')} pair={npc_id}/{counterpart} "
+        f"Δ={affection:+d} rel_jobs={len(jobs)}",
+        file=sys.stderr,
+    )
+
+
 def process_personal_timeline_job(
     client: httpx.Client,
     settings: Settings | None,
@@ -571,11 +682,6 @@ def process_personal_timeline_job(
         _run_rel(client, cfg, payload)
         return
     if kind == "event":
-        # Speak-event biography deferred (D-GEN-02); acknowledge only.
-        print(
-            f"personal-timeline stub kind=event jobId={payload.get('jobId')} "
-            f"(speak-event deferred)",
-            file=sys.stderr,
-        )
+        _run_event(client, cfg, payload)
         return
     print(f"personal-timeline unknown kind={kind}; ignoring", file=sys.stderr)

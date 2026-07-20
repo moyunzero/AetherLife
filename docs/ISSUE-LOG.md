@@ -200,6 +200,8 @@
 ### Phase 27 — Personal life timeline（C-11）
 
 112. **个人传记隔离**：`npc_personal_timeline` 是唯一个人人生时间线存储；**禁止**把个人 biography 写入 `__council__`（C-07）或玩家 speak `npc_memories`（C-05）。Worker/seed 只经 `insertPersonalTimelineEntry` / internal POST；改写路径须 `pnpm --filter @aetherlife/game-server test -- personal-timeline-repository`（含 isolation 源码断言）。
+113. **个人日记须按席位人设写**：weekly/polish/multi/rel/event prompt **必须** `persona_block_for`（speak mirror）；**禁止**无口吻的「人生札记」通稿导致 ENTJ/ESFP 写同款文艺腔（ISSUE-106）。周记须带 `recentBullets`；非廷议双边走 `kind=event` + force REL。回归：`pytest tests/test_personal_timeline.py tests/test_personal_timeline_rel07.py -q` · `pnpm --filter @aetherlife/game-server test -- personal-timeline-dyad personal-timeline-weekly`。
+
 ## 记录
 
 ### ISSUE-001 — thinking 中切换 NPC Tab 后无法移动（UI 冻结）
@@ -2767,6 +2769,41 @@ Worker 主循环仅在 npc-turn 队列 **连续 5s 为空** 时才 `BLPOP` chunk
 **防复发**
 
 - Guardrail #111
+
+---
+
+### ISSUE-106 — 周记/人生札记串味：ENTJ 阿斯托利亚与 ESFP 楚浅歌写成同款文艺腔
+
+- **状态:** fixed
+- **发现:** 2026-07-19
+- **阶段/范围:** Phase 27 · `workers/agent-worker` personal_timeline + GS weekly enqueue
+- **严重性:** major（人设可感知失败；BIO voice）
+
+**复现**
+
+1. Roster 打开阿斯托利亚 / 楚浅歌 `llm_scheduled` 周记（太乙元年·春·1月·第2日）
+2. 正文均为「听风过竹 / 袖中思绪」类通稿，与 ENTJ 鹰派 / ESFP 享乐口吻无关
+
+**根因**
+
+- `build_weekly_digest_prompt` 仅有 npcId+显示名，无 speak 人设块；措辞「人生札记」诱导通用文艺腔
+- `maybeEnqueuePersonalTimelineWeekly` 未传 `recentBullets`
+
+**修复**
+
+- `persona_block_for`（speak mirror）注入 weekly/polish/multi/rel；反套话规则
+- 周记装配 `assembleWeeklyRecentBullets`
+- 实装 `kind=event`（apply-deltas + force 双边 REL）；speak 提及 / ambient 近邻触发
+- 清理 `default` 房既有 `llm_scheduled` 假周记
+
+**验证**
+
+- `cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_personal_timeline.py tests/test_personal_timeline_rel07.py -q`
+- `pnpm --filter @aetherlife/game-server test -- personal-timeline-dyad personal-timeline-weekly`
+
+**防复发**
+
+- Guardrail #113；C-11 人设日记 / event 行
 
 ---
 

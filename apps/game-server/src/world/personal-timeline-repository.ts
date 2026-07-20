@@ -3,7 +3,7 @@ import {
   PERSONAL_TIMELINE_TAGS,
   computeProposalEligible,
   validatePersonalTimelineStrings,
-  type AetherCalendarLabel,
+  type PersonalTimelineCalendarLabel,
   type PersonalTimelineEntry,
   type PersonalTimelineSource,
   type PersonalTimelineTag,
@@ -16,7 +16,7 @@ export { computeProposalEligible };
 export type InsertPersonalTimelineEntryInput = {
   roomId: string;
   npcId: string;
-  calendarLabel: AetherCalendarLabel | string;
+  calendarLabel: PersonalTimelineCalendarLabel | string;
   aetherEpochMinute: number;
   tag: PersonalTimelineTag;
   body: string;
@@ -118,7 +118,7 @@ function toPublicEntry(row: PersonalTimelineRow): PersonalTimelineEntry {
     roomId: row.roomId,
     npcId: row.npcId,
     seq: row.seq,
-    calendarLabel: row.calendarLabel as AetherCalendarLabel,
+    calendarLabel: row.calendarLabel as PersonalTimelineCalendarLabel,
     aetherEpochMinute: row.aetherEpochMinute,
     tag: row.tag,
     body: row.body,
@@ -318,6 +318,67 @@ export async function updatePersonalTimelineBody(input: {
   const row = sql
     ? await updateSqlBody(input.roomId, input.entryId, input.body)
     : await updateMemoryBody(input.roomId, input.entryId, input.body);
+  return row ? toPublicEntry(row) : null;
+}
+
+async function updateMemoryCalendarStamp(
+  roomId: string,
+  entryId: string,
+  calendarLabel: string,
+  aetherEpochMinute: number,
+): Promise<PersonalTimelineRow | null> {
+  for (const rows of memoryByNpc.values()) {
+    const row = rows.find((r) => r.id === entryId && r.roomId === roomId);
+    if (row) {
+      row.calendarLabel = calendarLabel;
+      row.aetherEpochMinute = aetherEpochMinute;
+      return row;
+    }
+  }
+  return null;
+}
+
+async function updateSqlCalendarStamp(
+  roomId: string,
+  entryId: string,
+  calendarLabel: string,
+  aetherEpochMinute: number,
+): Promise<PersonalTimelineRow | null> {
+  const sql = getSql();
+  if (!sql) throw new Error("sql client unavailable");
+
+  const rows = await sql<DbRow[]>`
+    UPDATE npc_personal_timeline
+    SET calendar_label = ${calendarLabel},
+        aether_epoch_minute = ${aetherEpochMinute}
+    WHERE room_id = ${roomId} AND id = ${entryId}::uuid
+    RETURNING *
+  `;
+  if (!rows[0]) return null;
+  return rowFromDb(rows[0]);
+}
+
+/** Repair pre-arrival seed stamps (太乙 → 生平·{age}). */
+export async function updatePersonalTimelineCalendarStamp(input: {
+  roomId: string;
+  entryId: string;
+  calendarLabel: PersonalTimelineCalendarLabel | string;
+  aetherEpochMinute: number;
+}): Promise<PersonalTimelineEntry | null> {
+  const sql = getSql();
+  const row = sql
+    ? await updateSqlCalendarStamp(
+        input.roomId,
+        input.entryId,
+        String(input.calendarLabel),
+        input.aetherEpochMinute,
+      )
+    : await updateMemoryCalendarStamp(
+        input.roomId,
+        input.entryId,
+        String(input.calendarLabel),
+        input.aetherEpochMinute,
+      );
   return row ? toPublicEntry(row) : null;
 }
 

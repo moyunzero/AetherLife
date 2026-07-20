@@ -220,8 +220,7 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 | 层 | 契约 |
 |----|------|
 | **表** | `npc_personal_timeline` append-only per `(room_id, npc_id, seq)`；**禁止**写入 `npc_memories` / `playerId=__council__`（与 C-07 / C-07b 隔离） |
-| **日历** | `calendar_label` + `aether_epoch_minute` 来自 C-07b / D-CAL SSOT（`formatAetherCalendarLabel` / `aetherCivilFromEpochMinute`）。内部 writeback 允许负 epoch（≥ `LIFETIME_EPOCH_MINUTE_BASE`）作抵达前排序键 |
-| **标签** | `tag` ∈ `PERSONAL_TIMELINE_TAGS`（daily/adventure/emotion/conflict/reflection/relationship/council）；`body` 为第一人称传记 |
+| **日历** | **双轨：** 抵达前种子 `calendar_label` = `生平·{age}`（`formatLifetimeCalendarLabel`）；抵达后 / 编年史 / 投票 / HUD 用 C-07b SSOT（`formatAetherCalendarLabel` / `aetherCivilFromEpochMinute`）。**太乙元年** = 12 席聚集始源区起点。种子行的 `aether_epoch_minute` 可为负排序键（≥ `LIFETIME_EPOCH_MINUTE_BASE` / `lifetimeEpochMinute`），不表示太乙民用历；内部 writeback Zod 允许该范围 || **标签** | `tag` ∈ `PERSONAL_TIMELINE_TAGS`（daily/adventure/emotion/conflict/reflection/relationship/council）；`body` 为第一人称传记 |
 | **proposalEligible** | D-PROP-01：`tag` 为 `council` \| `relationship` **或** `event_anchor_id` 非空 → `true`；否则默认 `false`。**例外：** `source=seed`（life-node 骨架）恒为 `false`，不进入 BIO-07 proposal 饲料 |
 | **公开读** | `GET /rooms/:roomId/npcs/:npcId/personal-timeline` 返回完整 `PersonalTimelineEntry[]`（含 `body`）；`X-Player-Id` + `assertScopedPlayerRequest`；**无** public write |
 | **内部写** | `POST /internal/rooms/:roomId/personal-timeline`；`requireWorkerAuth` + Bearer `INTERNAL_WORKER_TOKEN`；Zod + content guard；body 含 `npcId` |
@@ -231,11 +230,15 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 | **Colyseus** | `personalTimelineSync` payload `{ npcId, hasUpdate, latestSeq? }` — **禁止** full body（D-SYNC-01） |
 | **Colyseus（后续 plan）** | 轻量 hint only（`npcId` / `latestSeq` / `hasUpdate`）— **禁止** 把全文经 WS 推送（D-SYNC-01）；本契约以 HTTP bodies 为 SSOT |
 | **隔离** | 个人传记 **不得** 写入 `__council__` 或玩家 speak `npc_memories`；编年史仍走 C-07b `world_history` |
+| **人设日记（BIO voice）** | weekly / polish / multi / REL-07 / event 的 LLM prompt **必须**注入 `persona_block_for(npcId)`（`council-personas-speak.json` via `speak_registry`）；禁智谱 speak 槽；禁通用文艺套话 |
+| **周记线索** | GS `assembleWeeklyRecentBullets` → job `recentBullets`（world_history + 本席 timeline + 关系边 + 同僚 relationship 札记片段） |
+| **REL-07** | 表决路径 `|Δ|≥8`（或 status_tags）→ 双边 `kind=rel` 同 `eventAnchorId`；关系边仍为 **无向** 一条 |
+| **非廷议 dyad（kind=event）** | speak 提及同僚 / ambient 近邻（Chebyshev≤2）→ `kind=event`：apply-deltas + **force** 双边 REL 日记（可 `|Δ|<8`）；同对每日 cooldown；ambient 每房每日最多 2 对 |
 | **Ship gate** | `pnpm verify:phase27`（真实 LLM + `pnpm dev:stack`；`assertE2eRealLlm`） |
 
-**验证：** `pnpm --filter @aetherlife/shared build` · `pnpm --filter @aetherlife/game-server test -- personal-timeline` · `cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_personal_timeline_rag.py -q` · `pnpm verify:phase27` · `pnpm --filter @aetherlife/npc-memory db:migrate`
+**验证：** `pnpm --filter @aetherlife/shared build` · `pnpm --filter @aetherlife/game-server test -- personal-timeline` · `cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_personal_timeline.py tests/test_personal_timeline_rel07.py -q` · `pnpm verify:phase27` · `pnpm --filter @aetherlife/npc-memory db:migrate`
 
-**锚点文件：** `packages/npc-memory/migrations/0011_npc_personal_timeline.sql`, `packages/shared/src/personalTimeline.ts`, `world/personal-timeline-repository.ts`, `routes/personal-timeline.ts`, `routes/internal-personal-timeline.ts`, `workers/agent-worker/src/council/personal_timeline_rag.py`, `scripts/verify-phase27.mjs`.
+**锚点文件：** `packages/npc-memory/migrations/0011_npc_personal_timeline.sql`, `packages/shared/src/personalTimeline.ts`, `world/personal-timeline-repository.ts`, `world/personal-timeline-weekly.ts`, `world/personal-timeline-dyad.ts`, `routes/personal-timeline.ts`, `routes/internal-personal-timeline.ts`, `workers/agent-worker/src/graph/personal_timeline.py`, `workers/agent-worker/src/council/speak_registry.py`, `workers/agent-worker/src/council/personal_timeline_rag.py`, `scripts/verify-phase27.mjs`.
 
 ---
 
