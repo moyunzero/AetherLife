@@ -13,6 +13,7 @@ Phase 16 权威 ambient 逻辑：`schedule.ts`（日程）→ `tick.ts`（6s tic
 | `AMBIENT_MS` | `colyseus/GameRoom.ts` | `6000` | Colyseus simulation interval（毫秒）。每 tick：`gameMinute += 1`，并对每名 eligible NPC 最多走 **1 格**。 |
 | `gameMinute` | `GameRoomState` | 普通房间 `360`（06:00）；`verify-p16-*` 房间 `479` | 游戏内分钟 `[0, 1439]`，1440 = 24h。每 ambient tick +1 并 `% 1440`。HUD 时钟由此推导。 |
 | 实机 ↔ 游戏时间 | — | 1 tick ≈ 6s 实机 | 约 **10 tick/分钟实机** → 5 分钟实机 ≈ 50 游戏分钟。 |
+| **D-CAL-06 日历 pace** | shared `aetherCivilFromEpochMinute` | 360 日/年 | 默认 `AMBIENT_MS=6000`：**1 游戏日 ≈ 2.4h 实机**；**1 年 ≈ 36 实机日**。Civil year / 编年史 / vote epoch 共用此 pace；勿另写一套年算法。 |
 
 ---
 

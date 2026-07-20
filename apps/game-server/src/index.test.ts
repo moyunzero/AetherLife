@@ -284,7 +284,7 @@ describe("game-server", () => {
     expect(
       res.body.entries.every((entry: { entryKind: string }) => entry.entryKind === "genesis"),
     ).toBe(true);
-    expect(res.body.gameYear).toBe(1);
+    expect(res.body.gameYear).toBe(0);
     expect(res.body.pageSize).toBe(6);
     expect(res.body.entries[0]).toEqual(
       expect.objectContaining({

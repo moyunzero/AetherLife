@@ -13,6 +13,7 @@ import type {
   CouncilDeliberationPhase,
   CouncilDeliberationVoteKind,
   LinkedEdge,
+  PersonalTimelineEntry,
   WorldHistoryListEntry,
   WorldHistoryPublicEntry,
   WorldHistoryStatusFilter,
@@ -57,6 +58,11 @@ type Props = {
   deliberationRoundTotal?: number;
   deliberationFeedRows?: CouncilDeliberationFeedRow[];
   councilLinkedEdges?: LinkedEdge[];
+  personalTimelineEntriesByNpcId?: Record<string, PersonalTimelineEntry[]>;
+  personalTimelineHasUpdate?: Record<string, boolean>;
+  personalTimelineLoadingNpcId?: string | null;
+  personalTimelineErrorByNpcId?: Record<string, string>;
+  onOpenPersonalBiography?: (npcId: string) => void;
   roomId: string;
   roomConnected: boolean;
   lastParsedIntent?: ParsedIntent;
@@ -147,6 +153,11 @@ export function ShellDrawer({
   deliberationRoundTotal = 1,
   deliberationFeedRows = [],
   councilLinkedEdges = [],
+  personalTimelineEntriesByNpcId = {},
+  personalTimelineHasUpdate = {},
+  personalTimelineLoadingNpcId = null,
+  personalTimelineErrorByNpcId = {},
+  onOpenPersonalBiography,
   roomId,
   roomConnected,
   lastParsedIntent = null,
@@ -242,7 +253,14 @@ export function ShellDrawer({
                   <CouncilDeliberationFeed rows={deliberationFeedRows} />
                 </>
               ) : null}
-              <CouncilRosterPanel linkedEdges={councilLinkedEdges} />
+              <CouncilRosterPanel
+                linkedEdges={councilLinkedEdges}
+                entriesByNpcId={personalTimelineEntriesByNpcId}
+                hasUpdateByNpcId={personalTimelineHasUpdate}
+                loadingNpcId={personalTimelineLoadingNpcId}
+                errorByNpcId={personalTimelineErrorByNpcId}
+                onOpenBiography={onOpenPersonalBiography}
+              />
             </div>
           ) : null}
 

@@ -1,0 +1,334 @@
+"""Personal timeline worker contracts (BIO-03/05, D-GEN-04/05, yield-to-speak)."""
+
+from __future__ import annotations
+
+import json
+from unittest.mock import MagicMock
+
+from src.config import Settings
+from src.main import BRIDGE_LIST_KEY, drain_one_personal_timeline_job
+
+
+PERSONAL_TIMELINE_JOBS_KEY = "aetherlife:personal-timeline:jobs"
+
+
+def test_personal_timeline_llm_never_zhipu_or_npc_provider():
+    """BIO-05 / D-GEN-04: reflect/lore only — ban Zhipu speak slot."""
+    from src.graph.personal_timeline import personal_timeline_llm_attempts
+
+    settings = Settings(
+        llm_mock=False,
+        llm_provider="zhipu",
+        llm_provider_reflect="agnes",
+        llm_provider_lore="agnes",
+    )
+    attempts = personal_timeline_llm_attempts(settings)
+    providers = [p for p, _ in attempts]
+    assert "zhipu" not in providers
+    assert any(p in {"agnes", "nvidia"} for p in providers)
+
+
+def test_drain_one_personal_timeline_job_defers_when_speak_in_progress(monkeypatch):
+    r = MagicMock()
+    r.llen.return_value = 0
+    monkeypatch.setattr("src.main._is_speak_in_progress", lambda: True)
+
+    settings = Settings(llm_mock=True, game_server_url="http://127.0.0.1:2567")
+    handled = drain_one_personal_timeline_job(r, MagicMock(), settings)
+
+    assert handled is False
+    r.rpop.assert_not_called()
+
+
+def test_drain_one_personal_timeline_job_defers_when_npc_turn_backlog(monkeypatch):
+    r = MagicMock()
+    r.llen.return_value = 2
+    monkeypatch.setattr("src.main._is_speak_in_progress", lambda: False)
+
+    settings = Settings(llm_mock=True, game_server_url="http://127.0.0.1:2567")
+    handled = drain_one_personal_timeline_job(r, MagicMock(), settings)
+
+    assert handled is False
+    r.llen.assert_called_with(BRIDGE_LIST_KEY)
+    r.rpop.assert_not_called()
+
+
+def test_drain_one_personal_timeline_job_processes_rpop_payload(monkeypatch):
+    payload = {
+        "kind": "weekly",
+        "jobId": "pt-weekly-room-npc-1-0",
+        "roomId": "room-pt",
+        "npcId": "npc-1",
+        "aetherEpochMinute": 10080,
+    }
+    r = MagicMock()
+    r.llen.return_value = 0
+    r.rpop.return_value = json.dumps(payload).encode()
+
+    calls: list[dict] = []
+
+    def fake_process(client, settings, body):
+        calls.append(body)
+
+    monkeypatch.setattr("src.main._is_speak_in_progress", lambda: False)
+    monkeypatch.setattr("src.main.process_personal_timeline_job", fake_process)
+
+    settings = Settings(llm_mock=True, game_server_url="http://127.0.0.1:2567")
+    handled = drain_one_personal_timeline_job(r, MagicMock(), settings)
+
+    assert handled is True
+    r.rpop.assert_called_once_with(PERSONAL_TIMELINE_JOBS_KEY)
+    assert calls == [payload]
+
+
+def test_weekly_prompt_first_person_and_budget():
+    """BIO-03 / D-GEN-05: weekly body 200–400 字, first-person."""
+    from src.graph.personal_timeline import build_weekly_digest_prompt
+
+    prompt = build_weekly_digest_prompt(
+        npc_id="npc-1",
+        display_name="莫玄虚",
+        calendar_label="太乙1年·春·1月·第1日",
+        recent_bullets=["近日庭议未歇。"],
+    )
+    assert "第一人称" in prompt
+    assert "200" in prompt and "400" in prompt
+    assert "口吻" in prompt or "人设" in prompt
+    assert "听风过竹" in prompt  # anti-generic rule cites banned tropes
+
+
+def test_weekly_prompt_persona_diverges_for_astoria_vs_chuoqian():
+    from src.graph.personal_timeline import build_weekly_digest_prompt
+
+    p2 = build_weekly_digest_prompt(
+        npc_id="npc-2",
+        display_name="阿斯托利亚",
+        calendar_label="太乙元年·春·1月·第2日",
+    )
+    p9 = build_weekly_digest_prompt(
+        npc_id="npc-9",
+        display_name="楚浅歌",
+        calendar_label="太乙元年·春·1月·第2日",
+    )
+    assert "阿斯托利亚" in p2 and "口吻" in p2
+    assert "楚浅歌" in p9 and "口吻" in p9
+    assert "洪亮" in p2 or "激进" in p2 or "元帅" in p2
+    assert "慵懒" in p9 or "享乐" in p9 or "ESFP" in p9
+    assert p2 != p9
+
+
+def test_multi_prompt_locks_factual_summary_and_budget():
+    """BIO-06 / D-MULTI-03 / D-GEN-05: ≤80 字; forbid fact rewrite."""
+    from src.graph.personal_timeline import build_multi_perspective_prompt
+
+    factual = "议会以七票通过对旅者开放东苑的提案。"
+    prompt = build_multi_perspective_prompt(
+        npc_id="npc-1",
+        display_name="莫玄虚",
+        factual_summary=factual,
+        calendar_label="太乙1年·夏·4月·第2日",
+    )
+    assert "第一人称" in prompt
+    assert "80" in prompt
+    assert factual in prompt
+    # Locked-fact instruction (D-MULTI-03)
+    assert any(
+        token in prompt
+        for token in ("不得改写", "不要改写", "禁止改写", "不可改写", "事实摘要锁定")
+    )
+    assert any(token in prompt for token in ("情绪", "观感", "看法", "意见"))
+
+
+def test_enqueue_multi_perspective_twelve_staggered_same_anchor():
+    """D-MULTI-02/04: all 12 seats, shared eventAnchorId, staggered offsets."""
+    from src.council.constants import COUNCIL_NPC_IDS
+    from src.graph.personal_timeline import (
+        clear_personal_timeline_job_claims_for_test,
+        enqueue_multi_perspective_jobs,
+    )
+
+    clear_personal_timeline_job_claims_for_test()
+    factual = "庭议通过东苑开放案。"
+    jobs = enqueue_multi_perspective_jobs(
+        room_id="room-multi",
+        event_anchor_id="wh-anchor-1",
+        factual_summary=factual,
+        aether_epoch_minute=10_000,
+        redis_client=None,
+    )
+    assert len(jobs) == 12
+    assert {j["npcId"] for j in jobs} == set(COUNCIL_NPC_IDS)
+    assert all(j["eventAnchorId"] == "wh-anchor-1" for j in jobs)
+    assert all(j["factualSummary"] == factual for j in jobs)
+    assert all(j["kind"] == "multi" for j in jobs)
+    offsets = [int(j["staggerOffsetGameMinutes"]) for j in jobs]
+    assert len(set(offsets)) == 12
+    assert max(offsets) - min(offsets) >= 180  # several SSOT game hours
+    # Shared hammer epoch for label; stagger only on aetherEpochMinute / delay.
+    assert all(int(j["hammerEpochMinute"]) == 10_000 for j in jobs)
+    assert {int(j["aetherEpochMinute"]) for j in jobs} == {
+        10_000 + i * 30 for i in range(12)
+    }
+
+
+def test_multi_writeback_uses_shared_hammer_epoch(monkeypatch):
+    """WR-01: all seats persist the same civil stamp for one eventAnchorId."""
+    from src.graph.personal_timeline import process_personal_timeline_job
+
+    settings = Settings(llm_mock=True, game_server_url="http://127.0.0.1:2567")
+    posted: list[dict] = []
+
+    def fake_post(client, cfg, **kwargs):
+        posted.append(kwargs)
+        return {"ok": True, "entry": {"id": f"e-{kwargs['npc_id']}"}}
+
+    monkeypatch.setattr(
+        "src.graph.personal_timeline.post_personal_timeline_entry",
+        fake_post,
+    )
+
+    factual = "议会通过对旅者开放东苑。"
+    for offset, npc_id in ((0, "npc-1"), (330, "npc-12")):
+        process_personal_timeline_job(
+            MagicMock(),
+            settings,
+            {
+                "kind": "multi",
+                "jobId": f"pt-multi-room-{npc_id}",
+                "roomId": "room-multi",
+                "npcId": npc_id,
+                "eventAnchorId": "wh-anchor-shared",
+                "factualSummary": factual,
+                "aetherEpochMinute": 10_000 + offset,
+                "hammerEpochMinute": 10_000,
+                "staggerOffsetGameMinutes": offset,
+            },
+        )
+
+    assert len(posted) == 2
+    assert posted[0]["aether_epoch_minute"] == posted[1]["aether_epoch_minute"] == 10_000
+    assert posted[0]["calendar_label"] == posted[1]["calendar_label"]
+
+
+def test_multi_jobs_share_anchor_divergent_bodies(monkeypatch):
+    """BIO-06: after multi processing, ≥2 NPCs share event_anchor_id with different bodies."""
+    from src.graph.personal_timeline import process_personal_timeline_job
+
+    settings = Settings(llm_mock=True, game_server_url="http://127.0.0.1:2567")
+    posted: list[dict] = []
+
+    def fake_post(client, cfg, **kwargs):
+        posted.append(kwargs)
+        return {"ok": True, "entry": {"id": f"e-{kwargs['npc_id']}"}}
+
+    monkeypatch.setattr(
+        "src.graph.personal_timeline.post_personal_timeline_entry",
+        fake_post,
+    )
+
+    factual = "议会通过对旅者开放东苑。"
+    for npc_id in ("npc-1", "npc-2"):
+        process_personal_timeline_job(
+            MagicMock(),
+            settings,
+            {
+                "kind": "multi",
+                "jobId": f"pt-multi-room-{npc_id}",
+                "roomId": "room-multi",
+                "npcId": npc_id,
+                "eventAnchorId": "wh-anchor-shared",
+                "factualSummary": factual,
+                "aetherEpochMinute": 10_000,
+                "staggerOffsetGameMinutes": 0,
+            },
+        )
+
+    assert len(posted) >= 2
+    assert posted[0]["event_anchor_id"] == posted[1]["event_anchor_id"] == "wh-anchor-shared"
+    assert posted[0]["factual_summary"] == posted[1]["factual_summary"] == factual
+    assert posted[0]["body"] != posted[1]["body"]
+    assert all(p["tag"] == "council" for p in posted)
+    assert all(p["source"] == "llm_event" for p in posted)
+
+
+def test_calendar_label_year_one_from_absolute_epoch():
+    """CR-01: absolute epoch ≥ 1440*360 → 太乙1年…, not wrapped 元年."""
+    from src.graph.personal_timeline import _calendar_label_from_epoch
+
+    label = _calendar_label_from_epoch(1440 * 360)
+    assert label.startswith("太乙1年")
+    assert "元年" not in label
+    # Wrapped ambient minute must not be used as epoch for year-1 stamps.
+    wrapped = _calendar_label_from_epoch(360)
+    assert wrapped.startswith("太乙元年")
+
+
+def test_vote_context_timeline_epoch_prefers_absolute():
+    """CR-01: BIO/REL stamps use absoluteGameMinute, not wrapped gameMinute."""
+    from src.graph.world_vote import VoteContext
+
+    ctx = VoteContext(
+        room_id="r",
+        vote_kind="regular",
+        game_minute=360,  # wrapped ambient
+        absolute_game_minute=1440 * 360 + 100,
+        proposer_index=0,
+        debate_rounds_max=2,
+        job_id="j1",
+    )
+    assert ctx.timeline_epoch_minute == 1440 * 360 + 100
+
+
+def test_vote_epoch_uses_civil_year_from_absolute():
+    """D-CAL-05: vote_epoch year from absolute civil clock, not game_minute//1440."""
+    from src.graph.world_vote import VoteContext
+
+    ctx = VoteContext(
+        room_id="r",
+        vote_kind="regular",
+        game_minute=360,
+        absolute_game_minute=1440 * 360 + 50,
+        proposer_index=0,
+        debate_rounds_max=2,
+        job_id="j-civil",
+    )
+    # civil year 1 → id year 2; stamp uses absolute epoch (not wrapped 360 alone).
+    assert "-y2-" in ctx.vote_epoch
+    assert str(1440 * 360 + 50) in ctx.vote_epoch
+
+
+def test_vote_epoch_preserves_absolute_zero():
+    """absolute_game_minute=0 must not fall back to wrapped game_minute via truthiness."""
+    from src.graph.world_vote import VoteContext
+
+    ctx = VoteContext(
+        room_id="r",
+        vote_kind="regular",
+        game_minute=999,
+        absolute_game_minute=0,
+        proposer_index=0,
+        debate_rounds_max=2,
+        job_id="j-zero",
+    )
+    assert ctx.vote_epoch.endswith("-0-j-zero") or "-0-j-zero" in ctx.vote_epoch
+    assert "999" not in ctx.vote_epoch
+
+
+def test_missing_kind_without_entry_id_is_ignored(monkeypatch):
+    """WR-06: empty kind must not default to weekly writeback."""
+    from src.graph.personal_timeline import process_personal_timeline_job
+
+    settings = Settings(llm_mock=True, game_server_url="http://127.0.0.1:2567")
+    called: list[str] = []
+
+    def boom(*_a, **_k):
+        called.append("weekly")
+        raise AssertionError("weekly must not run")
+
+    monkeypatch.setattr("src.graph.personal_timeline._run_weekly", boom)
+    process_personal_timeline_job(
+        MagicMock(),
+        settings,
+        {"jobId": "corrupt", "roomId": "r", "npcId": "npc-1"},
+    )
+    assert called == []

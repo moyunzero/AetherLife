@@ -1,6 +1,7 @@
 import { createDefaultRoom, type RoomState } from "@aetherlife/shared";
 import { seedCouncilMemoriesIfNeeded } from "../memory/councilSeed.js";
 import { seedCouncilRelationshipsIfNeeded } from "../memory/councilRelationshipSeed.js";
+import { seedPersonalTimelineIfNeeded } from "../world/personal-timeline-seed.js";
 import { seedWorldHistoryIfNeeded } from "../world/world-history-seed.js";
 import { normalizeRoomCouncilState } from "./council-migrate.js";
 
@@ -29,6 +30,10 @@ export function getOrCreate(roomId: string): RoomRecord {
   const existing = rooms.get(roomId);
   if (existing) {
     existing.state = normalizeRoomCouncilState(roomId, existing.state);
+    // Idempotent: repair seed stamps/bodies on live rooms (UAT dual-track + oath strip).
+    void seedPersonalTimelineIfNeeded(roomId).catch((err) => {
+      console.error("[personal-timeline-seed] repair failed for room", roomId, err);
+    });
     return touchRoom(roomId, existing);
   }
   evictOldestRoomIfNeeded();
@@ -44,6 +49,9 @@ export function getOrCreate(roomId: string): RoomRecord {
   });
   void seedCouncilRelationshipsIfNeeded(roomId).catch((err) => {
     console.error("[council-relationship-seed] failed for room", roomId, err);
+  });
+  void seedPersonalTimelineIfNeeded(roomId).catch((err) => {
+    console.error("[personal-timeline-seed] failed for room", roomId, err);
   });
   return record;
 }

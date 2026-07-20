@@ -480,6 +480,35 @@ export async function countGenesisEntries(roomId: string): Promise<number> {
   return Number(rows[0]?.count ?? 0);
 }
 
+/**
+ * D-CAL: move genesis rows onto civil year 0 when legacy stamps used another year.
+ * Idempotent — skips rows already at `gameYear`.
+ */
+export async function repairGenesisGameYear(
+  roomId: string,
+  gameYear: number = 0,
+): Promise<number> {
+  const sql = getSql();
+  if (!sql) {
+    let repaired = 0;
+    for (const row of memoryRowsForRoom(roomId)) {
+      if (row.entryKind !== "genesis" || row.gameYear === gameYear) continue;
+      row.gameYear = gameYear;
+      repaired += 1;
+    }
+    return repaired;
+  }
+  const rows = await sql<{ id: string }[]>`
+    UPDATE world_history
+    SET game_year = ${gameYear}
+    WHERE room_id = ${roomId}
+      AND entry_kind = 'genesis'
+      AND game_year <> ${gameYear}
+    RETURNING id
+  `;
+  return rows.length;
+}
+
 /** Test helper */
 export function clearWorldHistoryMemory(): void {
   memoryByRoom.clear();

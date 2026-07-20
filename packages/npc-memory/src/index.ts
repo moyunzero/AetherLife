@@ -12,6 +12,7 @@ export {
   mutationAuditLogs,
   collectiveEvents,
   npcAttitudes,
+  npcPersonalTimeline,
   type SummaryKind,
   type CollectiveEventKind,
   type CollectiveEventSource,

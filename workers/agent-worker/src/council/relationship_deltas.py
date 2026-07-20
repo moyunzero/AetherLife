@@ -26,6 +26,7 @@ class RelationshipDelta(TypedDict, total=False):
     npcBId: str
     affectionDelta: int
     historyAppend: str
+    statusTags: list[str]
 
 
 MEETING_EDGE_CAP = 20
@@ -251,6 +252,21 @@ def filter_linked_edges_for_ui(
     notable.sort(key=lambda d: abs(int(d["affectionDelta"])), reverse=True)
     trimmed = notable[:top_k]
     return [{"npcAId": d["npcAId"], "npcBId": d["npcBId"]} for d in trimmed]
+
+
+def iter_rel07_trigger_deltas(deltas: list[RelationshipDelta]) -> list[RelationshipDelta]:
+    """REL-07: edges that warrant bilateral personal-timeline jobs.
+
+    Trigger when |affectionDelta| ≥ HISTORY_SUMMARY_DELTA_THRESHOLD (8),
+    or when statusTags are present on the delta (status change).
+    """
+    out: list[RelationshipDelta] = []
+    for delta in deltas:
+        affection = abs(int(delta.get("affectionDelta") or 0))
+        status_tags = delta.get("statusTags") or []
+        if affection >= HISTORY_SUMMARY_DELTA_THRESHOLD or bool(status_tags):
+            out.append(delta)
+    return out
 
 
 def linked_edges_from_deltas(deltas: list[RelationshipDelta]) -> list[dict[str, str]]:

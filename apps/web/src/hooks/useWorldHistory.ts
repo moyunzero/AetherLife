@@ -128,8 +128,8 @@ export function worldHistorySyncToasts(
 function emptyPageState(pageSize = DEFAULT_PAGE_SIZE): WorldHistoryPageState {
   return {
     entries: [],
-    gameYear: 1,
-    gameYearLabel: "太乙纪·元年",
+    gameYear: 0,
+    gameYearLabel: "太乙元年",
     page: 1,
     pageSize,
     totalPages: 1,
@@ -138,7 +138,7 @@ function emptyPageState(pageSize = DEFAULT_PAGE_SIZE): WorldHistoryPageState {
 }
 
 function defaultQuery(): WorldHistoryQuery {
-  return { statusFilter: "accepted", gameYear: 1, page: 1 };
+  return { statusFilter: "accepted", gameYear: 0, page: 1 };
 }
 
 export function useWorldHistory(roomId: string, roomConnected = false) {
@@ -211,7 +211,7 @@ export function useWorldHistory(roomId: string, roomConnected = false) {
         const nextState: WorldHistoryPageState = {
           entries,
           gameYear: body.gameYear ?? gameYear,
-          gameYearLabel: body.gameYearLabel ?? "太乙纪·元年",
+          gameYearLabel: body.gameYearLabel ?? "太乙元年",
           page: body.page ?? page,
           pageSize: body.pageSize ?? pageSize,
           totalPages: body.totalPages ?? 1,

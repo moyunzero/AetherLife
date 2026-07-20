@@ -196,6 +196,13 @@
 109. **Phase 26 D-MAP-AMB-03 独占 12 分桶（每 tick 仅 1 NPC 移动）已被 26.2 B2 取代**：禁止重新引入 exclusive bucket。走步资格 = **B2 `shouldStepThisTick`**（新开一程；join 绕过）**+ walk/pause**（mid-walk 不重掷 B2）。双 SSOT `maxRadius` 改动必须过 `council-spawn-radius.test.ts`。回归：`pnpm --filter @aetherlife/game-server test -- src/ambient/`。
 110. **Ambient 动森式闲逛（26.2 gap）**：`shouldSkipMovement` **仅** `resting`；日程发呆用 `wandering`+`wander`。`stationary` 在 zone 外须 **通勤到最近 zone 格**。选目标 **永不叠格**（占用 + 本 tick reserved）；偏好 `PERSONAL_SPACE≥2`，擦肩可。白天主漫游 zone 为 `beginning-fields@v1:home`（全图）；子 zone orchard/plaza/pond 仅短时人设 linger。改 zones 须双 SSOT（`zones.json` + `defaultBeginningFieldsBundle`）。回归：`src/ambient/` + 新 `roomId` + `?gridDebug=1` 看 zone。
 111. **禁止移除 `runAmbientTick` 内 B2 调用**：`shouldStepThisTick(npc.id, …)` 须在 `maxRadius===0` 钉死与 walk/pause 之后、resolve 之前保留（mid-walk / join 绕过）。`45b6455` 曾只留 walk/pause 导致门失效（ISSUE-105）；改 `tick.ts` 须保留 canary `wires shouldStepThisTick(npc.id)` + `skips stepping when shouldStepThisTick fails`。
+
+### Phase 27 — Personal life timeline（C-11）
+
+112. **个人传记隔离**：`npc_personal_timeline` 是唯一个人人生时间线存储；**禁止**把个人 biography 写入 `__council__`（C-07）或玩家 speak `npc_memories`（C-05）。Worker/seed 只经 `insertPersonalTimelineEntry` / internal POST；改写路径须 `pnpm --filter @aetherlife/game-server test -- personal-timeline-repository`（含 isolation 源码断言）。
+113. **个人日记须按席位人设写**：weekly/polish/multi/rel/event prompt **必须** `persona_block_for`（speak mirror）；**禁止**无口吻的「人生札记」通稿导致 ENTJ/ESFP 写同款文艺腔（ISSUE-106）。周记须带 `recentBullets`；非廷议双边走 `kind=event` + `min_abs_delta=DYAD_REL_MIN_ABS_DELTA`（|Δ|≥4，禁止无关键词 casual mention）。回归：`pytest tests/test_personal_timeline.py tests/test_personal_timeline_rel07.py -q` · `pnpm --filter @aetherlife/game-server test -- personal-timeline-dyad personal-timeline-weekly`。
+114. **Personal-timeline job 入队须 durable claim**：`claimPersonalTimelineJobId` / worker `claim_personal_timeline_job_id`（SET NX，前缀 `aetherlife:personal-timeline:job-claimed:`）覆盖 polish/weekly/multi/rel/event **以及** dyad pair/ambient-slot；**禁止**仅靠进程内存 debounce（重启会重复 LPUSH → 重复 LLM 行）。传记 UI：fetch 失败须展示 error（勿静默空列表）；已缓存条目在 `personalTimelineSync` 时须后台 refetch。回归：`personal-timeline.claim.test.ts` · `personal-timeline-dyad.test.ts` · `usePersonalTimeline.test.ts` · `pnpm uat:phase27:persona-diary`。
+
 ## 记录
 
 ### ISSUE-001 — thinking 中切换 NPC Tab 后无法移动（UI 冻结）
@@ -2763,6 +2770,41 @@ Worker 主循环仅在 npc-turn 队列 **连续 5s 为空** 时才 `BLPOP` chunk
 **防复发**
 
 - Guardrail #111
+
+---
+
+### ISSUE-106 — 周记/人生札记串味：ENTJ 阿斯托利亚与 ESFP 楚浅歌写成同款文艺腔
+
+- **状态:** fixed
+- **发现:** 2026-07-19
+- **阶段/范围:** Phase 27 · `workers/agent-worker` personal_timeline + GS weekly enqueue
+- **严重性:** major（人设可感知失败；BIO voice）
+
+**复现**
+
+1. Roster 打开阿斯托利亚 / 楚浅歌 `llm_scheduled` 周记（太乙元年·春·1月·第2日）
+2. 正文均为「听风过竹 / 袖中思绪」类通稿，与 ENTJ 鹰派 / ESFP 享乐口吻无关
+
+**根因**
+
+- `build_weekly_digest_prompt` 仅有 npcId+显示名，无 speak 人设块；措辞「人生札记」诱导通用文艺腔
+- `maybeEnqueuePersonalTimelineWeekly` 未传 `recentBullets`
+
+**修复**
+
+- `persona_block_for`（speak mirror）注入 weekly/polish/multi/rel；反套话规则
+- 周记装配 `assembleWeeklyRecentBullets`
+- 实装 `kind=event`（apply-deltas + force 双边 REL）；speak 提及 / ambient 近邻触发
+- 清理 `default` 房既有 `llm_scheduled` 假周记
+
+**验证**
+
+- `cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_personal_timeline.py tests/test_personal_timeline_rel07.py -q`
+- `pnpm --filter @aetherlife/game-server test -- personal-timeline-dyad personal-timeline-weekly`
+
+**防复发**
+
+- Guardrail #113；C-11 人设日记 / event 行
 
 ---
 

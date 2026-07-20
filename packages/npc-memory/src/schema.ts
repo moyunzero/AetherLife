@@ -1,4 +1,6 @@
 import {
+  bigint,
+  boolean,
   customType,
   index,
   integer,
@@ -8,6 +10,7 @@ import {
   real,
   text,
   timestamp,
+  unique,
   uuid,
 } from "drizzle-orm/pg-core";
 import {
@@ -166,5 +169,41 @@ export const npcRelationships = pgTable(
     index("npc_relationships_room_idx").on(table.roomId),
     index("npc_relationships_room_npc_a_idx").on(table.roomId, table.npcAId),
     index("npc_relationships_room_npc_b_idx").on(table.roomId, table.npcBId),
+  ],
+);
+
+/** Phase 27 — personal biography; isolated from npc_memories / __council__ (C-11). */
+export const npcPersonalTimeline = pgTable(
+  "npc_personal_timeline",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    roomId: text("room_id").notNull(),
+    npcId: text("npc_id").notNull(),
+    seq: bigint("seq", { mode: "number" }).notNull(),
+    calendarLabel: text("calendar_label").notNull(),
+    aetherEpochMinute: integer("aether_epoch_minute").notNull(),
+    tag: text("tag").notNull(),
+    body: text("body").notNull(),
+    eventAnchorId: text("event_anchor_id"),
+    factualSummary: text("factual_summary"),
+    proposalEligible: boolean("proposal_eligible").notNull().default(false),
+    source: text("source").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("npc_personal_timeline_room_npc_seq").on(
+      table.roomId,
+      table.npcId,
+      table.seq,
+    ),
+    index("npc_personal_timeline_room_npc_seq_idx").on(
+      table.roomId,
+      table.npcId,
+      table.seq.desc(),
+    ),
+    index("npc_personal_timeline_room_anchor_idx").on(
+      table.roomId,
+      table.eventAnchorId,
+    ),
   ],
 );

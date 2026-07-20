@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { COUNCIL_VOTE_BALLOT_COUNT } from "./council/constants.js";
 import { checkPlayerMessageContent } from "./contentGuard.js";
+import { aetherCivilFromEpochMinute } from "./personalTimeline.js";
 
 export { COUNCIL_VOTE_BALLOT_COUNT };
 
@@ -102,14 +103,15 @@ export function toWorldHistoryListEntry(entry: WorldHistoryPublicEntry): WorldHi
   return listEntry;
 }
 
-/** 1 game-day = 1440 minutes; year 1 = minutes 0..1439 */
+/** Civil Aether year from epoch minutes (360 days/year; year 0 = 太乙元年). */
 export function chronicleGameYearFromMinute(gameMinute: number): number {
-  return Math.floor(Math.max(0, gameMinute) / 1440) + 1;
+  return aetherCivilFromEpochMinute(gameMinute).year;
 }
 
+/** Year-only chronicle label — same 「太乙…」family as formatAetherCalendarLabel. */
 export function formatChronicleYearLabel(gameYear: number): string {
-  if (gameYear <= 1) return "太乙纪·元年";
-  return `太乙纪·${gameYear}年`;
+  if (gameYear <= 0) return "太乙元年";
+  return `太乙${gameYear}年`;
 }
 
 export function parseWorldHistoryStatusFilter(

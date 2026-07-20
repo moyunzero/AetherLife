@@ -1,10 +1,14 @@
 import { bandLabelZh, createDefaultRoom, isBackgroundNpc, type RoomState, type WorldHistoryPublicEntry } from "@aetherlife/shared";
-import type { ColyseusWorldHistorySyncPayload } from "@aetherlife/shared";
+import type {
+  ColyseusPersonalTimelineSyncPayload,
+  ColyseusWorldHistorySyncPayload,
+} from "@aetherlife/shared";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useColyseusRoom } from "./hooks/useColyseusRoom.js";
 import { discoveredLoreRows } from "./hooks/useChunkLore.js";
 import { useNpcChat } from "./hooks/useNpcChat.js";
+import { usePersonalTimeline } from "./hooks/usePersonalTimeline.js";
 import { MovementPanel } from "./components/MovementPanel.js";
 import { PhaserGame, probePhaserBoot, readReducedMotion } from "./components/PhaserGame.js";
 import { CollectiveAttitudeOverlay } from "./components/CollectiveAttitudeOverlay.js";
@@ -65,6 +69,9 @@ export function ChatPage() {
     () => {},
   );
   const mergeCouncilDeliberationSyncRef = useRef<(payload: unknown) => void>(() => {});
+  const mergePersonalTimelineSyncRef = useRef<(payload: ColyseusPersonalTimelineSyncPayload) => void>(
+    () => {},
+  );
   const markChronicleVoteEntryRef = useRef<() => void>(() => {});
   const onWorldHistorySync = useCallback((payload: ColyseusWorldHistorySyncPayload) => {
     mergeWorldHistorySyncRef.current(payload);
@@ -74,6 +81,9 @@ export function ChatPage() {
   }, []);
   const onCouncilDeliberationSync = useCallback((payload: unknown) => {
     mergeCouncilDeliberationSyncRef.current(payload);
+  }, []);
+  const onPersonalTimelineSync = useCallback((payload: ColyseusPersonalTimelineSyncPayload) => {
+    mergePersonalTimelineSyncRef.current(payload);
   }, []);
   const {
     room,
@@ -99,7 +109,13 @@ export function ChatPage() {
     npcActivityById,
     npcAmbientById,
     roomNpcs,
-  } = useColyseusRoom(mapRoomId, moveMap, onWorldHistorySync, onCouncilDeliberationSync);
+  } = useColyseusRoom(
+    mapRoomId,
+    moveMap,
+    onWorldHistorySync,
+    onCouncilDeliberationSync,
+    onPersonalTimelineSync,
+  );
   const {
     pageState: worldHistoryPageState,
     statusFilter: worldHistoryStatusFilter,
@@ -113,6 +129,15 @@ export function ChatPage() {
     chronicleToastQueue,
   } = useWorldHistory(mapRoomId, connected);
   mergeWorldHistorySyncRef.current = mergeWorldHistorySync;
+  const {
+    entriesByNpcId: personalTimelineEntriesByNpcId,
+    hasUpdateByNpcId: personalTimelineHasUpdate,
+    loadingNpcId: personalTimelineLoadingNpcId,
+    errorByNpcId: personalTimelineErrorByNpcId,
+    openBiography: openPersonalBiography,
+    mergePersonalTimelineSync,
+  } = usePersonalTimeline(mapRoomId, connected);
+  mergePersonalTimelineSyncRef.current = mergePersonalTimelineSync;
   const discoverToast = loreToastQueue[0] ?? null;
   const chronicleToast = chronicleToastQueue[0] ?? null;
   const discoveredRows = useMemo(() => discoveredLoreRows(loreByChunk), [loreByChunk]);
@@ -550,6 +575,11 @@ export function ChatPage() {
             deliberationRoundTotal={deliberationRoundTotal}
             deliberationFeedRows={deliberationFeedRows}
             councilLinkedEdges={councilLinkedEdges}
+            personalTimelineEntriesByNpcId={personalTimelineEntriesByNpcId}
+            personalTimelineHasUpdate={personalTimelineHasUpdate}
+            personalTimelineLoadingNpcId={personalTimelineLoadingNpcId}
+            personalTimelineErrorByNpcId={personalTimelineErrorByNpcId}
+            onOpenPersonalBiography={openPersonalBiography}
             roomId={mapRoomId}
             roomConnected={connected}
             lastParsedIntent={lastParsedIntent}

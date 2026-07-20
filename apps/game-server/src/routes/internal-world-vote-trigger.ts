@@ -52,6 +52,7 @@ export function createInternalWorldVoteTriggerRouter(): Router {
     const jobId = await forceEnqueueWorldVote({
       roomId,
       gameMinute,
+      absoluteGameMinute: getRoomVoteState(roomId).absoluteGameMinute,
       voteKind,
       debateRoundsMax,
       instant,

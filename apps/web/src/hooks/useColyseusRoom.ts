@@ -14,6 +14,7 @@ import {
   type ColyseusChunksSyncPayload,
   type ColyseusCouncilDeliberationSyncPayload,
   type ColyseusLoreSyncPayload,
+  type ColyseusPersonalTimelineSyncPayload,
   type ColyseusWorldHistorySyncPayload,
   type RoomState,
 } from "@aetherlife/shared";
@@ -140,11 +141,14 @@ export function useColyseusRoom(
   map: RoomState | null = null,
   mergeWorldHistorySync?: (payload: ColyseusWorldHistorySyncPayload) => void,
   mergeCouncilDeliberationSync?: (payload: ColyseusCouncilDeliberationSyncPayload) => void,
+  mergePersonalTimelineSync?: (payload: ColyseusPersonalTimelineSyncPayload) => void,
 ) {
   const mergeWorldHistorySyncRef = useRef(mergeWorldHistorySync);
   mergeWorldHistorySyncRef.current = mergeWorldHistorySync;
   const mergeCouncilDeliberationSyncRef = useRef(mergeCouncilDeliberationSync);
   mergeCouncilDeliberationSyncRef.current = mergeCouncilDeliberationSync;
+  const mergePersonalTimelineSyncRef = useRef(mergePersonalTimelineSync);
+  mergePersonalTimelineSyncRef.current = mergePersonalTimelineSync;
   const roomRef = useRef<Room | null>(null);
   const [room, setRoom] = useState<Room | null>(null);
   const [connected, setConnected] = useState(false);
@@ -239,6 +243,7 @@ export function useColyseusRoom(
     let offLoreSync: (() => void) | undefined;
     let offWorldHistorySync: (() => void) | undefined;
     let offCouncilDeliberationSync: (() => void) | undefined;
+    let offPersonalTimelineSync: (() => void) | undefined;
     let onStateChangeHandler: (() => void) | undefined;
     let onLeaveHandler: ((code: number, reason?: string) => void) | undefined;
 
@@ -328,6 +333,14 @@ export function useColyseusRoom(
           mergeCouncilDeliberationSyncRef.current?.(data);
         },
       );
+      offPersonalTimelineSync = joined.onMessage(
+        COLYSEUS_SERVER_MESSAGES.personalTimelineSync,
+        (data: ColyseusPersonalTimelineSyncPayload) => {
+          if (generation !== joinGeneration) return;
+          if (!data?.npcId || typeof data.hasUpdate !== "boolean") return;
+          mergePersonalTimelineSyncRef.current?.(data);
+        },
+      );
       joined.send(COLYSEUS_CLIENT_MESSAGES.requestChunksSync, {});
     };
 
@@ -394,6 +407,7 @@ export function useColyseusRoom(
       offLoreSync?.();
       offWorldHistorySync?.();
       offCouncilDeliberationSync?.();
+      offPersonalTimelineSync?.();
       const leaving = activeRoom ?? roomRef.current;
       if (leaving) {
         if (onStateChangeHandler) {

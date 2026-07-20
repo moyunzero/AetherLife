@@ -5,10 +5,12 @@
  * - VOTE_TEST_INTERVAL_MIN — regular interval in game-days (default 30)
  * - VOTE_TEST_REAL_MIN_MS — wall-clock floor since last vote (default 20min)
  * - VOTE_COLLECTIVE_WEIGHT_THRESHOLD — sum |deltaScore| for early regular (default 80)
- * - VOTE_EPOCH_YEARS — epoch cadence in chronicle years (default 5)
+ * - VOTE_EPOCH_DAYS — epoch cadence in SSOT game-days (default 5)
+ * - VOTE_EPOCH_YEARS — if set, maps to years×360 days (back-compat; overrides days default)
  */
 import {
-  chronicleGameYearFromMinute,
+  DAYS_PER_YEAR,
+  MINUTES_PER_DAY,
   type CouncilDeliberationVoteKind,
 } from "@aetherlife/shared";
 import { addWorldVoteJob, addWorldVoteContinuationJob, clearWorldVotePending, getPendingWorldVoteJobId } from "../queue/world-vote.js";
@@ -42,12 +44,12 @@ export function recordVoteCompleted(
   persistVoteCompleted(roomId, input);
 }
 
-const GAME_DAY_MINUTES = 1440;
+const GAME_DAY_MINUTES = MINUTES_PER_DAY;
 const COUNCIL_SEATS = 12;
 const DEFAULT_REGULAR_INTERVAL_DAYS = 30;
 const DEFAULT_REGULAR_REAL_MIN_MS = 20 * 60 * 1000;
 const DEFAULT_COLLECTIVE_THRESHOLD = 80;
-const DEFAULT_EPOCH_YEARS = 5;
+const DEFAULT_EPOCH_DAYS = 5;
 const COOLDOWN_REGULAR_DAYS = 7;
 const COOLDOWN_EPOCH_YEARS = 1;
 const GRACE_DAYS = 1;
@@ -107,13 +109,25 @@ function collectiveWeightThreshold(): number {
   return DEFAULT_COLLECTIVE_THRESHOLD;
 }
 
-function epochYears(): number {
-  const raw = process.env.VOTE_EPOCH_YEARS;
-  if (raw) {
-    const n = Number(raw);
-    if (Number.isFinite(n) && n > 0) return n;
+/** Epoch spacing in SSOT game-days (D-CAL-05). Prefer VOTE_EPOCH_DAYS; VOTE_EPOCH_YEARS×360 if set. */
+function epochIntervalDays(): number {
+  const yearsRaw = process.env.VOTE_EPOCH_YEARS;
+  if (yearsRaw) {
+    const years = Number(yearsRaw);
+    if (Number.isFinite(years) && years > 0) {
+      return years * DAYS_PER_YEAR;
+    }
   }
-  return DEFAULT_EPOCH_YEARS;
+  const daysRaw = process.env.VOTE_EPOCH_DAYS;
+  if (daysRaw) {
+    const days = Number(daysRaw);
+    if (Number.isFinite(days) && days > 0) return days;
+  }
+  return DEFAULT_EPOCH_DAYS;
+}
+
+function dayIndexFromMinute(absoluteGameMinute: number): number {
+  return Math.floor(Math.max(0, absoluteGameMinute) / GAME_DAY_MINUTES);
 }
 
 function cooldownMinutes(kind: CouncilDeliberationVoteKind): number {
@@ -149,11 +163,9 @@ function inCooldown(
 }
 
 function epochDue(state: ReturnType<typeof getRoomVoteState>): boolean {
-  const currentYear = chronicleGameYearFromMinute(state.absoluteGameMinute);
-  const lastYear = chronicleGameYearFromMinute(
-    state.lastVoteAbsoluteMinute ?? 0,
-  );
-  return currentYear >= lastYear + epochYears();
+  const currentDay = dayIndexFromMinute(state.absoluteGameMinute);
+  const lastDay = dayIndexFromMinute(state.lastVoteAbsoluteMinute ?? 0);
+  return currentDay - lastDay >= epochIntervalDays();
 }
 
 function regularDue(state: ReturnType<typeof getRoomVoteState>): boolean {
@@ -265,6 +277,7 @@ export async function maybeEnqueueDeliberationContinuation(input: {
     resumeJobId: deliberation.jobId,
     debateRound: nextRound,
     gameMinute: input.gameMinute,
+    absoluteGameMinute: getRoomVoteState(input.roomId).absoluteGameMinute,
     voteKind: deliberation.voteKind,
     proposerIndex: deliberation.proposerIndex,
     debateRoundsMax: deliberation.debateRoundsMax,
@@ -300,6 +313,7 @@ export async function maybeEnqueueWorldVote(input: {
     roomId: input.roomId,
     voteKind: result.voteKind,
     gameMinute: input.gameMinute,
+    absoluteGameMinute: getRoomVoteState(input.roomId).absoluteGameMinute,
     proposerIndex: result.proposerIndex,
     debateRoundsMax: result.debateRoundsMax,
     instant: resolveInstantDebate(),
@@ -309,6 +323,7 @@ export async function maybeEnqueueWorldVote(input: {
 export async function forceEnqueueWorldVote(input: {
   roomId: string;
   gameMinute: number;
+  absoluteGameMinute?: number;
   voteKind?: CouncilDeliberationVoteKind;
   debateRoundsMax?: number;
   instant?: boolean;
@@ -338,6 +353,8 @@ export async function forceEnqueueWorldVote(input: {
     roomId: input.roomId,
     voteKind,
     gameMinute: input.gameMinute,
+    absoluteGameMinute:
+      input.absoluteGameMinute ?? state.absoluteGameMinute,
     proposerIndex,
     debateRoundsMax,
     instant: input.instant ?? resolveInstantDebate(),

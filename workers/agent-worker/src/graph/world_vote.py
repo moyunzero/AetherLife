@@ -33,7 +33,16 @@ DEBATE_ROUND_GAME_MINUTES = max(1, _env_int("VOTE_DEBATE_ROUND_GAME_DAYS", 1) * 
 
 from src.council.leaning_drift import effective_voting_leaning, get_leaning_drift
 from src.council.registry import display_name, get_persona
-from src.council.relationship_deltas import compute_relationship_deltas, filter_linked_edges_for_ui
+from src.council.relationship_deltas import (
+    compute_relationship_deltas,
+    filter_linked_edges_for_ui,
+    iter_rel07_trigger_deltas,
+)
+from src.council.personal_timeline_rag import fetch_proposal_eligible_feed
+from src.graph.personal_timeline import (
+    enqueue_multi_perspective_jobs,
+    enqueue_rel07_bilateral_jobs,
+)
 from src.council.relationship_prompt import (
     format_all_seats_relationship_context,
     format_debate_transcript_summary,
@@ -303,14 +312,23 @@ class VoteContext:
     proposer_index: int
     debate_rounds_max: int
     job_id: str
+    # Monotonic Aether epoch (vote-state); prefer over wrapped game_minute for BIO/REL stamps.
+    absolute_game_minute: int = 0
     collective_summaries: list[str] = field(default_factory=list)
     speak_summaries: list[str] = field(default_factory=list)
     world_history_tail: list[str] = field(default_factory=list)
     relationship_edges: list[dict[str, Any]] = field(default_factory=list)
     debate_transcript: list[dict[str, Any]] = field(default_factory=list)
+    # BIO-07: read-only proposalEligible personal-timeline paraphrases for proposer.
+    proposal_eligible_feed: list[str] = field(default_factory=list)
     instant_debate: bool = True
     resume_job_id: str | None = None
     deliberation_checkpoint: dict[str, Any] | None = None
+
+    @property
+    def timeline_epoch_minute(self) -> int:
+        """C-11: personal-timeline stamps use monotonic absolute epoch (not %1440 ambient)."""
+        return int(self.absolute_game_minute)
 
     @property
     def proposer_id(self) -> str:
@@ -328,8 +346,12 @@ class VoteContext:
 
     @property
     def vote_epoch(self) -> str:
-        year = max(1, self.game_minute // 1440 + 1)
-        return f"vote-{self.room_id}-y{year}-{self.game_minute}-{self.vote_epoch_base_job_id}"
+        # D-CAL-05: civil year from monotonic absolute epoch (360 days/year), not %1440 ambient.
+        minutes_per_year = 1440 * 360
+        epoch = int(self.absolute_game_minute)
+        civil_year = max(0, epoch // minutes_per_year)
+        year = max(1, civil_year + 1)
+        return f"vote-{self.room_id}-y{year}-{epoch}-{self.vote_epoch_base_job_id}"
 
 
 def pick_proposer(ctx: VoteContext) -> str:
@@ -343,10 +365,16 @@ def load_context(
 ) -> VoteContext:
     room_id = str(payload.get("roomId") or "default")
     resume_raw = payload.get("resumeJobId")
+    game_minute = int(payload.get("gameMinute") or 0)
+    abs_raw = payload.get("absoluteGameMinute")
+    absolute_game_minute = (
+        int(abs_raw) if abs_raw is not None else game_minute
+    )
     ctx = VoteContext(
         room_id=room_id,
         vote_kind=str(payload.get("voteKind") or "regular"),
-        game_minute=int(payload.get("gameMinute") or 0),
+        game_minute=game_minute,
+        absolute_game_minute=absolute_game_minute,
         proposer_index=int(payload.get("proposerIndex") or 0),
         debate_rounds_max=max(1, min(DEBATE_ROUNDS_MAX, int(payload.get("debateRoundsMax") or 2))),
         job_id=str(payload.get("jobId") or "unknown"),
@@ -392,6 +420,18 @@ def load_context(
     except Exception as exc:
         print(f"npc-relationships fetch failed: {exc}", file=sys.stderr)
 
+    try:
+        ctx.proposal_eligible_feed = fetch_proposal_eligible_feed(
+            client,
+            settings,
+            room_id,
+            ctx.proposer_id,
+            limit=3,
+        )
+    except Exception as exc:
+        print(f"proposalEligible feed skipped: {exc}", file=sys.stderr)
+        ctx.proposal_eligible_feed = []
+
     return ctx
 
 
@@ -416,12 +456,19 @@ def draft_proposal(ctx: VoteContext, proposer_id: str, settings: Settings) -> di
     if ctx.world_history_tail:
         history_block = "近期编年史：" + "；".join(ctx.world_history_tail[:3])
 
+    bio_block = ""
+    if ctx.proposal_eligible_feed:
+        bio_block = "提案相关个人传记（只读意译，勿改写事实）：\n" + "\n".join(
+            ctx.proposal_eligible_feed[:3]
+        )
+
     prompt = (
         f"{COUNCIL_VOTE_SETTING}\n"
         f"{proposal_prompt_instructions(is_proposer=True)}\n"
         f"审议类型：{ctx.vote_kind}。\n"
         f"{persona_block}\n"
         f"{history_block}\n"
+        f"{bio_block}\n"
         f"{traveler_block}\n"
         "输出 JSON：title(≤80字), proposal(≤600字)。"
         "若有旅者素材，proposal 中 subtle 提及「据近期旅者言行」但不具名玩家。"
@@ -854,6 +901,8 @@ def apply_relationship_deltas(
     ctx: VoteContext,
     debate_transcript: list[dict[str, Any]],
     ballots: list[dict[str, Any]],
+    *,
+    event_anchor_id: str | None = None,
 ) -> list[dict[str, str]]:
     deltas = compute_relationship_deltas(
         debate_transcript,  # type: ignore[arg-type]
@@ -873,10 +922,33 @@ def apply_relationship_deltas(
         timeout=90.0,
         attempts=3,
     )
+    # REL-07 / D-REL-01: bilateral personal-timeline jobs at |Δ|≥8 (or status_tags).
+    anchor = (event_anchor_id or "").strip() or str(ctx.vote_epoch or ctx.job_id)
+    rel_jobs = 0
+    for delta in iter_rel07_trigger_deltas(deltas):
+        try:
+            jobs = enqueue_rel07_bilateral_jobs(
+                room_id=ctx.room_id,
+                npc_a_id=str(delta["npcAId"]),
+                npc_b_id=str(delta["npcBId"]),
+                event_anchor_id=anchor,
+                affection_delta=int(delta.get("affectionDelta") or 0),
+                aether_epoch_minute=int(ctx.timeline_epoch_minute),
+                history_append=str(delta.get("historyAppend") or ""),
+                status_tags_changed=bool(delta.get("statusTags")),
+                settings=settings,
+            )
+            rel_jobs += len(jobs)
+        except Exception as exc:
+            print(
+                f"rel07 enqueue failed pair={delta.get('npcAId')}/{delta.get('npcBId')} "
+                f"jobId={ctx.job_id}: {exc}",
+                file=sys.stderr,
+            )
     ui_edges = filter_linked_edges_for_ui(deltas)
     print(
         f"relationship-deltas applied={len(deltas)} ui_linked={len(ui_edges)} "
-        f"jobId={ctx.job_id}",
+        f"rel07_jobs={rel_jobs} jobId={ctx.job_id}",
         file=sys.stderr,
     )
     return ui_edges
@@ -1022,9 +1094,41 @@ def _finalize_vote_job(
         minutes=minutes,
     )
     entry_id = (history_res.get("entry") or {}).get("id")
+    # BIO-06 / D-MULTI-01…04: after world_history write, enqueue 12 staggered multi jobs.
+    event_anchor = str(entry_id or ctx.vote_epoch or ctx.job_id)
+    factual_summary = (
+        f"「{title}」表决结果为{status}（赞成{yes_count}/反对{no_count}）。"
+        f"提案要旨：{str(proposal)[:120]}"
+    )
+    try:
+        multi_jobs = enqueue_multi_perspective_jobs(
+            room_id=ctx.room_id,
+            event_anchor_id=event_anchor,
+            factual_summary=factual_summary,
+            aether_epoch_minute=int(ctx.timeline_epoch_minute),
+            settings=cfg,
+        )
+        print(
+            f"personal-timeline multi enqueued={len(multi_jobs)} "
+            f"anchor={event_anchor} jobId={ctx.job_id}",
+            file=sys.stderr,
+        )
+    except Exception as exc:
+        print(
+            f"personal-timeline multi enqueue failed anchor={event_anchor} "
+            f"jobId={ctx.job_id}: {exc}",
+            file=sys.stderr,
+        )
 
     post_vote_complete(client, cfg, ctx)
-    linked_edges = apply_relationship_deltas(client, cfg, ctx, ctx.debate_transcript, ballots)
+    linked_edges = apply_relationship_deltas(
+        client,
+        cfg,
+        ctx,
+        ctx.debate_transcript,
+        ballots,
+        event_anchor_id=event_anchor,
+    )
     append_council_memories(client, cfg, ctx, minutes["ballots"])
     writeback_sequence(
         client,
@@ -1220,10 +1324,16 @@ def run_world_vote_job(
 
 def _minimal_ctx_from_payload(payload: dict[str, Any]) -> VoteContext:
     resume_raw = payload.get("resumeJobId")
+    game_minute = int(payload.get("gameMinute") or 0)
+    abs_raw = payload.get("absoluteGameMinute")
+    absolute_game_minute = (
+        int(abs_raw) if abs_raw is not None else game_minute
+    )
     return VoteContext(
         room_id=str(payload.get("roomId") or "default"),
         vote_kind=str(payload.get("voteKind") or "regular"),
-        game_minute=int(payload.get("gameMinute") or 0),
+        game_minute=game_minute,
+        absolute_game_minute=absolute_game_minute,
         proposer_index=int(payload.get("proposerIndex") or 0),
         debate_rounds_max=max(1, min(DEBATE_ROUNDS_MAX, int(payload.get("debateRoundsMax") or 2))),
         job_id=str(payload.get("jobId") or "unknown"),

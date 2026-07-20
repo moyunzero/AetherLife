@@ -184,6 +184,23 @@ export const GOLDEN_FLOWS = [
       /apps\/game-server\/data\/world\/.*spawns\.json$/,
     ],
   },
+  {
+    id: "GF-11",
+    name: "Phase 27 personal life timeline",
+    verify: ["verify:phase27"],
+    requiresStack: true,
+    triggers: [
+      /scripts\/verify-phase27\.mjs$/,
+      /apps\/game-server\/src\/world\/personal-timeline/,
+      /apps\/game-server\/src\/routes\/.*personal-timeline/,
+      /apps\/game-server\/src\/queue\/personal-timeline/,
+      /workers\/agent-worker\/src\/council\/personal_timeline_rag\.py$/,
+      /workers\/agent-worker\/src\/graph\/personal_timeline\.py$/,
+      /packages\/shared\/src\/personalTimeline/,
+      /apps\/web\/src\/components\/CouncilBiography/,
+      /apps\/web\/src\/hooks\/usePersonalTimeline/,
+    ],
+  },
 ];
 
 /**

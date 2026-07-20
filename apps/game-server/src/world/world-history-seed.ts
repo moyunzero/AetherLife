@@ -8,10 +8,11 @@ import {
   countGenesisEntries,
   insertWorldHistoryEntry,
   listWorldHistory,
+  repairGenesisGameYear,
 } from "./world-history-repository.js";
 
 const GENESIS_PROPOSER = "议会共识";
-const GENESIS_GAME_YEAR = 1;
+const GENESIS_GAME_YEAR = 0;
 const GENESIS_GAME_MINUTE = 0;
 
 function buildGenesisSignatories(proposalFull: string): GenesisMinutes {
@@ -56,6 +57,8 @@ const genesisReadyRooms = new Set<string>();
 async function seedWorldHistoryInner(roomId: string): Promise<void> {
   if (genesisReadyRooms.has(roomId)) return;
   if ((await countGenesisEntries(roomId)) >= 3) {
+    // Legacy rooms may have 3 genesis rows stamped on a non-civil year — repair before exit.
+    await repairGenesisGameYear(roomId, GENESIS_GAME_YEAR);
     genesisReadyRooms.add(roomId);
     return;
   }
@@ -83,6 +86,7 @@ async function seedWorldHistoryInner(roomId: string): Promise<void> {
       voteEpoch: null,
     });
   }
+  await repairGenesisGameYear(roomId, GENESIS_GAME_YEAR);
   genesisReadyRooms.add(roomId);
 }
 

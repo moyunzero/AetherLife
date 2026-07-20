@@ -39,6 +39,7 @@ describe("world-vote-trigger", () => {
     delete process.env.VOTE_TEST_REAL_MIN_MS;
     delete process.env.VOTE_COLLECTIVE_WEIGHT_THRESHOLD;
     delete process.env.VOTE_EPOCH_YEARS;
+    delete process.env.VOTE_EPOCH_DAYS;
     delete process.env.REDIS_URL;
     clearRoomVoteStateForTests();
     clearMockWorldVoteJobs();
@@ -78,7 +79,7 @@ describe("world-vote-trigger", () => {
   it("prefers epoch when both epoch and regular are due (D-VOTE-TRIG-04)", () => {
     recordPlayerSpeak(ROOM);
     process.env.VOTE_TEST_INTERVAL_MIN = "1";
-    process.env.VOTE_EPOCH_YEARS = "2";
+    process.env.VOTE_EPOCH_DAYS = "2";
     process.env.VOTE_TEST_REAL_MIN_MS = "0";
     advanceTicks(2 * GAME_DAY);
     const result = evaluateVoteTrigger({
