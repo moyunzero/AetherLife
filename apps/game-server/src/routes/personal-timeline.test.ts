@@ -61,6 +61,12 @@ describe("personal-timeline HTTP (C-11 / BIO-01)", () => {
     const markerA = "我记得初到此间的晨雾·隔离标记A。";
     const markerB = "另一席的独白不应混入列表·隔离标记B。";
 
+    const state = new GameRoomState();
+    const player = new PlayerSchema();
+    player.playerId = PLAYER;
+    state.players.set("sess-pt-list", player);
+    registerColyseusRoom(ROOM, { state } as never);
+
     const insertA = await request(app)
       .post(`/internal/rooms/${ROOM}/personal-timeline`)
       .send(writeBody({ body: markerA, tag: "reflection" }));
@@ -198,6 +204,14 @@ describe("personal-timeline HTTP (C-11 / BIO-01)", () => {
       .spyOn(personalTimelineBroadcast, "broadcastPersonalTimelineSync")
       .mockImplementation(() => undefined);
 
+    // Live Colyseus room + connected player — avoids flaky 403/404 when sibling
+    // suites leave a registered room for the shared ROOM id.
+    const state = new GameRoomState();
+    const player = new PlayerSchema();
+    player.playerId = PLAYER;
+    state.players.set("sess-pt-patch", player);
+    registerColyseusRoom(ROOM, { state } as never);
+
     try {
       const created = await request(app)
         .post(`/internal/rooms/${ROOM}/personal-timeline`)
@@ -219,6 +233,7 @@ describe("personal-timeline HTTP (C-11 / BIO-01)", () => {
         .get(`/rooms/${ROOM}/npcs/${NPC_A}/personal-timeline`)
         .set("X-Player-Id", PLAYER);
       expect(listed.status).toBe(200);
+      expect(listed.body.ok).toBe(true);
       expect(listed.body.entries[0].body).toContain("润色后");
 
       const missing = await request(app)
