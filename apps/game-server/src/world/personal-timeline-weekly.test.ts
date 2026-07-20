@@ -16,8 +16,10 @@ import { COLYSEUS_SERVER_MESSAGES } from "@aetherlife/shared";
 
 describe("personal-timeline weekly stagger", () => {
   beforeEach(() => {
-    // Avoid hanging Redis claims when sibling suites load root .env REDIS_URL.
+    // Sibling suites (index / personal-timeline routes) inject root .env —
+    // Redis claim + assembleWeeklyRecentBullets Postgres must stay in-memory.
     delete process.env.REDIS_URL;
+    delete process.env.DATABASE_URL;
     clearPersonalTimelineWeeklyState();
     clearMockPersonalTimelineJobs();
     clearPersonalTimelineJobClaimsForTest();
@@ -25,6 +27,7 @@ describe("personal-timeline weekly stagger", () => {
 
   afterEach(() => {
     delete process.env.REDIS_URL;
+    delete process.env.DATABASE_URL;
   });
 
   it("maps absolute minutes to dayIndex", () => {
