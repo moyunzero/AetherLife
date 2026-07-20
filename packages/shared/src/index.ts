@@ -243,6 +243,7 @@ export {
   playerRequestsInteract,
   playerRequestsMove,
   shouldSkipMemoryContext,
+  type DialogueTurn,
   type SpeakIntentValue,
 } from "./speakIntent.js";
 

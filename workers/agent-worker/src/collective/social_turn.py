@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -45,8 +46,34 @@ class CollectiveApplyResult:
     player_reputation: int | None = None
 
 
+_HELP_OFFER_RE = re.compile(r"(?:我可以|我能|我愿意|我想|我来|让我)(?:帮|协助)")
+# Avoid narrative false positives: 帮别人 / 帮腔 — require 帮 + request pronoun/cue.
+_HELP_REQUEST_FALLBACK_RE = re.compile(r"帮[我你他她它个一上下把忙]")
+
+
+def player_offers_help(message: str) -> bool:
+    """Player volunteers to help the NPC — not a help request."""
+    msg = (message or "").strip()
+    if not msg:
+        return False
+    if _HELP_OFFER_RE.search(msg):
+        return True
+    if msg.startswith("我帮你"):
+        return True
+    if msg.startswith("帮你"):
+        return True
+    return False
+
+
 def _message_implies_help_request(msg: str) -> bool:
-    if "帮" in msg:
+    if player_offers_help(msg):
+        return False
+    if any(
+        marker in msg
+        for marker in ("帮帮我", "帮个忙", "请帮", "你能帮", "能帮我", "能请你帮", "帮忙")
+    ):
+        return True
+    if _HELP_REQUEST_FALLBACK_RE.search(msg):
         return True
     if "请" not in msg:
         return False

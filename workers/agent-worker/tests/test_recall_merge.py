@@ -140,6 +140,21 @@ def test_extract_food_preference():
     assert extract_food_preference("npc: 你没告诉过我你喜欢吃什么。") is None
 
 
+def test_augment_dialogue_turns_includes_npc_lines():
+    recent_turns = [
+        {"role": "player", "text": "干嘛呢？"},
+        {
+            "role": "npc",
+            "text": "呀！我正在嚼着草莓棒棒糖，想着怎么才能把这里的系统黑掉，超级有趣的对吧！",
+        },
+    ]
+    merged = augment_retrieved_with_dialogue_turns([], recent_turns)
+    texts = [row["text"] for row in merged]
+    assert any(t.startswith("player:") for t in texts)
+    assert any(t.startswith("npc:") and "系统黑掉" in t for t in texts)
+    assert all(len(t) <= 130 for t in texts)
+
+
 def test_merge_recall_mango_over_watermelon_with_dialogue_turns():
     """Mango disclosed in-session but not yet in DB — dialogue turns must win."""
     db_augmented = [

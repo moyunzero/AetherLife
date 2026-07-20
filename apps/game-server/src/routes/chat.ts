@@ -11,6 +11,7 @@ import {
 } from "../colyseus/npc-chat.js";
 import { getColyseusRoom } from "../colyseus/room-registry.js";
 import type { GameRoom } from "../colyseus/GameRoom.js";
+import { getRecentTurns } from "../npc/dialogue-session.js";
 import { playerIdFromRequest } from "../http/player-id.js";
 import { getOrCreate } from "../room/store.js";
 import { emitJobEvent, subscribeJobEvents } from "../sse/hub.js";
@@ -55,7 +56,8 @@ export function createChatRouter(): Router {
 
     let speakAcquired = Boolean(colyseusRoom);
     try {
-      const casualStub = previewCasualSpeakStub(message);
+      const recentTurns = getRecentTurns(roomId, playerId, npcId, 10);
+      const casualStub = previewCasualSpeakStub(message, recentTurns);
       if (colyseusRoom) {
         registerJob(jobId, colyseusRoom, roomId, undefined, {
           npcId,

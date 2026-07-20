@@ -6,12 +6,12 @@ import re
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-from src.collective.social_turn import infer_social_from_message
+from src.collective.social_turn import infer_social_from_message, player_offers_help
 
 if TYPE_CHECKING:
     from src.collective.schemas import SocialTurnOut
 from src.graph.action_intent import player_requests_physical_action
-from src.graph.recall_merge import _RECALL_MARKERS, is_recall_question
+from src.graph.recall_merge import is_recall_question
 
 _CASUAL_GREETING_ONLY_RE = re.compile(
     r"^(你好(呀|啊|哦|呐|呢)?|嗨(呀|啊)?|hello|hi|hey|早上好|晚上好|下午好|在吗|在不在)([～!！?？。…]*)?$",
@@ -51,8 +51,7 @@ def classify_speak_intent(
     message: str,
     recent_turns: list | None = None,
 ) -> SpeakIntent:
-    """Order: PHYSICAL → RECALL → SOCIAL_EDGE → CASUAL → NARRATIVE (default)."""
-    del recent_turns  # reserved for future context-aware routing
+    """Order: PHYSICAL → RECALL → continuation → SOCIAL_EDGE → CASUAL → NARRATIVE (default)."""
     msg = (message or "").strip()
     if not msg:
         return SpeakIntent.NARRATIVE
@@ -60,6 +59,8 @@ def classify_speak_intent(
         return SpeakIntent.PHYSICAL
     if is_recall_question(msg):
         return SpeakIntent.RECALL
+    if recent_turns and len(msg) < 20 and infer_social_from_message(msg) is None:
+        return SpeakIntent.NARRATIVE
     if infer_social_from_message(msg) is not None:
         return SpeakIntent.SOCIAL_EDGE
     if is_casual_greeting_only(msg):
@@ -98,10 +99,13 @@ def can_use_casual_fast_lane(
     intent = classify_speak_intent(player_message, recent_turns)
     if intent != SpeakIntent.CASUAL:
         return intent, None
+    if recent_turns:
+        return intent, None
     turn: SocialTurnOut | None = _deterministic_social_turn(
         player_message,
         speak_intent=intent.value,
         npc_id=npc_id,
+        recent_turns=recent_turns,
     )
     if turn is None:
         return intent, None
@@ -120,10 +124,13 @@ def can_use_social_edge_fast_lane(
     intent = classify_speak_intent(player_message, recent_turns)
     if intent != SpeakIntent.SOCIAL_EDGE:
         return intent, None
+    if recent_turns or player_offers_help(player_message):
+        return intent, None
     turn: SocialTurnOut | None = _deterministic_social_turn(
         player_message,
         speak_intent=intent.value,
         npc_id=npc_id,
+        recent_turns=recent_turns,
     )
     if turn is None or turn.social.kind == "ignore":
         return intent, None

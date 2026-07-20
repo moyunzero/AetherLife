@@ -41,6 +41,7 @@ import {
   type RoomNpc,
   type RoomStateShape,
   type UseNpcChatOptions,
+  recentDialogueTurnsForNpc,
 } from "./npcChat/index.js";
 
 export type {
@@ -88,6 +89,8 @@ export function useNpcChat(
     };
   }, []);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const messagesRef = useRef<ChatMessage[]>([]);
+  messagesRef.current = messages;
   const [status, setStatus] = useState<ChatStatus>("idle");
   const [roomState, setRoomState] = useState<RoomStateShape | null>(null);
   const [memoryCounts, setMemoryCounts] = useState<Record<string, number>>({});
@@ -134,7 +137,7 @@ export function useNpcChat(
       if (opts?.showPlayerBubble !== false) {
         setMessages((prev) => [
           ...prev,
-          { id: crypto.randomUUID(), role: "player", text },
+          { id: crypto.randomUUID(), role: "player", text, npcId },
         ]);
       }
     },
@@ -497,7 +500,7 @@ export function useNpcChat(
       if (!opts?.skipPlayerBubble) {
         setMessages((prev) => [
           ...prev,
-          { id: crypto.randomUUID(), role: "player", text: trimmed },
+          { id: crypto.randomUUID(), role: "player", text: trimmed, npcId },
         ]);
       }
       inFlightTextRef.current.set(npcId, trimmed);
@@ -518,7 +521,8 @@ export function useNpcChat(
         window.__speakLatencyT0 = performance.now();
       }
 
-      const clientStub = previewCasualSpeakStub(trimmed);
+      const recentTurns = recentDialogueTurnsForNpc(messagesRef.current, npcId);
+      const clientStub = previewCasualSpeakStub(trimmed, recentTurns);
       if (clientStub) {
         setStreamingByNpc((prev) => ({
           ...prev,

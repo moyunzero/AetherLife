@@ -7,6 +7,7 @@ export type {
   RoomStateShape,
   UseNpcChatOptions,
 } from "./types.js";
+export { recentDialogueTurnsForNpc } from "./dialogueTurns.js";
 export { attitudeGateHintCopy } from "./attitudeGate.js";
 export {
   dequeueNpcSpeak,

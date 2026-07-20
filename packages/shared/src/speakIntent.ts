@@ -10,6 +10,9 @@ export const SpeakIntent = {
 
 export type SpeakIntentValue = (typeof SpeakIntent)[keyof typeof SpeakIntent];
 
+/** Short-term dialogue turn — mirrors game-server dialogue-session + worker recent_turns. */
+export type DialogueTurn = { role: "player" | "npc"; text: string };
+
 const RECALL_MARKERS = [
   "记得",
   "还记得",
@@ -74,7 +77,53 @@ const INTERACT_PATTERNS: RegExp[] = [
   /\binteract\b/i,
 ];
 
-const INSULT_MARKERS = ["丑", "滚", "蠢", "有病", "变态", "活该", "什么玩意", "傻", "废物", "去死"];
+const INSULT_MARKERS = [
+  "粗鲁",
+  "丑",
+  "滚",
+  "蠢",
+  "有病",
+  "变态",
+  "活该",
+  "什么玩意",
+  "傻",
+  "废物",
+  "去死",
+  "讨厌",
+  "笨蛋",
+  "侮辱",
+  "辱骂",
+];
+
+const HELP_OFFER_RE = /(?:我可以|我能|我愿意|我想|我来|让我)(?:帮|协助)/;
+/** Avoid narrative false positives (帮别人 / 帮腔) — 帮 + request pronoun/cue only. */
+const HELP_REQUEST_FALLBACK_RE = /帮[我你他她它个一上下把忙]/;
+
+/** Player volunteers to help the NPC — not a help request. Mirrors social_turn.player_offers_help */
+export function playerOffersHelp(message: string): boolean {
+  const msg = (message || "").trim();
+  if (!msg) return false;
+  if (HELP_OFFER_RE.test(msg)) return true;
+  if (msg.startsWith("我帮你")) return true;
+  if (msg.startsWith("帮你")) return true;
+  return false;
+}
+
+function messageImpliesHelpRequest(message: string): boolean {
+  const msg = (message || "").trim();
+  if (!msg || playerOffersHelp(msg)) return false;
+  if (
+    ["帮帮我", "帮个忙", "请帮", "你能帮", "能帮我", "能请你帮", "帮忙"].some((marker) =>
+      msg.includes(marker),
+    )
+  ) {
+    return true;
+  }
+  if (HELP_REQUEST_FALLBACK_RE.test(msg)) return true;
+  if (!msg.includes("请")) return false;
+  const normalized = msg.replace(/回复/g, "").replace(/请假/g, "");
+  return normalized.includes("请");
+}
 
 export function playerRequestsMove(message: string): boolean {
   const text = (message || "").trim();
@@ -103,7 +152,7 @@ export function inferSocialFromMessage(message: string): "rude" | "help" | null 
   const msg = (message || "").trim();
   if (!msg) return null;
   if (INSULT_MARKERS.some((marker) => msg.includes(marker))) return "rude";
-  if (msg.includes("帮") || msg.includes("请")) return "help";
+  if (messageImpliesHelpRequest(msg)) return "help";
   return null;
 }
 
@@ -114,11 +163,17 @@ export function isCasualGreetingOnly(message: string): boolean {
   return CASUAL_GREETING_ONLY_RE.test(msg);
 }
 
-export function classifySpeakIntent(message: string): SpeakIntentValue {
+export function classifySpeakIntent(
+  message: string,
+  recentTurns?: readonly DialogueTurn[] | null,
+): SpeakIntentValue {
   const msg = (message || "").trim();
   if (!msg) return SpeakIntent.NARRATIVE;
   if (playerRequestsPhysicalAction(msg)) return SpeakIntent.PHYSICAL;
   if (isRecallQuestion(msg)) return SpeakIntent.RECALL;
+  if (recentTurns?.length && msg.length < 20 && inferSocialFromMessage(msg) === null) {
+    return SpeakIntent.NARRATIVE;
+  }
   if (inferSocialFromMessage(msg) !== null) return SpeakIntent.SOCIAL_EDGE;
   if (isCasualGreetingOnly(msg)) return SpeakIntent.CASUAL;
   if (META_BRIEF_RE.test(msg)) return SpeakIntent.CASUAL;

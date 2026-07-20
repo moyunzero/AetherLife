@@ -8,10 +8,10 @@ import time
 from typing import Any
 
 import httpx
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from src.collective.schemas import SOCIAL_SKIP_KIND, SocialPerception, SocialTurnOut
-from src.collective.social_turn import infer_social_from_message, reconcile_social_perception
+from src.collective.social_turn import infer_social_from_message, player_offers_help, reconcile_social_perception
 from src.config import Settings, get_settings
 from src.graph.action_intent import (
     build_dialogue_context,
@@ -24,6 +24,7 @@ from src.graph.action_intent import (
 )
 from src.graph.job_context import get_partial_emit, record_phase_ms
 from src.graph.recall_merge import is_recall_question
+from src.graph.prompt import SOCIAL_DIALOGUE_CONTEXT_APPEND, append_recent_dialogue_messages
 from src.graph.speak_intent import SpeakIntent, is_casual_greeting_only
 from src.graph.stable_string_hash import stable_string_hash
 from src.graph.speak_system_context import (
@@ -160,6 +161,7 @@ def _deterministic_social_turn(
     *,
     speak_intent: str = "",
     npc_id: str = "npc-1",
+    recent_turns: list | None = None,
 ) -> SocialTurnOut | None:
     """Rule-based social + reply — skip social LLM when heuristics are sufficient."""
     msg = player_message.strip()
@@ -167,6 +169,8 @@ def _deterministic_social_turn(
         return None
     inferred = infer_social_from_message(msg)
     if inferred is not None:
+        if (recent_turns or player_offers_help(msg)) and inferred.kind in ("rude", "help"):
+            return None
         if inferred.kind == "rude":
             reply = "请不要这样说话。"
         elif inferred.kind == "help":
@@ -176,6 +180,9 @@ def _deterministic_social_turn(
         else:
             reply = f"我听到了：{msg[:120]}"
         return SocialTurnOut(social=inferred, reply=reply)
+    # With session history, never emit CASUAL/meta stubs — interactive LLM must see turns.
+    if recent_turns:
+        return None
     if speak_intent == SpeakIntent.CASUAL.value or _META_BRIEF_RE.search(msg):
         if not player_requests_physical_action(msg):
             return SocialTurnOut(
@@ -302,12 +309,18 @@ def _build_social_messages(
     state: GraphState,
     *,
     system_append: str = "",
-) -> list[SystemMessage | HumanMessage]:
+) -> list[SystemMessage | HumanMessage | AIMessage]:
+    dialogue_append = SOCIAL_DIALOGUE_CONTEXT_APPEND
+    combined_append = (
+        f"{system_append}\n\n{dialogue_append}".strip()
+        if system_append.strip()
+        else dialogue_append
+    )
     system_text = build_speak_system_context(
         state,
         base_prompt=SOCIAL_SYSTEM_PROMPT,
         memory_suffix=SOCIAL_MEMORY_RECALL_HINT,
-        system_append=system_append,
+        system_append=combined_append,
     )
     player_message = state.get("player_message") or ""
     human = (
@@ -315,10 +328,12 @@ def _build_social_messages(
         "Respond with JSON only. Put \"reply\" as the first key, then \"social\".\n"
         'Example: {"reply":"…","social":{"kind":"ignore","summary":"","delta":0}}'
     )
-    return [
+    messages: list[SystemMessage | HumanMessage | AIMessage] = [
         SystemMessage(content=system_text),
-        HumanMessage(content=human),
     ]
+    append_recent_dialogue_messages(messages, state.get("recent_turns"))
+    messages.append(HumanMessage(content=human))
+    return messages
 
 
 def run_social_turn_llm(
@@ -611,6 +626,7 @@ def llm_social_turn(state: GraphState, *, settings: Settings | None = None) -> G
         player_message,
         speak_intent=speak_intent,
         npc_id=state.get("npc_id") or "npc-1",
+        recent_turns=state.get("recent_turns"),
     )
     if deterministic is not None:
         record_phase_ms("t_social_llm_ms", 0)

@@ -30,6 +30,7 @@ import {
   validateChatMessage,
   validateChatNpcId,
 } from "./npc-chat.js";
+import { getRecentTurns } from "../npc/dialogue-session.js";
 import {
   getColyseusRoom,
   tryClaimMapRoom,
@@ -278,7 +279,8 @@ export class GameRoom extends Room {
         });
         // speakAck before Redis enqueue — fast-lane worker can finish before LPUSH returns otherwise.
         client.send(COLYSEUS_SERVER_MESSAGES.speakAck, { jobId, npcId });
-        const casualStub = previewCasualSpeakStub(text);
+        const recentTurns = getRecentTurns(this.mapRoomId, playerId, npcId, 10);
+        const casualStub = previewCasualSpeakStub(text, recentTurns);
         if (casualStub) {
           emitJobEvent(jobId, "speakPartial", { text: casualStub, npcId });
         }

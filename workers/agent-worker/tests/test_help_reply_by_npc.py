@@ -1,5 +1,5 @@
 from src.graph.nodes.llm_social_turn import _deterministic_social_turn
-from src.graph.speak_intent import can_use_social_edge_fast_lane
+from src.graph.speak_intent import SpeakIntent, can_use_social_edge_fast_lane
 
 
 def test_help_fast_lane_reply_varies_by_npc():
@@ -16,3 +16,44 @@ def test_farm_relay_not_help_fast_lane():
     intent, turn = can_use_social_edge_fast_lane(msg, npc_id="npc-2")
     assert turn is None
     assert intent.value == "physical"
+
+
+def test_help_offer_not_social_edge_fast_lane():
+    intent, turn = can_use_social_edge_fast_lane("我可以帮你！", npc_id="npc-4")
+    assert intent == SpeakIntent.NARRATIVE
+    assert turn is None
+
+
+def test_uat_hack_thread_offer_no_deterministic_stub():
+    history = [
+        {"role": "player", "text": "干嘛呢？"},
+        {"role": "npc", "text": "呀！我正在嚼着草莓棒棒糖，想着怎么才能把这里的系统黑掉"},
+    ]
+    intent, turn = can_use_social_edge_fast_lane("我可以帮你！", recent_turns=history, npc_id="npc-4")
+    assert turn is None
+    stub = _deterministic_social_turn("我可以帮你！", recent_turns=history, npc_id="npc-4")
+    assert stub is None
+
+
+def test_deterministic_casual_blocked_with_history():
+    history = [
+        {"role": "player", "text": "干嘛呢？"},
+        {"role": "npc", "text": "在忙"},
+    ]
+    msg = "你好，用一句话简短回复一下你的计划安排吧"
+    stub = _deterministic_social_turn(
+        msg,
+        speak_intent=SpeakIntent.CASUAL.value,
+        recent_turns=history,
+        npc_id="npc-1",
+    )
+    assert stub is None
+    # First-turn CASUAL still allowed
+    first = _deterministic_social_turn(
+        msg,
+        speak_intent=SpeakIntent.CASUAL.value,
+        recent_turns=[],
+        npc_id="npc-1",
+    )
+    assert first is not None
+    assert first.reply

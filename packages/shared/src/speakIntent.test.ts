@@ -6,6 +6,8 @@ import {
 } from "./casualSpeakStub.js";
 import {
   classifySpeakIntent,
+  inferSocialFromMessage,
+  playerOffersHelp,
   shouldSkipMemoryContext,
   SpeakIntent,
 } from "./speakIntent.js";
@@ -39,7 +41,43 @@ describe("classifySpeakIntent", () => {
     expect(classifySpeakIntent("请帮帮我")).toBe(SpeakIntent.SOCIAL_EDGE);
     expect(classifySpeakIntent("滚开")).toBe(SpeakIntent.SOCIAL_EDGE);
     expect(classifySpeakIntent("你真蠢")).toBe(SpeakIntent.SOCIAL_EDGE);
+    expect(classifySpeakIntent("你真粗鲁")).toBe(SpeakIntent.SOCIAL_EDGE);
     expect(classifySpeakIntent("能请你帮个忙吗")).toBe(SpeakIntent.SOCIAL_EDGE);
+  });
+
+  it("continuation short with history routes to narrative", () => {
+    const history = [
+      { role: "player" as const, text: "干嘛呢？" },
+      { role: "npc" as const, text: "在忙" },
+    ];
+    expect(classifySpeakIntent("好的", history)).toBe(SpeakIntent.NARRATIVE);
+    expect(classifySpeakIntent("你好", history)).toBe(SpeakIntent.NARRATIVE);
+  });
+
+  it("help offer is not social edge", () => {
+    expect(playerOffersHelp("我可以帮你！")).toBe(true);
+    expect(playerOffersHelp("我能帮你！")).toBe(true);
+    expect(playerOffersHelp("我愿意帮你")).toBe(true);
+    expect(playerOffersHelp("我想帮你")).toBe(true);
+    expect(playerOffersHelp("我来帮")).toBe(true);
+    expect(playerOffersHelp("让我帮你")).toBe(true);
+    expect(playerOffersHelp("请帮帮我")).toBe(false);
+    expect(inferSocialFromMessage("我可以帮你！")).toBeNull();
+    expect(inferSocialFromMessage("我能帮你！")).toBeNull();
+    expect(inferSocialFromMessage("我愿意帮你")).toBeNull();
+    expect(inferSocialFromMessage("我想帮你")).toBeNull();
+    expect(inferSocialFromMessage("请帮帮我")).toBe("help");
+    expect(classifySpeakIntent("我可以帮你！")).toBe(SpeakIntent.NARRATIVE);
+    expect(classifySpeakIntent("我能帮你！")).toBe(SpeakIntent.NARRATIVE);
+    expect(classifySpeakIntent("我愿意帮你")).toBe(SpeakIntent.NARRATIVE);
+    expect(classifySpeakIntent("我想帮你")).toBe(SpeakIntent.NARRATIVE);
+    expect(classifySpeakIntent("我来帮")).toBe(SpeakIntent.NARRATIVE);
+  });
+
+  it("narrative bang compounds are not help requests", () => {
+    expect(inferSocialFromMessage("帮别人做事")).toBeNull();
+    expect(inferSocialFromMessage("别在这里帮腔")).toBeNull();
+    expect(classifySpeakIntent("帮别人做事")).toBe(SpeakIntent.NARRATIVE);
   });
 
   it("casual intent", () => {
@@ -99,6 +137,16 @@ describe("casual reply pool", () => {
     expect(previewCasualSpeakStub("你在做什么呢？")).toBeNull();
     expect(previewCasualSpeakStub("你好狂啊～")).toBeNull();
     expect(previewCasualSpeakStub("在啥啊")).toBeNull();
+    expect(previewCasualSpeakStub("我可以帮你！")).toBeNull();
+  });
+
+  it("preview casual stub blocked with recent turns", () => {
+    const history = [
+      { role: "player" as const, text: "干嘛呢？" },
+      { role: "npc" as const, text: "在忙" },
+    ];
+    expect(previewCasualSpeakStub("你好", history)).toBeNull();
+    expect(canUseCasualFastLane("你好，用一句话简短回复", history)).toBeNull();
   });
 
   it("can use casual fast lane b1", () => {
