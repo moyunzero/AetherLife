@@ -6,8 +6,10 @@ import {
   classifySpeakIntent,
   inferSocialFromMessage,
   isCasualGreetingOnly,
+  playerOffersHelp,
   playerRequestsPhysicalAction,
   SpeakIntent,
+  type DialogueTurn,
   type SpeakIntentValue,
 } from "./speakIntent.js";
 import { stableStringHash } from "./stableStringHash.js";
@@ -54,7 +56,10 @@ function deterministicSocialReply(message: string, speakIntent: SpeakIntentValue
   const inferred = inferSocialFromMessage(msg);
   if (inferred !== null) {
     if (inferred === "rude") return "请不要这样说话。";
-    if (inferred === "help") return "好的，我会尽力帮忙。";
+    if (inferred === "help") {
+      if (playerOffersHelp(msg)) return null;
+      return "好的，我会尽力帮忙。";
+    }
     return `我听到了：${msg.slice(0, 120)}`;
   }
 
@@ -72,8 +77,12 @@ function deterministicSocialReply(message: string, speakIntent: SpeakIntentValue
 }
 
 /** Early speakPartial text for CASUAL deterministic turns. */
-export function previewCasualSpeakStub(message: string): string | null {
-  const intent = classifySpeakIntent(message);
+export function previewCasualSpeakStub(
+  message: string,
+  recentTurns?: readonly DialogueTurn[] | null,
+): string | null {
+  if (recentTurns?.length) return null;
+  const intent = classifySpeakIntent(message, recentTurns);
   if (intent !== SpeakIntent.CASUAL) return null;
   return deterministicSocialReply(message, intent);
 }
@@ -83,8 +92,12 @@ export type CasualFastLanePreview = {
   stub: string;
 };
 
-export function canUseCasualFastLane(message: string): CasualFastLanePreview | null {
-  const intent = classifySpeakIntent(message);
+export function canUseCasualFastLane(
+  message: string,
+  recentTurns?: readonly DialogueTurn[] | null,
+): CasualFastLanePreview | null {
+  if (recentTurns?.length) return null;
+  const intent = classifySpeakIntent(message, recentTurns);
   if (intent !== SpeakIntent.CASUAL) return null;
   const stub = deterministicSocialReply(message, intent);
   if (!stub) return null;

@@ -20,6 +20,31 @@ NPC_SYSTEM_PROMPT = """你是「以太人生」中的 NPC 助手。
 
 RECENT_DIALOGUE_TURN_LIMIT = 10
 
+SOCIAL_DIALOGUE_CONTEXT_APPEND = """\
+Recent dialogue 是真实会话历史。请针对玩家**最新一条**消息作答，结合上文语境；勿复读上一轮几乎相同的回复。
+若玩家主动提出帮助（如「我可以帮你」），须以第一人称接受或回应，**禁止**像玩家向你求助一样说「我会尽力帮你」。"""
+
+
+def append_recent_dialogue_messages(
+    messages: list[SystemMessage | HumanMessage | AIMessage],
+    recent_turns: list | dict[str, str] | None,
+    *,
+    limit: int = RECENT_DIALOGUE_TURN_LIMIT,
+) -> None:
+    """Append Human/AI alternating chain from in-session transcript."""
+    turns = recent_turns if isinstance(recent_turns, list) else []
+    for turn in turns[-limit:]:
+        if not isinstance(turn, dict):
+            continue
+        role = (turn.get("role") or "").strip()
+        text = (turn.get("text") or "").strip()
+        if not text:
+            continue
+        if role == "player":
+            messages.append(HumanMessage(content=text))
+        elif role == "npc":
+            messages.append(AIMessage(content=text))
+
 
 def format_memory_summary(
     *,
@@ -151,16 +176,7 @@ def build_turn_messages(state: GraphState) -> list[SystemMessage | HumanMessage 
         SystemMessage(content=system_text)
     ]
 
-    recent = state.get("recent_turns") or []
-    for turn in recent[-RECENT_DIALOGUE_TURN_LIMIT:]:
-        role = (turn.get("role") or "").strip()
-        text = (turn.get("text") or "").strip()
-        if not text:
-            continue
-        if role == "player":
-            messages.append(HumanMessage(content=text))
-        elif role == "npc":
-            messages.append(AIMessage(content=text))
+    append_recent_dialogue_messages(messages, state.get("recent_turns"))
 
     player_message = state.get("player_message") or ""
     human_text = f"Player message: {player_message}\n\nRoom snapshot (JSON):\n{room_json}"

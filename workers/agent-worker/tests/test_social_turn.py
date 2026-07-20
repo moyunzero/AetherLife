@@ -9,6 +9,7 @@ from src.collective.social_turn import (
     compute_applied_delta,
     infer_social_from_message,
     personality_multiplier,
+    player_offers_help,
     reconcile_social_perception,
     refresh_collective_snapshot,
 )
@@ -131,3 +132,38 @@ def test_infer_help_not_triggered_by_hui_fu_substring():
     assert infer_social_from_message("你好，用一句话简短回复") is None
     assert infer_social_from_message("请帮帮我") is not None
     assert infer_social_from_message("请帮帮我").kind == "help"
+
+
+def test_player_offers_help_detection():
+    assert player_offers_help("我可以帮你！")
+    assert player_offers_help("我能帮你")
+    assert player_offers_help("我愿意帮你")
+    assert player_offers_help("我想帮你")
+    assert player_offers_help("我来帮")
+    assert player_offers_help("让我帮你")
+    assert player_offers_help("我帮你看看")
+    assert not player_offers_help("请帮帮忙")
+    assert not player_offers_help("帮帮我")
+    assert not player_offers_help("你能帮我吗")
+
+
+def test_infer_help_offer_not_request():
+    assert infer_social_from_message("我可以帮你！") is None
+    assert infer_social_from_message("我能帮你") is None
+    assert infer_social_from_message("我愿意帮你") is None
+    assert infer_social_from_message("我想帮你") is None
+    assert infer_social_from_message("我来帮") is None
+    assert infer_social_from_message("让我帮你") is None
+
+
+def test_infer_help_request_still_detected():
+    for msg in ("请帮帮忙", "帮帮我", "你能帮我吗", "能请你帮个忙吗"):
+        inferred = infer_social_from_message(msg)
+        assert inferred is not None
+        assert inferred.kind == "help"
+        assert inferred.summary == "玩家请求帮助"
+
+
+def test_infer_help_not_triggered_by_narrative_bang_compounds():
+    assert infer_social_from_message("帮别人做事") is None
+    assert infer_social_from_message("别在这里帮腔") is None

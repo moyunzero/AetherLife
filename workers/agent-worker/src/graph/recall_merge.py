@@ -318,27 +318,31 @@ def augment_retrieved_with_dialogue_turns(
     retrieved: list[dict[str, Any]] | None,
     recent_turns: list[dict[str, str]] | None,
 ) -> list[dict[str, Any]]:
-    """Merge in-session player turns ahead of DB/embed rows (memory tail may lag)."""
+    """Merge in-session player/npc turns ahead of DB/embed rows (memory tail may lag)."""
     if not recent_turns:
         return list(retrieved or [])
 
     seen: set[str] = set()
     merged: list[dict[str, Any]] = []
-    player_texts: list[str] = []
+    session_texts: list[str] = []
     for turn in reversed(recent_turns):
         role = (turn.get("role") or "").lower()
-        if role != "player":
-            continue
         raw = str(turn.get("text") or "").strip()
         if not raw:
             continue
-        text = raw if raw.lower().startswith("player:") else f"player: {raw}"
+        if role == "player":
+            text = raw if raw.lower().startswith("player:") else f"player: {raw}"
+        elif role == "npc":
+            clipped = raw[:120]
+            text = clipped if clipped.lower().startswith("npc:") else f"npc: {clipped}"
+        else:
+            continue
         if text in seen:
             continue
         seen.add(text)
-        player_texts.append(text)
+        session_texts.append(text)
 
-    for idx, text in enumerate(player_texts):
+    for idx, text in enumerate(session_texts):
         merged.append(
             {
                 "text": text,

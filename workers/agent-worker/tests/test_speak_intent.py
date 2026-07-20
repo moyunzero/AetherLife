@@ -38,6 +38,12 @@ def test_social_edge_intent():
     assert classify_speak_intent("能请你帮个忙吗") == SpeakIntent.SOCIAL_EDGE
 
 
+def test_help_offer_not_social_edge():
+    assert classify_speak_intent("我可以帮你！") == SpeakIntent.NARRATIVE
+    assert classify_speak_intent("我来帮") == SpeakIntent.NARRATIVE
+    assert classify_speak_intent("让我帮你") == SpeakIntent.NARRATIVE
+
+
 def test_casual_intent():
     assert classify_speak_intent("你好") == SpeakIntent.CASUAL
     assert classify_speak_intent("Hi") == SpeakIntent.CASUAL
@@ -71,6 +77,24 @@ def test_can_use_casual_fast_lane_b1():
     assert intent == SpeakIntent.CASUAL
     assert turn is not None
     assert turn.reply
+
+
+def test_can_use_casual_fast_lane_b1_empty_history():
+    intent, turn = can_use_casual_fast_lane("你好", recent_turns=[])
+    assert intent == SpeakIntent.CASUAL
+    assert turn is not None
+
+
+def test_can_use_casual_fast_lane_blocked_with_history():
+    history = [{"role": "player", "text": "干嘛呢？"}, {"role": "npc", "text": "在忙"}]
+    intent, turn = can_use_casual_fast_lane("你好", recent_turns=history)
+    assert intent == SpeakIntent.NARRATIVE
+    assert turn is None
+
+
+def test_continuation_short_with_history():
+    history = [{"role": "player", "text": "干嘛呢？"}, {"role": "npc", "text": "在忙"}]
+    assert classify_speak_intent("好的", recent_turns=history) == SpeakIntent.NARRATIVE
 
 
 def test_can_use_casual_fast_lane_recall_blocked():
@@ -111,6 +135,13 @@ def test_can_use_social_edge_fast_lane_help():
     assert intent == SpeakIntent.SOCIAL_EDGE
     assert turn is not None
     assert turn.social.kind == "help"
+
+
+def test_can_use_social_edge_fast_lane_help_blocked_with_history():
+    history = [{"role": "player", "text": "干嘛呢？"}, {"role": "npc", "text": "在忙"}]
+    intent, turn = can_use_social_edge_fast_lane("请帮帮忙", recent_turns=history)
+    assert intent == SpeakIntent.SOCIAL_EDGE
+    assert turn is None
 
 
 def test_can_use_social_edge_fast_lane_narrative_blocked():

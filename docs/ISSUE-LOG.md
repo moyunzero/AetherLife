@@ -202,6 +202,7 @@
 112. **个人传记隔离**：`npc_personal_timeline` 是唯一个人人生时间线存储；**禁止**把个人 biography 写入 `__council__`（C-07）或玩家 speak `npc_memories`（C-05）。Worker/seed 只经 `insertPersonalTimelineEntry` / internal POST；改写路径须 `pnpm --filter @aetherlife/game-server test -- personal-timeline-repository`（含 isolation 源码断言）。
 113. **个人日记须按席位人设写**：weekly/polish/multi/rel/event prompt **必须** `persona_block_for`（speak mirror）；**禁止**无口吻的「人生札记」通稿导致 ENTJ/ESFP 写同款文艺腔（ISSUE-106）。周记须带 `recentBullets`；非廷议双边走 `kind=event` + `min_abs_delta=DYAD_REL_MIN_ABS_DELTA`（|Δ|≥4，禁止无关键词 casual mention）。回归：`pytest tests/test_personal_timeline.py tests/test_personal_timeline_rel07.py -q` · `pnpm --filter @aetherlife/game-server test -- personal-timeline-dyad personal-timeline-weekly`。
 114. **Personal-timeline job 入队须 durable claim**：`claimPersonalTimelineJobId` / worker `claim_personal_timeline_job_id`（SET NX，前缀 `aetherlife:personal-timeline:job-claimed:`）覆盖 polish/weekly/multi/rel/event **以及** dyad pair/ambient-slot；**禁止**仅靠进程内存 debounce（重启会重复 LPUSH → 重复 LLM 行）。传记 UI：fetch 失败须展示 error（勿静默空列表）；已缓存条目在 `personalTimelineSync` 时须后台 refetch。回归：`personal-timeline.claim.test.ts` · `personal-timeline-dyad.test.ts` · `usePersonalTimeline.test.ts` · `pnpm uat:phase27:persona-diary`。
+115. **Speak 多轮连贯（260720-m4b）**：interactive 路径 `llm_social_turn._build_social_messages` **必须**注入 `recent_turns` Human/AI 链（`append_recent_dialogue_messages`）；**禁止** help offer（`player_offers_help` /「我可以帮你」）走 SOCIAL_EDGE deterministic stub；`recent_turns` 非空时 **禁止** CASUAL/SOCIAL_EDGE fast lane（B1 例外：空历史纯问候）。`augment_retrieved_with_dialogue_turns` 须含 `npc:` 行。回归：`pytest tests/test_speak_intent.py tests/test_help_reply_by_npc.py tests/test_llm_social_memory.py tests/test_casual_fast_lane.py tests/test_recall_merge.py -q` · `pnpm --filter @aetherlife/shared test -- speakIntent` · `pnpm agent:verify`。
 
 ## 记录
 
@@ -2805,6 +2806,44 @@ Worker 主循环仅在 npc-turn 队列 **连续 5s 为空** 时才 `BLPOP` chunk
 **防复发**
 
 - Guardrail #113；C-11 人设日记 / event 行
+
+---
+
+### ISSUE-107 — Speak 多轮对话 stub 断链：「我可以帮你」回复反向
+
+- **状态:** fixed
+- **发现:** 2026-07-20
+- **阶段/范围:** speak intent / `llm_social_turn` / fast lane（worker + `packages/shared`）
+- **严重性:** major（对话连贯 / 人设）
+
+**复现**
+
+1. 对糖果说「干嘛呢？」→ NPC 正常回复想黑系统
+2. 接着说「我可以帮你！」
+3. NPC 回复「好的，我会尽力帮忙。」（像玩家在求助，忽略上文）
+
+**根因**
+
+- ISSUE-018 修复了 `build_turn_messages` 历史，但 interactive 主路径改用 `llm_social_turn._build_social_messages` 后**未注入 `recent_turns`**
+- `infer_social_from_message` 凡含「帮」即 help-request → SOCIAL_EDGE fast lane deterministic stub
+- Fast lane / `_deterministic_social_turn` 不读 session，npc-4 等席别落默认套话
+
+**修复**
+
+- `player_offers_help` 区分 offer vs request（TS/Python parity）
+- `recent_turns` 非空或 offer 时 gate CASUAL/SOCIAL_EDGE fast lane；continuation 短路
+- `_build_social_messages` + `append_recent_dialogue_messages` 注入 Human/AI 链；`augment_retrieved_with_dialogue_turns` 含 npc 行
+
+**验证**
+
+- `pnpm agent:verify`
+- `pnpm uat:speak-help-offer:playwright`（真实 LLM + Playwright；`pnpm dev:stack`）
+- `cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_speak_intent.py tests/test_help_reply_by_npc.py tests/test_llm_social_memory.py tests/test_casual_fast_lane.py tests/test_recall_merge.py tests/test_graph_tools.py -q`
+- `pnpm --filter @aetherlife/shared test -- speakIntent`
+
+**防复发**
+
+- Guardrail #115
 
 ---
 
