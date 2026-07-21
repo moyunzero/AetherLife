@@ -48,6 +48,7 @@ import { maybeEnqueuePersonalTimelineWeekly } from "../world/personal-timeline-w
 import {
   maybeEnqueueDyadFromAmbient,
 } from "../world/personal-timeline-dyad.js";
+import { maybeRunRelationshipDecay } from "../world/npc-relationship-decay.js";
 import { setNpcSpeakPhase } from "./speak-schema.js";
 
 export const AMBIENT_MS = 6000;
@@ -439,6 +440,16 @@ export class GameRoom extends Room {
     this.enqueueWorldVoteIfDue();
     this.enqueuePersonalTimelineWeeklyIfDue();
     this.enqueuePersonalTimelineDyadAmbientIfDue();
+    // D-DECAY-04: silent idle decay — no speak-slot defer, no LLM, no relationshipSync.
+    this.runRelationshipDecayIfDue();
+  }
+
+  /** Protected path: minimal monthly idle-decay hook only (Phase 28 plan 04). */
+  private runRelationshipDecayIfDue(): void {
+    const abs = getRoomVoteState(this.mapRoomId).absoluteGameMinute;
+    void maybeRunRelationshipDecay(this.mapRoomId, abs).catch((err) => {
+      console.error("[GameRoom] relationship decay failed", err);
+    });
   }
 
   private enqueueWorldVoteIfDue(): void {

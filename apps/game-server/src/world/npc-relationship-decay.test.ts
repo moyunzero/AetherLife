@@ -167,4 +167,15 @@ describe("npc-relationship-decay", () => {
     const idleFn = repo.slice(repo.indexOf("export async function applyIdleDecayDeltas"));
     expect(idleFn).not.toMatch(/applyDeltaToRow\(/);
   });
+
+  it("GameRoom ambient tick wires maybeRunRelationshipDecay without LLM", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const room = readFileSync(join(here, "../colyseus/GameRoom.ts"), "utf8");
+    expect(room).toMatch(/maybeRunRelationshipDecay/);
+    expect(room).toMatch(/runRelationshipDecayIfDue/);
+    // Decay call site must not gate on npcSpeakJobs (D-DECAY-04).
+    const method = room.slice(room.indexOf("private runRelationshipDecayIfDue"));
+    const body = method.slice(0, method.indexOf("private enqueueWorldVoteIfDue"));
+    expect(body).not.toMatch(/npcSpeakJobs/);
+  });
 });
