@@ -36,6 +36,7 @@ import {
 } from "./activityLabels.js";
 import {
   createMutualChatBubble,
+  hideMutualChatBubble,
   mutualChatBubbleY,
   showMutualChatBubble,
   updateMutualChatBubbleVisibility,
@@ -548,7 +549,12 @@ export class RoomScene extends Phaser.Scene {
       | null
       | undefined;
 
-    if (payload && payload.seq !== this.lastMutualChatBubbleSeq) {
+    // Ignore stale registry payloads (e.g. scene restart) — expired TTL must not re-show.
+    if (
+      payload &&
+      payload.seq !== this.lastMutualChatBubbleSeq &&
+      payload.expiresAt > Date.now()
+    ) {
       this.lastMutualChatBubbleSeq = payload.seq;
       this.presentMutualChatBubble(payload);
     }
@@ -1001,11 +1007,8 @@ export class RoomScene extends Phaser.Scene {
     ent.activityLabelTween = undefined;
     ent.intentLabelTween?.stop();
     ent.intentLabelTween = undefined;
-    const mutualHost = ent as MutualChatBubbleHost;
-    mutualHost.mutualChatBubbleTween?.stop();
-    mutualHost.mutualChatBubbleTween = undefined;
-    mutualHost.mutualChatBubbleHideTimer?.remove(false);
-    mutualHost.mutualChatBubbleHideTimer = undefined;
+    // Helper also hides the bubble; manual timer removal alone left it stuck visible.
+    hideMutualChatBubble(this, ent as MutualChatBubbleHost);
     ent.moveTween?.stop();
     ent.moveTween = undefined;
     this.tweens.killTweensOf(ent.ring);

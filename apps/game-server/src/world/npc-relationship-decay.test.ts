@@ -77,6 +77,13 @@ describe("npc-relationship-decay", () => {
     expect(Math.abs(step)).toBeLessThanOrEqual(3);
   });
 
+  it("positive affection already below band floor keeps drifting toward 0 (never snaps up)", () => {
+    // ally floor=40; affection 30 must decay to 29, not jump to 40.
+    expect(computeIdleDecayDelta(30, "ally", () => 0)).toBe(-1);
+    // At/above floor the floor still holds: 41 with step 3 stops at 40.
+    expect(computeIdleDecayDelta(41, "ally", () => 0.99)).toBe(-1);
+  });
+
   it("D-DECAY-03: decay does not bump last_interact_at (only real interact sources do)", async () => {
     await insertRelationshipEdge({
       roomId: ROOM,

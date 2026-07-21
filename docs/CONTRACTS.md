@@ -13,7 +13,7 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 | 层 | 契约 |
 |----|------|
 | **身份来源** | Colyseus `speak` → `playerId` → job payload `playerId` |
-| **状态读取** | speak 热路径：`GET /internal/rooms/:id/worker-state?skipNearbyLore=1`（默认）+ header `X-Player-Id` → `roomStateForInitiator` → `state.player` = 发起者实时格（无 memoryCounts）；NARRATIVE + lore markers 可 lazy `skipNearbyLore=0`；legacy/debug：`GET /rooms/:id/state` 仍可用 |
+| **状态读取** | speak 热路径：`GET /internal/rooms/:id/worker-state?skipNearbyLore=1`（默认）+ header `X-Player-Id` → `roomStateForInitiator` → `state.player` = 发起者实时格；`state.absoluteGameMinute` = 房间单调时钟（belief gate day-key / REL stamp）；无 memoryCounts；NARRATIVE + lore markers 可 lazy `skipNearbyLore=0`；legacy/debug：`GET /rooms/:id/state` 仍可用 |
 | **Pre-LLM 降级** | worker `fetch_state` 超时后返回进程内 stale snapshot（`_stale` / `_stale_age_ms`），**不得** hard-fail job；move 仍 `invalidateWorkerStateForPlayer` |
 | **Memory 热路径** | `GET .../memory-context`：`skipEmbed=1` 用于 CASUAL/SOCIAL_EDGE/NARRATIVE；RECALL 须 full embed；5s 进程内 cache；header `X-Speak-Hot-Path: 1` 优先 embed 队列 |
 | **Prompt** | 「我 / 下方 / 旁边」仅相对 **本次** `state.player`（见 `workers/.../prompt.py`） |
@@ -186,7 +186,7 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 | **种子** | 房间 **首次创建**（`getOrCreate`）异步 `seedCouncilRelationshipsIfNeeded`：从 registry `relationships[]` 映射 `base_tag` + 初始 `affection`/`trust`；**66 条边**（`COUNCIL_NPC_IDS` 全对）；幂等 `countRelationshipsForRoom >= 66` 跳过 |
 | **Registry 映射** | 种子读 registry 时用 `councilIndexEdgeIds`（席位序 npc-1…12）；**存储**仍用 `normalizeEdgeIds`（字符串序，满足 CHECK） |
 | **Worker 读** | `GET /internal/rooms/:roomId/npc-relationships`；`requireWorkerAuth`；可选 `?npcId=` + `limit` 返回 top-N by `|affection|` |
-| **Worker 写** | `POST /internal/rooms/:roomId/npc-relationships/apply-deltas`；body `{ deltas: RelationshipDeltaInput[], voteEpoch? }` → `{ linkedEdges }`；单次 `|affectionDelta| ≤ 15`；server clamp affection/trust；**仅** worker `world_vote` job 异步调用 — **禁止** Colyseus `onMessage` |
+| **Worker 写** | `POST /internal/rooms/:roomId/npc-relationships/apply-deltas`；body `{ deltas: RelationshipDeltaInput[], voteEpoch? }` → `{ linkedEdges }`；单次 `|affectionDelta| ≤ 15`；server clamp affection/trust；route **必须** stamp `lastInteractAbs` 为 `getRoomVoteState(roomId).absoluteGameMinute`；**仅** worker 异步调用 — **禁止** Colyseus `onMessage` |
 | **UI linkedEdges** | Worker **全量** apply-deltas 后，`councilDeliberationSync.linkedEdges` 仅广播 `filter_linked_edges_for_ui(top_k=8, min_abs=8)` 子集；名册 hint 用 broadcast 子集，**非** apply 响应全边 |
 | **Reset** | `POST /rooms/:id/reset` **不得**删除 `npc_relationships`（room-shared，与 `world_history` / `__council__` 同类保留） |
 | **UI** | 客户端 **无**公开 REST；`linkedEdges` 仅经 `councilDeliberationSync` 广播；名册 `council-roster-relationship-hint`（`linkedEdges` 上次 vote job）subtle hint only |

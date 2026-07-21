@@ -308,8 +308,13 @@ export function ChatPage() {
   const [relationshipGraphMode, setRelationshipGraphMode] =
     useState<RelationshipGraphMode>("ego");
 
+  // Reset center/mode only on tab focus transition — never mid-session when
+  // activeNpcId changes, so the user's selected center survives.
+  const relationshipsTabWasFocusedRef = useRef(false);
   useEffect(() => {
-    if (!relationshipsTabFocused) return;
+    const wasFocused = relationshipsTabWasFocusedRef.current;
+    relationshipsTabWasFocusedRef.current = relationshipsTabFocused;
+    if (!relationshipsTabFocused || wasFocused) return;
     setRelationshipCenterNpcId(
       resolveDefaultCenterNpcId(activeNpcId, lastRosterNpcId),
     );

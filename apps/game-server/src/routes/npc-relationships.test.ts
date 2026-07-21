@@ -16,12 +16,18 @@ import { GameRoomState, PlayerSchema } from "../colyseus/schema.js";
 import { clearAllRooms } from "../room/store.js";
 import {
   clearNpcRelationshipsMemory,
+  getLastInteractAbsMinute,
   insertRelationshipEdge,
 } from "../world/npc-relationships-repository.js";
 import {
   broadcastRelationshipSync,
 } from "../world/relationship-broadcast.js";
 import * as relationshipBroadcast from "../world/relationship-broadcast.js";
+import {
+  clearRoomVoteStateForTests,
+  getRoomVoteState,
+  tickRoomVoteClock,
+} from "../world/world-vote-state.js";
 
 const ROOM = "room-rel-http";
 const PLAYER = "player-alpha01";
@@ -35,6 +41,7 @@ describe("npc-relationships routes (C-09b)", () => {
     clearAllRooms();
     clearColyseusRoomRegistry();
     clearNpcRelationshipsMemory();
+    clearRoomVoteStateForTests();
   });
 
   it("D-API-01/03: GET /rooms/:roomId/npc-relationships requires joined-room / session scope", async () => {
@@ -180,5 +187,30 @@ describe("npc-relationships routes (C-09b)", () => {
     expect(res.body.linkedEdges.length).toBeGreaterThan(0);
     expect(spy).toHaveBeenCalledWith(ROOM, { hasUpdate: true });
     spy.mockRestore();
+  });
+
+  it("apply-deltas stamps last-interact with room absoluteGameMinute (decay idle guard)", async () => {
+    await insertRelationshipEdge({
+      roomId: ROOM,
+      npcAId: "npc-5",
+      npcBId: "npc-6",
+      baseTag: "ally",
+      affection: 10,
+      trust: 50,
+    });
+
+    // Advance room clock to a non-zero minute.
+    for (let i = 0; i < 2500; i++) tickRoomVoteClock(ROOM);
+    const expectedAbs = getRoomVoteState(ROOM).absoluteGameMinute;
+    expect(expectedAbs).toBeGreaterThan(0);
+
+    const res = await request(app)
+      .post(`/internal/rooms/${ROOM}/npc-relationships/apply-deltas`)
+      .send({
+        deltas: [{ npcAId: "npc-5", npcBId: "npc-6", affectionDelta: 2 }],
+      });
+
+    expect(res.status).toBe(200);
+    expect(getLastInteractAbsMinute(ROOM, "npc-5", "npc-6")).toBe(expectedAbs);
   });
 });

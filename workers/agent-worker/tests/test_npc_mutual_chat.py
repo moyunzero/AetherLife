@@ -114,7 +114,7 @@ def test_mutual_chat_applies_deltas_and_thresholds(monkeypatch: pytest.MonkeyPat
     assert enqueued[0]["min_abs_delta"] == 4
     assert enqueued[0]["affection_delta"] == 5
 
-    hint_posts = [p for p in client.posts if "linked-edges-hint" in p["url"] or "relationship-linked-hint" in p["url"]]
+    hint_posts = [p for p in client.posts if "linked-edges-hint" in p["url"]]
     assert hint_posts == []
     assert filter_calls == []
 
@@ -138,11 +138,7 @@ def test_mutual_chat_applies_deltas_and_thresholds(monkeypatch: pytest.MonkeyPat
 
     assert len(enqueued) == 1
     assert filter_calls and filter_calls[0]["min_abs"] == 8
-    hint_posts2 = [
-        p
-        for p in client2.posts
-        if "linked-edges-hint" in p["url"] or "relationship-linked-hint" in p["url"]
-    ]
+    hint_posts2 = [p for p in client2.posts if "linked-edges-hint" in p["url"]]
     assert len(hint_posts2) == 1
     assert hint_posts2[0]["json"]["linkedEdges"] == [{"npcAId": "npc-1", "npcBId": "npc-2"}]
 
@@ -165,11 +161,7 @@ def test_mutual_chat_applies_deltas_and_thresholds(monkeypatch: pytest.MonkeyPat
     mc.process_npc_mutual_chat_job(client3, settings, _payload(jobId="mc-delta3"))
     assert enqueued == []
     assert filter_calls == []
-    assert not [
-        p
-        for p in client3.posts
-        if "linked-edges-hint" in p["url"] or "relationship-linked-hint" in p["url"]
-    ]
+    assert not [p for p in client3.posts if "linked-edges-hint" in p["url"]]
 
 
 def test_mutual_chat_memory_stays_on_council_scope(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -184,8 +176,8 @@ def test_mutual_chat_memory_stays_on_council_scope(monkeypatch: pytest.MonkeyPat
 
     memory_calls: list[dict[str, Any]] = []
 
-    def capture_append(*_a: Any, **kwargs: Any) -> None:
-        memory_calls.append(kwargs)
+    def capture_append(*args: Any, **kwargs: Any) -> None:
+        memory_calls.append({"args": args, **kwargs})
 
     monkeypatch.setattr(mc, "append_player_memory", capture_append)
     monkeypatch.setattr(mc, "enqueue_rel07_bilateral_jobs", lambda **_k: [])
@@ -207,7 +199,10 @@ def test_mutual_chat_memory_stays_on_council_scope(monkeypatch: pytest.MonkeyPat
     for call in memory_calls:
         assert call.get("player_id") == COUNCIL_MEMORY_PLAYER_ID
         assert call.get("player_id") != "player-1"
-        assert "player" not in str(call.get("text", "")).lower() or True
+        # append_player_memory(client, settings, room_id, text, ...) — text is positional.
+        args = call.get("args") or ()
+        text = str(args[3]) if len(args) > 3 else str(call.get("text", ""))
+        assert "player" not in text.lower()
 
 
 def test_mutual_chat_emits_activity_and_bubble_payload(monkeypatch: pytest.MonkeyPatch) -> None:

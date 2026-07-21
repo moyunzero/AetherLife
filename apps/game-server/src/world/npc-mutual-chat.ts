@@ -245,16 +245,27 @@ export async function maybeEnqueueNpcMutualChat(input: {
     const claim = pairClaimKey(input.roomId, dayIndex, a.id, b.id);
     if (pairClaims.has(claim)) continue;
 
-    const jobId = await enqueueNpcMutualChatJob({
-      roomId: input.roomId,
-      npcAId: a.id,
-      npcBId: b.id,
-      dayIndex,
-      absoluteGameMinute: abs,
-    });
-    if (!jobId) continue;
-
+    // Claim before awaiting enqueue so same-tick ambient dyad selection
+    // observes mutual-chat supersession; roll back if enqueue fails.
     pairClaims.add(claim);
+    let jobId: string | null = null;
+    try {
+      jobId = await enqueueNpcMutualChatJob({
+        roomId: input.roomId,
+        npcAId: a.id,
+        npcBId: b.id,
+        dayIndex,
+        absoluteGameMinute: abs,
+      });
+    } catch (err) {
+      pairClaims.delete(claim);
+      throw err;
+    }
+    if (!jobId) {
+      pairClaims.delete(claim);
+      continue;
+    }
+
     enqueued.push(jobId);
     remaining -= 1;
     countByRoomDay.set(rdKey, (countByRoomDay.get(rdKey) ?? 0) + 1);

@@ -102,7 +102,12 @@ export function computeIdleDecayDelta(
 
   if (affection > 0) {
     const candidate = affection - step;
-    const next = Math.max(0, floor, candidate);
+    let next = Math.max(0, candidate);
+    // Floor only holds when affection is still at/above the band floor;
+    // below-floor values keep drifting toward 0 (never snap upward).
+    if (affection >= floor) {
+      next = Math.max(floor, next);
+    }
     return clampAffection(next) - affection;
   }
 

@@ -360,3 +360,63 @@ def test_repeated_reject_micro_penalty_post_reply_only() -> None:
     assert len(penalties) == 1
     assert penalties[0]["player_id"] == "p1"
     assert penalties[0]["npc_id"] == "npc-1"
+
+
+def test_default_llm_judge_non_mock_rejects_when_unwired() -> None:
+    """No real LLM judge wired → guardrail-consistent reject, never silent accept."""
+    j = bg.default_llm_judge(
+        speak_text="让莫玄虚去对付阿斯托利亚",
+        effective_score=50,
+        skeptical_bias=False,
+        llm_mock=False,
+    )
+    assert j.decision == "reject"
+    assert j.proposed_delta == 0
+
+
+def test_day_key_from_snapshot_prefers_absolute_game_minute() -> None:
+    """CR PR#22: worker-state carries absoluteGameMinute for per-day cap keys."""
+    assert bg.day_key_from_snapshot({"absoluteGameMinute": 2880}) == "day-2"
+    assert bg.day_key_from_snapshot({"absoluteGameMinute": 1439}) == "day-0"
+    # Legacy fallback when only wrapped gameMinute is present.
+    assert bg.day_key_from_snapshot({"gameMinute": 1500}) == "day-1"
+    assert bg.day_key_from_snapshot({}) == "day-0"
+
+
+def test_manipulation_cap_resets_on_next_game_day() -> None:
+    """D-PLAYER-04: pair cap is per game-day, not pinned to day-0 forever."""
+    day0 = bg.day_key_from_snapshot({"absoluteGameMinute": 500})
+    day1 = bg.day_key_from_snapshot({"absoluteGameMinute": 1440 + 100})
+    assert day0 != day1
+
+    assert (
+        bg.claim_manipulation_slot(
+            room_id="room-a",
+            player_id="p1",
+            npc_a_id="npc-1",
+            npc_b_id="npc-2",
+            day_key=day0,
+        )
+        is None
+    )
+    assert (
+        bg.claim_manipulation_slot(
+            room_id="room-a",
+            player_id="p1",
+            npc_a_id="npc-1",
+            npc_b_id="npc-2",
+            day_key=day0,
+        )
+        == "pair_cap"
+    )
+    # Next game day — slot available again.
+    assert (
+        bg.claim_manipulation_slot(
+            room_id="room-a",
+            player_id="p1",
+            npc_a_id="npc-1",
+            npc_b_id="npc-2",
+            day_key=day1,
+        )
+        is None
+    )

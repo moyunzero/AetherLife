@@ -238,11 +238,11 @@ def default_llm_judge(
             return BeliefJudgment(decision="accept", reason="trust_mock", proposed_delta=4)
         return BeliefJudgment(decision="reject", reason="low_trust_mock", proposed_delta=0)
 
-    # Real LLM path deferred to wiring with social providers; safe reject fallback
+    # Real LLM judge not wired yet — guardrail-consistent reject, never silent accept.
     del speak_text
     if skeptical_bias and effective_score < 10:
         return BeliefJudgment(decision="reject", reason="skeptical_fallback", proposed_delta=0)
-    return BeliefJudgment(decision="accept", reason="fallback_accept", proposed_delta=4)
+    return BeliefJudgment(decision="reject", reason="llm_judge_unwired", proposed_delta=0)
 
 
 def _pair_key(room_id: str, a: str, b: str) -> str:
@@ -455,8 +455,13 @@ def evaluate_belief_gate(
 
 def day_key_from_snapshot(room_snapshot: dict[str, Any] | None) -> str:
     snap = room_snapshot or {}
-    game_minute = int(snap.get("gameMinute") or snap.get("game_minute") or 0)
-    return f"day-{game_minute // 1440}"
+    # Prefer monotonic absoluteGameMinute (worker-state CR PR#22); fall back to wrapped gameMinute.
+    abs_minute = snap.get("absoluteGameMinute")
+    if abs_minute is not None:
+        minute = int(abs_minute)
+    else:
+        minute = int(snap.get("gameMinute") or snap.get("game_minute") or 0)
+    return f"day-{minute // 1440}"
 
 
 def run_belief_gate_speak(

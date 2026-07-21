@@ -9,6 +9,7 @@ import {
 } from "../world/npc-relationships-repository.js";
 import { embedText } from "../memory/embed.js";
 import { broadcastRelationshipSync } from "../world/relationship-broadcast.js";
+import { getRoomVoteState } from "../world/world-vote-state.js";
 import { requireWorkerAuth } from "./internal.js";
 
 const applyDeltasBodySchema = z
@@ -84,10 +85,13 @@ export function createInternalNpcRelationshipsRouter(): Router {
       }
 
       try {
+        // Stamp last-interact with the room clock so monthly idle decay
+        // measures from the real interaction, not abs=0 (Codex CR PR#22).
         const result = await applyRelationshipDeltas({
           roomId,
           deltas: parsed.data.deltas,
           voteEpoch: parsed.data.voteEpoch,
+          absoluteGameMinute: getRoomVoteState(roomId).absoluteGameMinute,
         });
         if (result.linkedEdges.length > 0) {
           safeBroadcastRelationshipSync(roomId);

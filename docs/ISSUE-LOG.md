@@ -207,6 +207,7 @@
 ### Phase 28 — Council relationship advanced（C-09b / EA-6）
 
 116. **Provoke/belief reject 禁止 A↔B delta**：`evaluate_belief_gate` / `run_belief_gate_speak` 在 `decision=reject` 时 **不得** `apply` npcA↔npcB affection；信任分仅来自 **initiator** 的 `npc_attitudes` / collective `effectiveScore`（禁止用 peer 态度）。Mutual-chat 记忆走 `__council__` / REL-07，**禁止**污染玩家 speak `npc_memories` 作用域。Idle decay **必须** `applyIdleDecayDeltas`（**禁止** `applyDeltaToRow` / interact bump）。同一 room/day/pair 上 **mutual-chat supersedes** ambient dyad pair budget。Frozen VIS-04 铭牌三文件（`entityLabels` / `ProximityNameplate` / `entitySprites`）与 speakBusy 方案 A **禁止** drive-by 改动。回归：`pytest tests/test_belief_gate.py tests/test_npc_mutual_chat.py tests/test_relationship_rag.py -q` · `pnpm --filter @aetherlife/game-server test -- npc-relationship-decay npc-mutual-chat npc-relationships` · `pnpm verify:phase28`（`pnpm dev:stack`，禁 `LLM_MOCK`）。
+117. **关系 apply-deltas 与 belief day-key 须带 room clock**：`POST .../npc-relationships/apply-deltas` **必须** `noteInteractAbs` 用 `getRoomVoteState(roomId).absoluteGameMinute`（**禁止** fallback `0` 导致 idle decay 误判）；`worker-state.state` **必须** 含 `absoluteGameMinute`；`day_key_from_snapshot` **优先** `absoluteGameMinute // 1440`（D-PLAYER-04/06 per-day cap）。回归：`npc-relationships.test.ts` apply-deltas stamp · `index.test.ts` worker-state clock · `test_belief_gate.py::test_day_key_from_snapshot_prefers_absolute_game_minute` · `test_manipulation_cap_resets_on_next_game_day`。
 
 ## 记录
 
@@ -2848,6 +2849,77 @@ Worker 主循环仅在 npc-turn 队列 **连续 5s 为空** 时才 `BLPOP` chunk
 **防复发**
 
 - Guardrail #115
+
+---
+
+### ISSUE-108 — apply-deltas / belief gate 缺 room clock（decay 误判 + cap 永锁 day-0）
+
+- **状态:** fixed
+- **发现:** 2026-07-21（Codex PR #22 review）
+- **阶段/范围:** Phase 28 · `internal-npc-relationships` · `worker-state` · `belief_gate.py`
+- **严重性:** major（关系 decay 语义 + provoke cap 防滥用）
+
+**复现**
+
+1. Worker 经 `POST .../apply-deltas` 写关系 delta → `lastInteractAbs` 恒为 `0`
+2. 游戏月 rollover 后 `maybeRunRelationshipDecay` 将刚互动的边判为 idle 并 decay
+3. Speak 路径 `day_key_from_snapshot` 读 `room_snapshot` 无 `gameMinute` → 恒 `day-0` → D-PLAYER-04 pair/player cap 与 D-PLAYER-06 reject penalty 在长跑 worker 内永不重置
+
+**根因**
+
+- `internal-npc-relationships` 未传 `absoluteGameMinute`；repository fallback `?? 0`
+- `buildWorkerStatePayload` 仅返回空间快照，不含单调时钟
+- `day_key_from_snapshot` 未读 `absoluteGameMinute`
+
+**修复**
+
+- apply-deltas route：`getRoomVoteState(roomId).absoluteGameMinute` stamp
+- worker-state：`state.absoluteGameMinute` 随 spatial snapshot 返回
+- `day_key_from_snapshot`：优先 `absoluteGameMinute // 1440`
+
+**验证**
+
+- `pnpm --filter @aetherlife/game-server test`（353 passed）
+- `cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_belief_gate.py -q`（14 passed）
+
+**防复发**
+
+- Guardrail #117；C-01 worker-state clock；C-09 apply-deltas stamp
+
+---
+
+### ISSUE-109 — PR #22 CodeRabbit 批量 CR：decay 上弹 / belief fallback 误接受 / mutual-chat claim 竞态等
+
+- **状态:** fixed
+- **发现:** 2026-07-21（CodeRabbit PR #22 review，10 条有效 + 2 条跳过）
+- **阶段/范围:** Phase 28 · mutual-chat / decay / belief gate / 关系图 UI
+- **严重性:** major（decay 语义 + belief 防滥用）
+
+**有效修复（10）**
+
+1. `npc-mutual-chat.ts`：pair claim 移到 `await enqueue` **之前**（同 tick ambient dyad 可见 supersession），失败/null 回滚
+2. `queue/npc-mutual-chat.ts`：`mockJobs.set` 仅无 `REDIS_URL` 时执行（防生产 Map 无限增长）
+3. `npc-relationship-decay.ts`：正向 affection **低于** band floor 时继续向 0 漂移，禁止 `Math.max(floor,…)` 上弹
+4. `ChatPage.tsx`：关系图 center/mode 仅在 tab **focus 转变**时重置（ref 记录 prev），会话中切 NPC 不清用户选择
+5. `RoomScene.stopEntityMotion`：改用 `hideMutualChatBubble`（原手动清 timer 会让气泡永久卡显）
+6. `RoomScene.refreshMutualChatBubbles`：`expiresAt <= now` 的 registry 残留 payload 跳过（scene 重建不重播）
+7. `belief_gate.default_llm_judge`：非 mock 未接线路径 accept → **reject**（`llm_judge_unwired`，Δ0）
+8. `test_npc_mutual_chat.py`：hint URL 过滤只留 `linked-edges-hint`；去掉 `or True` 恒真断言并捕获位置参数 text
+
+**跳过（2）**
+
+- `relationship_rag` 条件化 lazy embed：public payload 无 `hasEmbedding` 字段，且 server `ensureRelationshipEdgeEmbedding` 非 force 时已短路（有向量即 return false，不调 embed LLM）— 满足 finding 自述的保留条件
+- mutual-chat bubble LLM 内容过滤：worker 无既定 Python content-filter 路径（`ContentGuard` 在 ai-gateway，非 worker 依赖）；引入跨包审核路径超出最小修复，留待后续设计
+
+**验证**
+
+- `pnpm --filter @aetherlife/game-server test`（354 passed，含新增 decay 不上弹用例）
+- `pnpm --filter @aetherlife/web test`（192 passed）
+- `cd workers/agent-worker && LLM_MOCK=1 uv run pytest -q`（414 passed，含 fallback reject 用例）
+
+**防复发**
+
+- Guardrail #116 追加：belief gate 未接线 judge **必须** reject；decay floor 只对 ≥floor 的边生效
 
 ---
 

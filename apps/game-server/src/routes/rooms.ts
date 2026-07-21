@@ -35,6 +35,7 @@ import { getOrCreate, reset, setState } from "../room/store.js";
 import { getChunkLoader } from "../world/chunk-loader.js";
 import { getChunkLore } from "../world/lore-repository.js";
 import { getChunkLoreCached } from "../world/lore-chunk-cache.js";
+import { getRoomVoteState } from "../world/world-vote-state.js";
 import { logInternalLatency } from "../observability/internalLatency.js";
 import { clearDialogueForPlayer } from "../npc/dialogue-session.js";
 import {
@@ -269,11 +270,16 @@ async function buildWorkerStatePayload(
   playerId: string,
   options?: { skipNearbyLore?: boolean },
 ): Promise<{
-  state: ReturnType<typeof roomStateForInitiator>;
+  state: ReturnType<typeof roomStateForInitiator> & { absoluteGameMinute: number };
   nearbyLore: Array<{ cx: number; cy: number; nameZh: string; flavorOneLine: string }>;
 }> {
   const record = getOrCreate(roomId);
-  const viewState = roomStateForInitiator(record.state, roomId, playerId);
+  // Include the monotonic room clock so worker day-keyed caps (belief gate
+  // D-PLAYER-04/06) reset per real game-day instead of pinning to day-0.
+  const viewState = {
+    ...roomStateForInitiator(record.state, roomId, playerId),
+    absoluteGameMinute: getRoomVoteState(roomId).absoluteGameMinute,
+  };
   if (options?.skipNearbyLore) {
     return { state: viewState, nearbyLore: [] };
   }

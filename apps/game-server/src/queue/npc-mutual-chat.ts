@@ -96,7 +96,10 @@ async function claimAndLpushJob(
   if (!claimed) return false;
   try {
     await lpushJob(payload);
-    mockJobs.set(jobId, payload);
+    if (!getRedisUrl()) {
+      // Local/mock inspection map only — never grow unbounded under Redis.
+      mockJobs.set(jobId, payload);
+    }
     return true;
   } catch (err) {
     await releaseNpcMutualChatJobId(jobId);
