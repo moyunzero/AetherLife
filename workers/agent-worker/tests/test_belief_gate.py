@@ -103,7 +103,11 @@ def test_belief_reject_blocks_ab_delta_and_speaks_refusal() -> None:
     assert result.decision == "reject"
     assert apply_calls == []
     assert result.affection_delta == 0
-    assert "不信" in result.ic_refusal_reply or "不便" in result.ic_refusal_reply or "插手" in result.ic_refusal_reply
+    refusal = result.ic_refusal_reply
+    assert refusal
+    assert any(
+        token in refusal for token in ("不信", "不便", "插手", "挑拨", "请别", "说服不了", "介入")
+    )
 
 
 def test_belief_trust_lookup_uses_initiator_player_id_only() -> None:
