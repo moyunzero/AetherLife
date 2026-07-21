@@ -23,6 +23,19 @@ export type ApplyRelationshipDeltasInput = {
   roomId: string;
   deltas: RelationshipDeltaInput[];
   voteEpoch?: string;
+  /** Game clock stamp for idle-decay idle windows (D-DECAY-03). */
+  absoluteGameMinute?: number;
+};
+
+export type IdleDecayDelta = {
+  npcAId: string;
+  npcBId: string;
+  affectionDelta: number;
+};
+
+export type ApplyIdleDecayDeltasInput = {
+  roomId: string;
+  deltas: IdleDecayDelta[];
 };
 
 export type ApplyRelationshipDeltasResult = {
@@ -60,7 +73,41 @@ type DbRow = {
 };
 
 const memoryByRoom = new Map<string, RelationshipRow[]>();
+/** Absolute game-minute of last real interact (not decay). Key: roomId:npcA:npcB */
+const lastInteractAbsByEdge = new Map<string, number>();
+/** Absolute game-minute when edge was seeded (for never-interacted idle). */
+const seedAbsByEdge = new Map<string, number>();
 let sqlClient: ReturnType<typeof getSharedSql> | null = null;
+
+function edgeStampKey(roomId: string, npcAId: string, npcBId: string): string {
+  const n = normalizeEdgeIds(npcAId, npcBId);
+  return `${roomId}:${n.npcAId}:${n.npcBId}`;
+}
+
+export function getLastInteractAbsMinute(
+  roomId: string,
+  npcAId: string,
+  npcBId: string,
+): number | undefined {
+  return lastInteractAbsByEdge.get(edgeStampKey(roomId, npcAId, npcBId));
+}
+
+export function getSeedAbsMinute(
+  roomId: string,
+  npcAId: string,
+  npcBId: string,
+): number | undefined {
+  return seedAbsByEdge.get(edgeStampKey(roomId, npcAId, npcBId));
+}
+
+function noteSeedAbs(roomId: string, npcAId: string, npcBId: string, abs: number): void {
+  const key = edgeStampKey(roomId, npcAId, npcBId);
+  if (!seedAbsByEdge.has(key)) seedAbsByEdge.set(key, abs);
+}
+
+function noteInteractAbs(roomId: string, npcAId: string, npcBId: string, abs: number): void {
+  lastInteractAbsByEdge.set(edgeStampKey(roomId, npcAId, npcBId), abs);
+}
 
 function getSql(): ReturnType<typeof getSharedSql> | null {
   const url = process.env.DATABASE_URL;
@@ -207,6 +254,7 @@ async function insertMemoryEdge(input: InsertRelationshipEdgeInput): Promise<Rel
   const bucket = memoryByRoom.get(input.roomId) ?? [];
   bucket.push(row);
   memoryByRoom.set(input.roomId, bucket);
+  noteSeedAbs(input.roomId, normalized.npcAId, normalized.npcBId, 0);
   return row;
 }
 
@@ -239,6 +287,7 @@ async function insertSqlEdge(input: InsertRelationshipEdgeInput): Promise<Relati
   `;
 
   if (rows.length > 0) {
+    noteSeedAbs(input.roomId, normalized.npcAId, normalized.npcBId, 0);
     return rowFromDb(rows[0]!);
   }
 
@@ -251,6 +300,7 @@ async function insertSqlEdge(input: InsertRelationshipEdgeInput): Promise<Relati
     LIMIT 1
   `;
   if (existingRows.length > 0) {
+    noteSeedAbs(input.roomId, normalized.npcAId, normalized.npcBId, 0);
     return rowFromDb(existingRows[0]!);
   }
   throw new Error("insertSqlEdge: conflict without existing row");
@@ -366,6 +416,7 @@ async function applyDeltasMemory(
   input: ApplyRelationshipDeltasInput,
 ): Promise<ApplyRelationshipDeltasResult> {
   const linkedEdges: LinkedEdge[] = [];
+  const abs = input.absoluteGameMinute ?? 0;
 
   for (const delta of input.deltas) {
     const normalized = normalizeEdgeIds(delta.npcAId, delta.npcBId);
@@ -378,6 +429,7 @@ async function applyDeltasMemory(
       npcBId: normalized.npcBId,
     });
     if (changed) {
+      noteInteractAbs(input.roomId, normalized.npcAId, normalized.npcBId, abs);
       linkedEdges.push({ npcAId: normalized.npcAId, npcBId: normalized.npcBId });
     }
   }
@@ -389,6 +441,7 @@ async function applyDeltasSql(
   input: ApplyRelationshipDeltasInput,
 ): Promise<ApplyRelationshipDeltasResult> {
   const linkedEdges: LinkedEdge[] = [];
+  const abs = input.absoluteGameMinute ?? 0;
 
   for (const delta of input.deltas) {
     const normalized = normalizeEdgeIds(delta.npcAId, delta.npcBId);
@@ -412,6 +465,8 @@ async function applyDeltasSql(
       npcBId: normalized.npcBId,
     });
     if (!changed) continue;
+
+    noteInteractAbs(input.roomId, normalized.npcAId, normalized.npcBId, abs);
 
     await sql`
       UPDATE npc_relationships
@@ -440,9 +495,75 @@ export async function applyRelationshipDeltas(
   return sql ? applyDeltasSql(input) : applyDeltasMemory(input);
 }
 
+/**
+ * Silent idle decay apply — updates affection only.
+ * Does NOT bump last_interact_at, interaction_count, history, or status (pitfall #1).
+ */
+export async function applyIdleDecayDeltas(
+  input: ApplyIdleDecayDeltasInput,
+): Promise<{ updated: number }> {
+  const sql = getSql();
+  return sql ? applyIdleDecaySql(input) : applyIdleDecayMemory(input);
+}
+
+async function applyIdleDecayMemory(
+  input: ApplyIdleDecayDeltasInput,
+): Promise<{ updated: number }> {
+  let updated = 0;
+  for (const delta of input.deltas) {
+    if (delta.affectionDelta === 0) continue;
+    const normalized = normalizeEdgeIds(delta.npcAId, delta.npcBId);
+    const row = findMemoryEdge(input.roomId, normalized.npcAId, normalized.npcBId);
+    if (!row) continue;
+    row.affection = clampAffection(row.affection + delta.affectionDelta);
+    row.updatedAt = new Date();
+    updated += 1;
+  }
+  return { updated };
+}
+
+async function applyIdleDecaySql(
+  input: ApplyIdleDecayDeltasInput,
+): Promise<{ updated: number }> {
+  const sql = getSql();
+  if (!sql) throw new Error("sql client unavailable");
+  let updated = 0;
+
+  for (const delta of input.deltas) {
+    if (delta.affectionDelta === 0) continue;
+    const normalized = normalizeEdgeIds(delta.npcAId, delta.npcBId);
+    const rows = await sql<DbRow[]>`
+      SELECT *
+      FROM npc_relationships
+      WHERE room_id = ${input.roomId}
+        AND npc_a_id = ${normalized.npcAId}
+        AND npc_b_id = ${normalized.npcBId}
+      LIMIT 1
+    `;
+    if (rows.length === 0) continue;
+
+    const row = rowFromDb(rows[0]!);
+    const nextAffection = clampAffection(row.affection + delta.affectionDelta);
+    const updatedAt = new Date();
+    await sql`
+      UPDATE npc_relationships
+      SET
+        affection = ${nextAffection},
+        updated_at = ${updatedAt.toISOString()}
+      WHERE room_id = ${input.roomId}
+        AND npc_a_id = ${normalized.npcAId}
+        AND npc_b_id = ${normalized.npcBId}
+    `;
+    updated += 1;
+  }
+  return { updated };
+}
+
 /** Test helper */
 export function clearNpcRelationshipsMemory(): void {
   memoryByRoom.clear();
+  lastInteractAbsByEdge.clear();
+  seedAbsByEdge.clear();
 }
 
 /** Expected undirected edge count for 12 council seats. */
