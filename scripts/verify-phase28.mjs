@@ -16,6 +16,7 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertE2eRealLlm } from "./lib/e2e-policy.mjs";
+import { engageDialogue } from "./lib/dialogue-engage.mjs";
 import { gameServerHttpBase, loadRootEnv } from "./lib/env.mjs";
 import { loadPlaywright } from "./lib/speak-browser-stack.mjs";
 
@@ -210,6 +211,8 @@ async function assertRelationshipGraphUi(remainingMs) {
 
     const drawer = page.locator('[data-testid="shell-drawer"]');
     if (!(await drawer.isVisible().catch(() => false))) {
+      // DialogueBar (关系网 entry) is only visible when dialogue-overlay is engaged.
+      await engageDialogue(page, { timeoutMs: Math.min(90_000, remainingMs()) });
       await page.locator('[aria-label="关系网"]').click();
     } else {
       await page.locator('[data-testid="shell-drawer-tab-relationships"]').click();
