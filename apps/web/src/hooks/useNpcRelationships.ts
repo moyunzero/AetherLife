@@ -238,18 +238,18 @@ export function useNpcRelationships(
   const mergeRelationshipSyncCb = useCallback(
     (payload: ColyseusRelationshipSyncPayload) => {
       if (!isRelationshipSyncPayload(payload)) return;
-      const next = mergeRelationshipSync(
-        { hasUpdate, latestSeq: latestSeqRef.current },
-        payload,
-      );
-      if (typeof next.latestSeq === "number") {
-        latestSeqRef.current = next.latestSeq;
-      }
-      if (next.hasUpdate) {
-        setHasUpdate(true);
-      }
+      setHasUpdate((prev) => {
+        const next = mergeRelationshipSync(
+          { hasUpdate: prev, latestSeq: latestSeqRef.current },
+          payload,
+        );
+        if (typeof next.latestSeq === "number") {
+          latestSeqRef.current = next.latestSeq;
+        }
+        return next.hasUpdate;
+      });
     },
-    [hasUpdate],
+    [],
   );
 
   const clearHasUpdate = useCallback(() => {

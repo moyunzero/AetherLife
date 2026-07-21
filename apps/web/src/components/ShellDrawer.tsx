@@ -6,7 +6,9 @@ import { CouncilRosterPanel } from "./CouncilRosterPanel.js";
 import { DiscoveredLorePanel } from "./DiscoveredLorePanel.js";
 import { MessageList } from "./MessageList.js";
 import { NpcMemoryPanel } from "./NpcMemoryPanel.js";
+import { RelationshipGraphPanel, type RelationshipGraphMode } from "./RelationshipGraphPanel.js";
 import type { DrawerTab } from "./DialogueBar.js";
+import type { RelationshipRenderEdge } from "../hooks/useNpcRelationships.js";
 import type { DiscoveredLoreRow } from "../hooks/useChunkLore.js";
 import type {
   CouncilDeliberationFeedRow,
@@ -63,6 +65,16 @@ type Props = {
   personalTimelineLoadingNpcId?: string | null;
   personalTimelineErrorByNpcId?: Record<string, string>;
   onOpenPersonalBiography?: (npcId: string) => void;
+  relationshipEdges?: RelationshipRenderEdge[];
+  relationshipLoading?: boolean;
+  relationshipError?: string | null;
+  relationshipHasUpdate?: boolean;
+  relationshipCenterNpcId?: string;
+  onRelationshipCenterChange?: (npcId: string) => void;
+  relationshipGraphMode?: RelationshipGraphMode;
+  onRelationshipGraphModeChange?: (mode: RelationshipGraphMode) => void;
+  lastRosterNpcId?: string;
+  relationshipStaleHint?: boolean;
   roomId: string;
   roomConnected: boolean;
   lastParsedIntent?: ParsedIntent;
@@ -73,6 +85,7 @@ const TABS: { id: DrawerTab; label: string }[] = [
   { id: "history", label: "对话历史" },
   { id: "collective", label: "集体见闻" },
   { id: "council", label: "星际议会" },
+  { id: "relationships", label: "关系网" },
   { id: "chronicle", label: "编年史" },
   { id: "discoveries", label: "已发现" },
   { id: "memory", label: "记忆" },
@@ -158,6 +171,16 @@ export function ShellDrawer({
   personalTimelineLoadingNpcId = null,
   personalTimelineErrorByNpcId = {},
   onOpenPersonalBiography,
+  relationshipEdges = [],
+  relationshipLoading = false,
+  relationshipError = null,
+  relationshipHasUpdate = false,
+  relationshipCenterNpcId = "npc-1",
+  onRelationshipCenterChange = () => {},
+  relationshipGraphMode = "ego",
+  onRelationshipGraphModeChange = () => {},
+  lastRosterNpcId = "npc-1",
+  relationshipStaleHint = false,
   roomId,
   roomConnected,
   lastParsedIntent = null,
@@ -192,6 +215,7 @@ export function ShellDrawer({
                 aria-controls={drawerPanelId(item.id)}
                 tabIndex={tab === item.id ? 0 : -1}
                 className={`shell-drawer__tab${tab === item.id ? " shell-drawer__tab--active" : ""}`}
+                data-testid={drawerTabId(item.id)}
                 onClick={() => onTabChange(item.id)}
                 onKeyDown={(event) => handleDrawerTabKeyDown(event, index, onTabChange)}
               >
@@ -201,6 +225,15 @@ export function ShellDrawer({
                     className="shell-drawer__tab-badge"
                     data-testid="shell-drawer-tab-chronicle-unread"
                     aria-label="编年史有新条目"
+                  />
+                ) : null}
+                {item.id === "relationships" &&
+                relationshipHasUpdate &&
+                tab !== "relationships" ? (
+                  <span
+                    className="shell-drawer__tab-badge"
+                    data-testid="shell-drawer-tab-relationships-unread"
+                    aria-label="关系网有更新"
                   />
                 ) : null}
               </button>
@@ -262,6 +295,21 @@ export function ShellDrawer({
                 onOpenBiography={onOpenPersonalBiography}
               />
             </div>
+          ) : null}
+
+          {tab === "relationships" ? (
+            <RelationshipGraphPanel
+              edges={relationshipEdges}
+              loading={relationshipLoading}
+              error={relationshipError}
+              activeNpcId={activeNpcId}
+              lastRosterNpcId={lastRosterNpcId}
+              graphMode={relationshipGraphMode}
+              centerNpcId={relationshipCenterNpcId}
+              onModeChange={onRelationshipGraphModeChange}
+              onCenterChange={onRelationshipCenterChange}
+              staleHint={relationshipStaleHint}
+            />
           ) : null}
 
           {tab === "chronicle" ? (

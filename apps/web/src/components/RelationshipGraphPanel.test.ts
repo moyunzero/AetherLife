@@ -60,7 +60,7 @@ describe("RelationshipGraphPanel helpers", () => {
 
   it("graph node label truncates to ≤4 chars", () => {
     expect(graphNodeLabel("莫玄虚")).toBe("莫玄虚");
-    expect(graphNodeLabel("海莲娜·星")).toBe("海莲娜…");
+    expect(graphNodeLabel("海莲娜·星")).toBe("海莲娜·…");
   });
 });
 

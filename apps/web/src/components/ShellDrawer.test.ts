@@ -70,7 +70,7 @@ describe("ShellDrawer a11y", () => {
         roomConnected: true,
       }),
     );
-    const tabIds = [...html.matchAll(/id="(shell-drawer-tab-[^"]+)"/g)].map((m) => m[1]);
+    const tabIds = [...html.matchAll(/\bid="(shell-drawer-tab-[^"]+)"/g)].map((m) => m[1]);
     const councilPos = tabIds.indexOf("shell-drawer-tab-council");
     const relationshipsPos = tabIds.indexOf("shell-drawer-tab-relationships");
     const chroniclePos = tabIds.indexOf("shell-drawer-tab-chronicle");
