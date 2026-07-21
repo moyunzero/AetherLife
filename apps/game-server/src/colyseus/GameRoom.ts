@@ -48,6 +48,7 @@ import { maybeEnqueuePersonalTimelineWeekly } from "../world/personal-timeline-w
 import {
   maybeEnqueueDyadFromAmbient,
 } from "../world/personal-timeline-dyad.js";
+import { maybeEnqueueNpcMutualChat } from "../world/npc-mutual-chat.js";
 import { maybeRunRelationshipDecay } from "../world/npc-relationship-decay.js";
 import { setNpcSpeakPhase } from "./speak-schema.js";
 
@@ -439,6 +440,8 @@ export class GameRoom extends Room {
     }
     this.enqueueWorldVoteIfDue();
     this.enqueuePersonalTimelineWeeklyIfDue();
+    // Mutual-chat before ambient dyad so claimed pairs supersede silent dyad (D-MUTUAL / A2).
+    this.enqueueNpcMutualChatIfDue();
     this.enqueuePersonalTimelineDyadAmbientIfDue();
     // D-DECAY-04: silent idle decay — no speak-slot defer, no LLM, no relationshipSync.
     this.runRelationshipDecayIfDue();
@@ -472,6 +475,23 @@ export class GameRoom extends Room {
       npcSpeakInFlight: false,
     }).catch((err) => {
       console.error("[GameRoom] personal-timeline weekly enqueue failed", err);
+    });
+  }
+
+  /** D-MUTUAL-07: defer when any speak in-flight (same as world-vote). No LLM in tick. */
+  private enqueueNpcMutualChatIfDue(): void {
+    if (this.npcSpeakJobs.size > 0) return;
+    const abs = getRoomVoteState(this.mapRoomId).absoluteGameMinute;
+    const { state: mapState } = getOrCreate(this.mapRoomId);
+    void maybeEnqueueNpcMutualChat({
+      roomId: this.mapRoomId,
+      npcs: mapState.npcs.map((n) => ({ id: n.id, x: n.x, y: n.y })),
+      absoluteGameMinute: abs,
+      gameMinuteOfDay: this.gameState.gameMinute,
+      busyNpcIds: this.npcSpeakJobs,
+      npcSpeakInFlight: false,
+    }).catch((err) => {
+      console.error("[GameRoom] npc-mutual-chat enqueue failed", err);
     });
   }
 
