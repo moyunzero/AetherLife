@@ -1,8 +1,12 @@
 /**
  * Phase 28 player-scoped GET npc-relationships (D-API-01…03, D-GRAPH-02 / C-09b).
  */
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
+import {
+  COLYSEUS_SERVER_MESSAGES,
+  type ColyseusRelationshipSyncPayload,
+} from "@aetherlife/shared";
 import { createApp } from "../index.js";
 import {
   clearColyseusRoomRegistry,
@@ -14,6 +18,10 @@ import {
   clearNpcRelationshipsMemory,
   insertRelationshipEdge,
 } from "../world/npc-relationships-repository.js";
+import {
+  broadcastRelationshipSync,
+} from "../world/relationship-broadcast.js";
+import * as relationshipBroadcast from "../world/relationship-broadcast.js";
 
 const ROOM = "room-rel-http";
 const PLAYER = "player-alpha01";
@@ -108,7 +116,69 @@ describe("npc-relationships routes (C-09b)", () => {
     });
   });
 
-  it.skip("D-API-01: relationshipSync broadcast helper emits { hasUpdate } / seq hint only", () => {
-    // Filled in plan 07 Task 2
+  it("D-API-01: relationshipSync broadcast helper emits { hasUpdate } / seq hint only", () => {
+    const sent: Array<{ type: string; payload: unknown }> = [];
+    const fakeRoom = {
+      clients: [
+        {
+          send(type: string, payload: unknown) {
+            sent.push({ type, payload });
+          },
+        },
+      ],
+    };
+    registerColyseusRoom(ROOM, fakeRoom as never);
+
+    const payload: ColyseusRelationshipSyncPayload = {
+      hasUpdate: true,
+      latestSeq: 3,
+    };
+    broadcastRelationshipSync(ROOM, payload);
+
+    expect(COLYSEUS_SERVER_MESSAGES.relationshipSync).toBe("relationshipSync");
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.type).toBe(COLYSEUS_SERVER_MESSAGES.relationshipSync);
+    expect(sent[0]!.payload).toEqual({ hasUpdate: true, latestSeq: 3 });
+    const hintJson = JSON.stringify(sent[0]!.payload);
+    expect(hintJson).not.toMatch(/"edges"/);
+    expect(hintJson).not.toMatch(/"affection"/);
+    expect(hintJson).not.toMatch(/"trust"/);
+
+    // No registered room — must not throw.
+    broadcastRelationshipSync("missing-room-rel-sync", { hasUpdate: true });
+  });
+
+  it("apply-deltas success invokes broadcastRelationshipSync when edges change", async () => {
+    const spy = vi
+      .spyOn(relationshipBroadcast, "broadcastRelationshipSync")
+      .mockImplementation(() => undefined);
+
+    await insertRelationshipEdge({
+      roomId: ROOM,
+      npcAId: "npc-1",
+      npcBId: "npc-2",
+      baseTag: "ally",
+      affection: 10,
+      trust: 50,
+    });
+
+    const res = await request(app)
+      .post(`/internal/rooms/${ROOM}/npc-relationships/apply-deltas`)
+      .send({
+        deltas: [
+          {
+            npcAId: "npc-1",
+            npcBId: "npc-2",
+            affectionDelta: 5,
+          },
+        ],
+        voteEpoch: "vote-rel-sync-1",
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.linkedEdges.length).toBeGreaterThan(0);
+    expect(spy).toHaveBeenCalledWith(ROOM, { hasUpdate: true });
+    spy.mockRestore();
   });
 });

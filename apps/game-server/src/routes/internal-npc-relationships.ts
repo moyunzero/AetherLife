@@ -5,6 +5,7 @@ import {
   applyRelationshipDeltas,
   listRelationshipsForRoom,
 } from "../world/npc-relationships-repository.js";
+import { broadcastRelationshipSync } from "../world/relationship-broadcast.js";
 import { requireWorkerAuth } from "./internal.js";
 
 const applyDeltasBodySchema = z
@@ -13,6 +14,14 @@ const applyDeltasBodySchema = z
     voteEpoch: z.string().min(1).optional(),
   })
   .strict();
+
+function safeBroadcastRelationshipSync(roomId: string): void {
+  try {
+    broadcastRelationshipSync(roomId, { hasUpdate: true });
+  } catch (err) {
+    console.error("[npc-relationships] broadcastRelationshipSync failed", err);
+  }
+}
 
 export function createInternalNpcRelationshipsRouter(): Router {
   const router = Router();
@@ -62,6 +71,9 @@ export function createInternalNpcRelationshipsRouter(): Router {
           deltas: parsed.data.deltas,
           voteEpoch: parsed.data.voteEpoch,
         });
+        if (result.linkedEdges.length > 0) {
+          safeBroadcastRelationshipSync(roomId);
+        }
         res.json({ ok: true, linkedEdges: result.linkedEdges });
       } catch (err) {
         const message = err instanceof Error ? err.message : "apply-deltas failed";
