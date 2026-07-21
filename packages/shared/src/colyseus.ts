@@ -38,6 +38,8 @@ export const COLYSEUS_SERVER_MESSAGES = {
   councilDeliberationSync: "councilDeliberationSync",
   /** Light personal-timeline hint (D-SYNC-01) — never full bodies. */
   personalTimelineSync: "personalTimelineSync",
+  /** Light relationship-graph hint (D-API-01) — never full edge bodies. */
+  relationshipSync: "relationshipSync",
 } as const;
 
 export type ColyseusMovePayload =
@@ -140,6 +142,12 @@ export type ColyseusWorldHistorySyncPayload = {
 /** Light personal-timeline update hint (D-SYNC-01) — no body payloads. */
 export type ColyseusPersonalTimelineSyncPayload = {
   npcId: string;
+  hasUpdate: boolean;
+  latestSeq?: number;
+};
+
+/** Light relationship-graph update hint (D-API-01) — no edge bodies. */
+export type ColyseusRelationshipSyncPayload = {
   hasUpdate: boolean;
   latestSeq?: number;
 };

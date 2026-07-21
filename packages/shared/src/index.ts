@@ -147,6 +147,8 @@ export {
   type ColyseusMoveAckPayload,
   type ColyseusMovePayload,
   type ColyseusNpcJobDonePayload,
+  type ColyseusPersonalTimelineSyncPayload,
+  type ColyseusRelationshipSyncPayload,
   type ColyseusSpeakPartialPayload,
   type ColyseusSpeakBusyPayload,
   type ColyseusSpeakIdlePayload,

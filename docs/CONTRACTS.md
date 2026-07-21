@@ -199,6 +199,25 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 
 ---
 
+## C-09b — Player relationship graph + sync + embedding [Phase 28]
+
+> **Additive to C-09.** Do **not** rewrite C-09 worker apply semantics. C-09 historical row「客户端 **无**公开 REST」remains as Phase 25 history; **C-09b supersedes that clause for Phase 28+** player graph surfaces. Worker apply-deltas / `requireWorkerAuth` stay under **C-09**.
+
+| 层 | 契约 |
+|----|------|
+| **公开读** | `GET /rooms/:roomId/npc-relationships` → **band-mapped** `RelationshipEdgeBandPublic[]`（`band` / `bandLabelZh` / `kindLabelZh` / `currentStatus` / npc ids）；**禁止**返回 `affection` / `trust` 整数（D-GRAPH-02 / D-API-01） |
+| **Auth** | `X-Player-Id` + `assertScopedPlayerRequest`（镜像 C-11 personal-timeline 公开读）；**无** public write |
+| **Colyseus** | `relationshipSync` payload `{ hasUpdate: boolean; latestSeq?: number }` — **hint-only invalidate**；客户端 refetch GET；**禁止**经 WS 推送边全文（D-API-01） |
+| **Worker 写** | 仍走 C-09 `POST .../npc-relationships/apply-deltas` + `requireWorkerAuth`；本契约不改变 delta clamp / voteEpoch 语义 |
+| **Embedding** | Async embed of `history_summary` + `current_status` text；affection **band** 仅作 metadata filter，**不**入向量（D-EMBED-02）；write path 与公开 GET 解耦 |
+| **Shared SSOT** | `relationshipBandFromAffection` / `relationshipBandLabelZh` / `toRelationshipEdgeBandPublic`；`COLYSEUS_SERVER_MESSAGES.relationshipSync` |
+
+**验证：** `pnpm --filter @aetherlife/shared test -- councilRelationships` · `pnpm --filter @aetherlife/shared build` ·（后续 plan）player route + broadcast + `pnpm verify:phase28`
+
+**锚点文件：** `packages/shared/src/councilRelationships.ts`, `packages/shared/src/colyseus.ts`, `docs/CONTRACTS.md`（本行）, `routes/npc-relationships.ts`（player GET — later plan）, embedding write path（later plan）.
+
+---
+
 ## C-10 — Deliberation pacing & job payload [Phase 25 plan 09]
 
 | 层 | 契约 |
