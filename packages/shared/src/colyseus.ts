@@ -40,6 +40,10 @@ export const COLYSEUS_SERVER_MESSAGES = {
   personalTimelineSync: "personalTimelineSync",
   /** Light relationship-graph hint (D-API-01) — never full edge bodies. */
   relationshipSync: "relationshipSync",
+  /** One-shot NPC↔NPC mutual-chat bubble (D-MUTUAL-02) — not schema state. */
+  mutualChatBubble: "mutualChatBubble",
+  /** Roster linkedEdges hint outside deliberation (D-MUTUAL-04). */
+  relationshipLinkedHint: "relationshipLinkedHint",
 } as const;
 
 export type ColyseusMovePayload =
@@ -150,6 +154,19 @@ export type ColyseusPersonalTimelineSyncPayload = {
 export type ColyseusRelationshipSyncPayload = {
   hasUpdate: boolean;
   latestSeq?: number;
+};
+
+/** One-shot mutual-chat speech bubble (D-MUTUAL-02) — text ≤20; no Colyseus schema field. */
+export type ColyseusMutualChatBubblePayload = {
+  npcId: string;
+  peerNpcId: string;
+  text: string;
+  expiresAt: number;
+};
+
+/** Linked-edge roster hint (D-MUTUAL-04) — ids only; merge into CouncilRosterPanel linkedEdges. */
+export type ColyseusRelationshipLinkedHintPayload = {
+  linkedEdges: Array<{ npcAId: string; npcBId: string }>;
 };
 
 /** Incremental council deliberation state for Council Tab feed / chip (Phase 25). */

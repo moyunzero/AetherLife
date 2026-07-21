@@ -3,6 +3,7 @@ import type {
   ColyseusPersonalTimelineSyncPayload,
   ColyseusWorldHistorySyncPayload,
 } from "@aetherlife/shared";
+import { COLYSEUS_SERVER_MESSAGES } from "@aetherlife/shared";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useColyseusRoom } from "./hooks/useColyseusRoom.js";
@@ -184,12 +185,27 @@ export function ChatPage() {
     toastQueue: councilVoteToastQueue,
     chronicleUnread,
     mergeCouncilDeliberationSync,
+    mergeLinkedEdgesHint,
     markChronicleVoteEntry,
     clearChronicleUnread,
     consumeVoteToast,
   } = useCouncilDeliberation(speakQueueBusy);
   mergeCouncilDeliberationSyncRef.current = mergeCouncilDeliberationSync;
   markChronicleVoteEntryRef.current = markChronicleVoteEntry;
+
+  useEffect(() => {
+    if (!room) return;
+    const off = room.onMessage(
+      COLYSEUS_SERVER_MESSAGES.relationshipLinkedHint,
+      (data: unknown) => {
+        mergeLinkedEdgesHint(data);
+      },
+    );
+    return () => {
+      off();
+    };
+  }, [room, mergeLinkedEdgesHint]);
+
   const councilVoteToast = councilVoteToastQueue[0] ?? null;
   const dismissCouncilVoteToast = useCallback(() => {
     consumeVoteToast();

@@ -20,6 +20,7 @@ import {
 } from "./routes/internal-lore.js";
 import { createInternalAmbientIntentRouter } from "./routes/internal-ambient-intent.js";
 import { createInternalNpcRelationshipsRouter } from "./routes/internal-npc-relationships.js";
+import { createInternalNpcMutualChatRouter } from "./routes/internal-npc-mutual-chat.js";
 import { createInternalWorldVoteTriggerRouter } from "./routes/internal-world-vote-trigger.js";
 import { createInternalWorldVoteRouter } from "./routes/internal-world-vote.js";
 import { attachColyseus } from "./colyseus/server.js";
@@ -63,6 +64,7 @@ export function createApp(): Express {
   app.use("/internal/rooms", json, createInternalPersonalTimelineRouter());
   app.use("/internal/rooms", json, createInternalAmbientIntentRouter());
   app.use("/internal/rooms", json, createInternalNpcRelationshipsRouter());
+  app.use("/internal/rooms", json, createInternalNpcMutualChatRouter());
   app.use("/internal/rooms", json, createInternalWorldVoteTriggerRouter());
   app.use("/internal/rooms", json, createInternalWorldVoteRouter());
   app.use("/internal/jobs", json, createInternalJobsRouter());

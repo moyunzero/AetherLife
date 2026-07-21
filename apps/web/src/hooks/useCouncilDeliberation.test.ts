@@ -3,6 +3,7 @@ import {
   applyPendingUiEvents,
   buildResultToast,
   IDLE_CORE,
+  mergeLinkedEdgesHint,
   reduceDeliberationSync,
   type DeliberationCoreState,
 } from "./useCouncilDeliberation.js";
@@ -140,6 +141,27 @@ describe("reduceDeliberationSync", () => {
       linkedEdges: [{ npcAId: "npc-3", npcBId: "npc-4" }],
     }, { speakBusy: false });
     expect(core.linkedEdges).toEqual([{ npcAId: "npc-3", npcBId: "npc-4" }]);
+  });
+});
+
+describe("mergeLinkedEdgesHint", () => {
+  it("unions by undirected pair without clearing unrelated prior hints", () => {
+    const prev = [
+      { npcAId: "npc-1", npcBId: "npc-2" },
+      { npcAId: "npc-3", npcBId: "npc-4" },
+    ];
+    const next = mergeLinkedEdgesHint(prev, [
+      { npcAId: "npc-2", npcBId: "npc-1" },
+      { npcAId: "npc-5", npcBId: "npc-6" },
+    ]);
+    expect(next).toEqual(
+      expect.arrayContaining([
+        { npcAId: "npc-1", npcBId: "npc-2" },
+        { npcAId: "npc-3", npcBId: "npc-4" },
+        { npcAId: "npc-5", npcBId: "npc-6" },
+      ]),
+    );
+    expect(next).toHaveLength(3);
   });
 });
 
