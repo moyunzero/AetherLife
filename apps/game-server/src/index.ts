@@ -8,6 +8,7 @@ import { createCollectiveStateRouter } from "./routes/collective-state.js";
 import { createWorldHistoryRouter } from "./routes/world-history.js";
 import { createInternalWorldHistoryRouter } from "./routes/internal-world-history.js";
 import { createPersonalTimelineRouter } from "./routes/personal-timeline.js";
+import { createNpcRelationshipsRouter } from "./routes/npc-relationships.js";
 import { createInternalPersonalTimelineRouter } from "./routes/internal-personal-timeline.js";
 import { createAuditRouter } from "./routes/audit.js";
 import { createInternalJobsRouter } from "./routes/internal.js";
@@ -53,6 +54,7 @@ export function createApp(): Express {
   app.use("/rooms", json, createCollectiveStateRouter());
   app.use("/rooms", json, createWorldHistoryRouter());
   app.use("/rooms", json, createPersonalTimelineRouter());
+  app.use("/rooms", json, createNpcRelationshipsRouter());
   app.use("/rooms", json, createChatRouter());
   app.use("/internal/rooms", json, createInternalRoomsRouter());
   app.use("/internal/rooms", json, createInternalMemoriesRouter());

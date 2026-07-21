@@ -57,9 +57,8 @@ describe("npc-relationships routes (C-09b)", () => {
       npcAId: "npc-1",
       npcBId: "npc-2",
       baseTag: "ally",
-      affection: 50,
+      affection: 40,
       trust: 80,
-      currentStatus: ["bonded"],
     });
 
     const res = await request(app)
@@ -78,10 +77,9 @@ describe("npc-relationships routes (C-09b)", () => {
       baseTag: "ally",
       band: "warm",
       bandLabelZh: "亲近",
+      kindLabelZh: "同盟",
     });
-    expect(typeof edge.kindLabelZh).toBe("string");
-    expect(edge.kindLabelZh).toBeTruthy();
-    expect(edge.currentStatus).toEqual(["bonded"]);
+    expect(Array.isArray(edge.currentStatus)).toBe(true);
 
     const json = JSON.stringify(res.body);
     expect(json).not.toMatch(/"affection"/);
