@@ -37,8 +37,20 @@ describe("NpcAvatarStrip a11y", () => {
   });
 });
 
+const shellDrawerRelationshipProps = {
+  relationshipEdges: [] as import("../hooks/useNpcRelationships.js").RelationshipRenderEdge[],
+  relationshipLoading: false,
+  relationshipError: null as string | null,
+  relationshipHasUpdate: false,
+  relationshipCenterNpcId: "npc-1",
+  onRelationshipCenterChange: () => {},
+  relationshipGraphMode: "ego" as const,
+  onRelationshipGraphModeChange: () => {},
+  lastRosterNpcId: "npc-1",
+};
+
 describe("ShellDrawer a11y", () => {
-  it("places chronicle tab immediately after council tab", () => {
+  it("D-DRAWER-02: places 关系网 tab immediately after council tab", () => {
     const html = renderToStaticMarkup(
       createElement(ShellDrawer, {
         open: true,
@@ -53,15 +65,20 @@ describe("ShellDrawer a11y", () => {
         collectiveLoading: false,
         discoveredLoreRows: [],
         ...shellDrawerWorldHistoryProps,
+        ...shellDrawerRelationshipProps,
         roomId: "room-1",
         roomConnected: true,
       }),
     );
     const tabIds = [...html.matchAll(/id="(shell-drawer-tab-[^"]+)"/g)].map((m) => m[1]);
     const councilPos = tabIds.indexOf("shell-drawer-tab-council");
+    const relationshipsPos = tabIds.indexOf("shell-drawer-tab-relationships");
     const chroniclePos = tabIds.indexOf("shell-drawer-tab-chronicle");
     expect(councilPos).toBeGreaterThanOrEqual(0);
-    expect(chroniclePos).toBe(councilPos + 1);
+    expect(relationshipsPos).toBe(councilPos + 1);
+    expect(chroniclePos).toBe(relationshipsPos + 1);
+    expect(html).toContain('data-testid="shell-drawer-tab-relationships"');
+    expect(html).toContain("关系网");
   });
 
   it("wires drawer tabs to shell-drawer-panel ids", () => {
@@ -79,6 +96,7 @@ describe("ShellDrawer a11y", () => {
         collectiveLoading: false,
         discoveredLoreRows: [],
         ...shellDrawerWorldHistoryProps,
+        ...shellDrawerRelationshipProps,
         roomId: "room-1",
         roomConnected: true,
       }),
@@ -110,6 +128,7 @@ describe("ShellDrawer a11y", () => {
         collectiveLoading: false,
         discoveredLoreRows: [],
         ...shellDrawerWorldHistoryProps,
+        ...shellDrawerRelationshipProps,
         roomId: "room-1",
         roomConnected: true,
       }),
@@ -157,6 +176,7 @@ describe("ShellDrawer a11y", () => {
           },
         ],
         worldHistoryLoading: false,
+        ...shellDrawerRelationshipProps,
         roomId: "room-1",
         roomConnected: true,
       }),
