@@ -20,6 +20,10 @@ from src.graph.speak_intent import can_use_casual_fast_lane, can_use_social_edge
 from src.graph.social_edge_fast_lane import run_social_edge_fast_lane
 from src.graph.world_vote import process_world_vote_job
 from src.graph.personal_timeline import process_personal_timeline_job
+from src.graph.npc_mutual_chat import (
+    NPC_MUTUAL_CHAT_JOBS_KEY,
+    process_npc_mutual_chat_job,
+)
 from src.graph.job_context import reset_job_context, set_job_context
 from src.llm.call_budget import (
     get_recorder,
@@ -39,6 +43,7 @@ LORE_BRIDGE_LIST_KEY = "aetherlife:chunk-lore:jobs"
 AMBIENT_INTENT_BRIDGE_LIST_KEY = "aetherlife:npc-ambient-intent:jobs"
 WORLD_VOTE_BRIDGE_LIST_KEY = "aetherlife:world-vote:jobs"
 PERSONAL_TIMELINE_BRIDGE_LIST_KEY = "aetherlife:personal-timeline:jobs"
+NPC_MUTUAL_CHAT_BRIDGE_LIST_KEY = NPC_MUTUAL_CHAT_JOBS_KEY
 BLPOP_TIMEOUT_S = 5
 LORE_BLPOP_TIMEOUT_S = 1
 AMBIENT_BLPOP_TIMEOUT_S = 1
@@ -187,6 +192,28 @@ def drain_one_personal_timeline_job(
     except Exception as exc:
         print(
             f"personal-timeline job error jobId={payload.get('jobId')}: {exc}",
+            file=sys.stderr,
+        )
+    return True
+
+
+def drain_one_npc_mutual_chat_job(
+    r: redis.Redis, client: httpx.Client, settings: Settings
+) -> bool:
+    """Visible NPC↔NPC chat — yield to speak / npc-turn (D-MUTUAL-07)."""
+    if _is_speak_in_progress() or r.llen(BRIDGE_LIST_KEY) > 0:
+        return False
+    raw = r.rpop(NPC_MUTUAL_CHAT_BRIDGE_LIST_KEY)
+    if not raw:
+        return False
+    payload = _parse_bridge_payload(raw, queue="npc-mutual-chat")
+    if not payload:
+        return True
+    try:
+        process_npc_mutual_chat_job(client, settings, payload)
+    except Exception as exc:
+        print(
+            f"npc-mutual-chat job error jobId={payload.get('jobId')}: {exc}",
             file=sys.stderr,
         )
     return True
@@ -483,6 +510,7 @@ def run_worker() -> None:
             if not item or not queue:
                 drain_one_world_vote_job(r, client, settings)
                 drain_one_personal_timeline_job(r, client, settings)
+                drain_one_npc_mutual_chat_job(r, client, settings)
                 continue
             _, raw = item
             payload = _parse_bridge_payload(raw, queue=queue)
@@ -518,6 +546,7 @@ def run_worker() -> None:
                 drain_one_ambient_intent_job(r, client, settings)
                 drain_one_world_vote_job(r, client, settings)
                 drain_one_personal_timeline_job(r, client, settings)
+                drain_one_npc_mutual_chat_job(r, client, settings)
                 continue
             if queue == "lore":
                 try:
@@ -526,6 +555,7 @@ def run_worker() -> None:
                     print(f"lore job error jobId={payload.get('jobId')}: {exc}", file=sys.stderr)
                 drain_one_world_vote_job(r, client, settings)
                 drain_one_personal_timeline_job(r, client, settings)
+                drain_one_npc_mutual_chat_job(r, client, settings)
                 continue
             try:
                 process_ambient_intent_job(client, settings, payload)
@@ -533,6 +563,7 @@ def run_worker() -> None:
                 print(f"ambient intent job error jobId={payload.get('jobId')}: {exc}", file=sys.stderr)
             drain_one_world_vote_job(r, client, settings)
             drain_one_personal_timeline_job(r, client, settings)
+            drain_one_npc_mutual_chat_job(r, client, settings)
 
 
 def main() -> None:

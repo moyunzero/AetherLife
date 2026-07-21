@@ -85,6 +85,9 @@ def test_mutual_chat_applies_deltas_and_thresholds(monkeypatch: pytest.MonkeyPat
     enqueued: list[dict[str, Any]] = []
 
     def fake_rel07(**kwargs: Any) -> list[dict[str, Any]]:
+        min_abs = int(kwargs.get("min_abs_delta") or 8)
+        if abs(int(kwargs.get("affection_delta") or 0)) < min_abs:
+            return []
         enqueued.append(kwargs)
         return [{"jobId": "pt-rel-a"}, {"jobId": "pt-rel-b"}]
 
