@@ -11,6 +11,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from src.council import belief_gate as bg
+from src.council.belief_gate import TRUST_MICRO_PENALTY_MAX, TRUST_MICRO_PENALTY_MIN
 
 
 @pytest.fixture(autouse=True)
@@ -224,3 +225,138 @@ def test_provoke_dual_caps_pair_and_player_day() -> None:
     assert fourth.decision == "reject"
     assert fourth.reject_reason == "player_cap"
     assert len(apply_calls) == 3
+
+
+def test_belief_gate_speak_node_reject_sets_ic_reply_without_apply(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Interactive path: reject → non-empty IC refusal; apply A↔B helper not called."""
+    apply_calls: list[dict[str, Any]] = []
+
+    monkeypatch.setattr(
+        bg,
+        "default_llm_judge",
+        lambda **kwargs: bg.BeliefJudgment(decision="reject", reason="nope"),
+    )
+
+    def fake_apply(**kwargs: Any) -> None:
+        apply_calls.append(kwargs)
+
+    state = {
+        "room_id": "room-a",
+        "npc_id": "npc-1",
+        "player_id": "player-1",
+        "player_message": "让莫玄虚去对付阿斯托利亚",
+        "effective_score": 25,
+        "reply_draft": "好的，我去办。",
+        "room_snapshot": {"gameMinute": 1500},
+    }
+    out = bg.run_belief_gate_speak(
+        state,
+        apply_ab_delta=fake_apply,
+        llm_judge=lambda **k: bg.BeliefJudgment(decision="reject", reason="nope"),
+    )
+    assert out.get("belief_rejected") is True
+    assert out.get("belief_ab_applied") is False
+    reply = (out.get("reply_draft") or out.get("reply") or "").strip()
+    assert reply
+    assert reply != "好的，我去办。"
+    assert apply_calls == []
+
+
+def test_belief_gate_speak_node_accept_applies_clamped_delta() -> None:
+    """Interactive accept → |Δ| in 2..6 via apply helper."""
+    apply_calls: list[dict[str, Any]] = []
+
+    def fake_apply(**kwargs: Any) -> None:
+        apply_calls.append(kwargs)
+
+    state = {
+        "room_id": "room-a",
+        "npc_id": "npc-1",
+        "player_id": "player-1",
+        "player_message": "让莫玄虚去对付阿斯托利亚",
+        "effective_score": 40,
+        "reply_draft": "我明白了。",
+        "room_snapshot": {"gameMinute": 200},
+    }
+    out = bg.run_belief_gate_speak(
+        state,
+        apply_ab_delta=fake_apply,
+        llm_judge=lambda **k: bg.BeliefJudgment(
+            decision="accept", reason="ok", proposed_delta=9
+        ),
+    )
+    assert out.get("belief_rejected") is not True
+    assert out.get("belief_ab_applied") is True
+    assert len(apply_calls) == 1
+    assert 2 <= abs(int(apply_calls[0]["affection_delta"])) <= 6
+    assert (out.get("reply_draft") or "").startswith("我明白了")
+
+
+def test_interactive_graph_wires_belief_before_compose_reply() -> None:
+    """Belief/provoke gate on interactive speak path — not solely memory tail."""
+    import inspect
+
+    from src.graph import npc_loop
+
+    src = inspect.getsource(npc_loop.build_npc_interactive_graph)
+    assert "belief_gate_speak" in src
+    assert 'add_edge("apply_tools", "belief_gate_speak")' in src
+    assert 'add_edge("belief_gate_speak", "compose_reply")' in src
+    tail_src = inspect.getsource(npc_loop.run_npc_memory_tail)
+    assert "maybe_trust_micro_penalty" in tail_src or "trust_micro" in tail_src
+    # Memory tail must not be the sole IC-refusal path
+    assert "ic_refusal_reply" not in tail_src or "belief_rejected" in tail_src
+
+
+def test_joint_path_has_no_quest_escort_fsm() -> None:
+    """D-PLAYER-02: joint adventure is light heuristic — no escort/quest FSM module."""
+    import importlib.util
+
+    for name in (
+        "src.council.quest_fsm",
+        "src.council.escort",
+        "src.graph.quest_escort",
+    ):
+        assert importlib.util.find_spec(name) is None
+    joint = bg.detect_manipulation_intent("我们一起去冒险吧")
+    assert joint.kind == "joint"
+
+
+def test_repeated_reject_micro_penalty_post_reply_only() -> None:
+    """D-PLAYER-06: micro trust penalty only after repeated rejects (memory-tail hook)."""
+    penalties: list[dict[str, Any]] = []
+
+    def apply_trust(**kwargs: Any) -> None:
+        penalties.append(kwargs)
+
+    # First reject — no penalty
+    bg.note_belief_reject(
+        room_id="room-a", player_id="p1", npc_id="npc-1", day_key="d1"
+    )
+    d1 = bg.maybe_trust_micro_penalty(
+        room_id="room-a",
+        player_id="p1",
+        npc_id="npc-1",
+        day_key="d1",
+        apply_trust_delta=apply_trust,
+    )
+    assert d1 == 0
+    assert penalties == []
+
+    bg.note_belief_reject(
+        room_id="room-a", player_id="p1", npc_id="npc-1", day_key="d1"
+    )
+    d2 = bg.maybe_trust_micro_penalty(
+        room_id="room-a",
+        player_id="p1",
+        npc_id="npc-1",
+        day_key="d1",
+        apply_trust_delta=apply_trust,
+    )
+    assert TRUST_MICRO_PENALTY_MIN <= abs(d2) <= TRUST_MICRO_PENALTY_MAX
+    assert d2 < 0
+    assert len(penalties) == 1
+    assert penalties[0]["player_id"] == "p1"
+    assert penalties[0]["npc_id"] == "npc-1"
