@@ -39,3 +39,8 @@ class GraphState(TypedDict, total=False):
     pending_actions: list[dict[str, Any]]
     reply: str
     trace_run_id: str | None
+    manipulation_intent: str
+    belief_decision: str
+    belief_rejected: bool
+    belief_ab_applied: bool
+    belief_day_key: str

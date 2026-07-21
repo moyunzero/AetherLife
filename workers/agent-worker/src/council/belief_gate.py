@@ -451,3 +451,111 @@ def evaluate_belief_gate(
         npc_b_id=npc_b,
         kind=kind,  # type: ignore[arg-type]
     )
+
+
+def day_key_from_snapshot(room_snapshot: dict[str, Any] | None) -> str:
+    snap = room_snapshot or {}
+    game_minute = int(snap.get("gameMinute") or snap.get("game_minute") or 0)
+    return f"day-{game_minute // 1440}"
+
+
+def run_belief_gate_speak(
+    state: dict[str, Any],
+    *,
+    settings: Any | None = None,
+    client: Any | None = None,
+    apply_ab_delta: Callable[..., None] | None = None,
+    llm_judge: Callable[..., BeliefJudgment] | None = None,
+    enqueue_rel07: Callable[..., list] | None = None,
+) -> dict[str, Any]:
+    """Interactive speak hook — run BEFORE compose_reply finalizes player-visible reply.
+
+    Never call from Colyseus onMessage speak. Reject forces IC refusal as reply_draft.
+    Accept applies A↔B via apply_ab_delta (or HTTP when client+settings provided).
+    """
+    from src.council.relationship_deltas import clamp_player_provoke_delta
+
+    player_message = (state.get("player_message") or "").strip()
+    intent = detect_manipulation_intent(player_message)
+    if intent.kind == "none":
+        return {**state, "manipulation_intent": "none"}
+
+    room_id = str(state.get("room_id") or "")
+    npc_id = str(state.get("npc_id") or "npc-1")
+    player_id = str(state.get("player_id") or "__legacy__")
+    score_raw = state.get("effective_score")
+    score = int(score_raw) if isinstance(score_raw, (int, float)) else 0
+    day_key = day_key_from_snapshot(state.get("room_snapshot"))
+
+    apply_fn = apply_ab_delta
+    if apply_fn is None and client is not None and settings is not None:
+        from src.graph.personal_timeline import (
+            DYAD_REL_MIN_ABS_DELTA,
+            apply_single_relationship_delta,
+            enqueue_rel07_bilateral_jobs,
+        )
+
+        def apply_fn(**kwargs: Any) -> None:
+            delta = clamp_player_provoke_delta(int(kwargs["affection_delta"]))
+            apply_single_relationship_delta(
+                client,
+                settings,
+                room_id=kwargs["room_id"],
+                npc_a_id=kwargs["npc_a_id"],
+                npc_b_id=kwargs["npc_b_id"],
+                affection_delta=delta,
+                history_append=f"玩家促成互动（Δ{delta:+d}）",
+            )
+            rel_fn = enqueue_rel07 or enqueue_rel07_bilateral_jobs
+            snap = state.get("room_snapshot") or {}
+            epoch = int(snap.get("absoluteGameMinute") or snap.get("gameMinute") or 0)
+            rel_fn(
+                room_id=kwargs["room_id"],
+                npc_a_id=kwargs["npc_a_id"],
+                npc_b_id=kwargs["npc_b_id"],
+                event_anchor_id=f"provoke-{day_key}-{kwargs['npc_a_id']}-{kwargs['npc_b_id']}",
+                affection_delta=delta,
+                aether_epoch_minute=epoch,
+                history_append=f"玩家促成互动（Δ{delta:+d}）",
+                min_abs_delta=DYAD_REL_MIN_ABS_DELTA,
+                settings=settings,
+            )
+
+    result = evaluate_belief_gate(
+        initiator_player_id=player_id,
+        active_npc_id=npc_id,
+        room_id=room_id,
+        speak_text=player_message,
+        proposed_a_id=intent.npc_a_id,
+        proposed_b_id=intent.npc_b_id,
+        effective_score=score,
+        day_key=day_key,
+        llm_judge=llm_judge,
+        apply_ab_delta=apply_fn,
+        intent=intent,
+    )
+
+    out = {
+        **state,
+        "manipulation_intent": intent.kind,
+        "belief_decision": result.decision,
+        "belief_rejected": result.decision == "reject",
+        "belief_ab_applied": result.decision == "accept" and result.affection_delta != 0,
+        "belief_day_key": day_key,
+    }
+    if result.decision == "reject":
+        refusal = result.ic_refusal_reply or ic_refusal_reply(seed=player_message)
+        out["reply_draft"] = refusal
+        out["reply"] = refusal
+        out["belief_ab_applied"] = False
+    return out
+
+
+def belief_gate_speak_node(
+    state: dict[str, Any],
+    *,
+    settings: Any,
+    client: Any,
+) -> dict[str, Any]:
+    """LangGraph node wrapper (httpx client injected by _with_client_node)."""
+    return run_belief_gate_speak(state, settings=settings, client=client)

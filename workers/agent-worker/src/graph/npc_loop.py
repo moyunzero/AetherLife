@@ -58,7 +58,9 @@ from src.council.leaning_drift import (
     estimate_speak_sentiment_delta,
     get_leaning_drift,
 )
+from src.council.belief_gate import belief_gate_speak_node, maybe_trust_micro_penalty
 from src.council.memory_context import fetch_dual_rag_context
+from src.collective.repository import CollectiveRepository
 from src.memory.client import (
     append_npc_memory,
     append_player_memory,
@@ -393,6 +395,12 @@ def refresh_collective_in_state(state: GraphState) -> GraphState:
 
 
 def compose_reply(state: GraphState) -> GraphState:
+    # Belief reject already forced IC refusal onto reply_draft (pre-reply gate).
+    if state.get("belief_rejected"):
+        refusal = (state.get("reply_draft") or state.get("reply") or "").strip()
+        if refusal:
+            return {**state, "reply": sanitize_npc_reply(refusal)}
+
     state = _finalize_hostile_gate(state)
     reply = (state.get("reply_draft") or state.get("reply") or "").strip()
     player_message = state.get("player_message") or ""
@@ -576,7 +584,7 @@ def _with_client_node(cfg: Settings, node_fn):
 
 
 def build_npc_interactive_graph(settings: Settings | None = None):
-    """Player-visible path: social perceive → apply → refresh → tools → reply."""
+    """Player-visible path: social perceive → apply → refresh → tools → belief → reply."""
     cfg = settings or get_settings()
 
     graph = StateGraph(GraphState)
@@ -585,6 +593,7 @@ def build_npc_interactive_graph(settings: Settings | None = None):
     graph.add_node("apply_social_event", apply_social_event)
     graph.add_node("refresh_collective_in_state", refresh_collective_in_state)
     graph.add_node("apply_tools", _with_client_node(cfg, apply_tools))
+    graph.add_node("belief_gate_speak", _with_client_node(cfg, belief_gate_speak_node))
     graph.add_node("compose_reply", compose_reply)
 
     graph.set_entry_point("fetch_state_and_memory")
@@ -592,7 +601,8 @@ def build_npc_interactive_graph(settings: Settings | None = None):
     graph.add_edge("llm_social_turn", "apply_social_event")
     graph.add_edge("apply_social_event", "refresh_collective_in_state")
     graph.add_edge("refresh_collective_in_state", "apply_tools")
-    graph.add_edge("apply_tools", "compose_reply")
+    graph.add_edge("apply_tools", "belief_gate_speak")
+    graph.add_edge("belief_gate_speak", "compose_reply")
     graph.add_edge("compose_reply", END)
 
     # Single-shot invoke — no Postgres checkpoint (6× writes/speak; Supabase flake → E2E timeout).
@@ -684,11 +694,33 @@ def _maybe_apply_speak_leaning_drift(state: GraphState) -> None:
 
 
 def run_npc_memory_tail(state: GraphState, settings: Settings | None = None) -> GraphState:
-    """Post-reply memory: importance, reflect, summarize — must not block Colyseus done."""
+    """Post-reply memory: importance, reflect, summarize — must not block Colyseus done.
+
+    Repeated belief-reject micro trust penalty may run here (penalty only — never sole IC refusal).
+    """
     cfg = settings or get_settings()
     with create_http_client() as client:
         state = persist_turn_memory(state, settings=cfg, client=client)
         _maybe_apply_speak_leaning_drift(state)
+        if state.get("belief_rejected"):
+            day_key = str(state.get("belief_day_key") or "day-0")
+            repo = CollectiveRepository()
+
+            def _apply_trust(**kwargs: Any) -> None:
+                repo.apply_reputation_delta(
+                    kwargs["room_id"],
+                    kwargs["npc_id"],
+                    kwargs["player_id"],
+                    int(kwargs["delta"]),
+                )
+
+            maybe_trust_micro_penalty(
+                room_id=str(state.get("room_id") or ""),
+                player_id=_player_id(state),
+                npc_id=str(state.get("npc_id") or "npc-1"),
+                day_key=day_key,
+                apply_trust_delta=_apply_trust,
+            )
         state = maybe_collective_refine(state, settings=cfg)
         state = maybe_reflect_turn(state, settings=cfg, client=client)
         state = maybe_bulk_summarize_turn(state, settings=cfg, client=client)
