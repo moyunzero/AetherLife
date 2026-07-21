@@ -122,6 +122,7 @@ export function ChatPage() {
     npcActivityById,
     npcAmbientById,
     roomNpcs,
+    mutualChatBubble,
   } = useColyseusRoom(
     mapRoomId,
     moveMap,
@@ -819,6 +820,7 @@ export function ChatPage() {
                 npcActivityById={npcActivityById}
                 npcAmbientById={npcAmbientById}
                 speakBusyNpcId={speakBusyNpcId}
+                mutualChatBubble={mutualChatBubble}
                 onBootFailed={() => {
                   setPhaserOk(false);
                   setBootOk(false);

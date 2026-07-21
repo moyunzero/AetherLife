@@ -4,24 +4,25 @@ import {
   SCENE_LABEL_FONT_SANS,
 } from "./entityLabels.js";
 import { labelPx, LABEL_MIN_ACTIVITY_PX, LABEL_SCALE } from "./entityLayout.js";
-import { chebyshevDistance } from "./ProximityNameplate.js";
 import { nameLabelY } from "./sceneLabelLayout.js";
 import type { SpriteProfile } from "./entitySprites.js";
+import {
+  MUTUAL_BUBBLE_FADE_MS,
+  MUTUAL_BUBBLE_HOLD_MS,
+  MUTUAL_BUBBLE_MAX_CHARS,
+  MUTUAL_BUBBLE_REDUCED_HIDE_MS,
+  shouldShowMutualChatBubble,
+  truncateMutualBubbleText,
+} from "./MutualChatBubbleLogic.js";
 
-/** D-MUTUAL-02 — clamp display length (server also clamps). */
-export const MUTUAL_BUBBLE_MAX_CHARS = 20;
-
-/** Visible hold before fade (mid of UI-SPEC 3–5s). */
-export const MUTUAL_BUBBLE_HOLD_MS = 3500;
-
-/** Fade-out tween duration when motion is allowed. */
-export const MUTUAL_BUBBLE_FADE_MS = 400;
-
-/** prefers-reduced-motion: hard-hide (no fade). */
-export const MUTUAL_BUBBLE_REDUCED_HIDE_MS = 4000;
-
-const PROXIMITY_CELLS = 2;
-const CONTROL_CHARS = /[\x00-\x1f\x7f]/g;
+export {
+  MUTUAL_BUBBLE_FADE_MS,
+  MUTUAL_BUBBLE_HOLD_MS,
+  MUTUAL_BUBBLE_MAX_CHARS,
+  MUTUAL_BUBBLE_REDUCED_HIDE_MS,
+  shouldShowMutualChatBubble,
+  truncateMutualBubbleText,
+} from "./MutualChatBubbleLogic.js";
 
 export const MUTUAL_BUBBLE_FONT_SIZE_PX = Math.max(
   LABEL_MIN_ACTIVITY_PX,
@@ -51,12 +52,6 @@ export type MutualChatBubbleHost = {
   spriteMode?: boolean;
   spriteProfile?: SpriteProfile;
 };
-
-export function truncateMutualBubbleText(text: string): string {
-  const cleaned = String(text ?? "").replace(CONTROL_CHARS, "").trim();
-  if (cleaned.length <= MUTUAL_BUBBLE_MAX_CHARS) return cleaned;
-  return cleaned.slice(0, MUTUAL_BUBBLE_MAX_CHARS);
-}
 
 export function mutualChatBubbleY(
   spriteMode: boolean | undefined,
@@ -131,7 +126,10 @@ export function showMutualChatBubble(
   const holdMs = opts.reducedMotion ? MUTUAL_BUBBLE_REDUCED_HIDE_MS : MUTUAL_BUBBLE_HOLD_MS;
   const untilFromTtl =
     opts.expiresAt != null && opts.expiresAt > now ? opts.expiresAt : now + holdMs;
-  const until = Math.min(untilFromTtl, now + (opts.reducedMotion ? MUTUAL_BUBBLE_REDUCED_HIDE_MS : 5000));
+  const until = Math.min(
+    untilFromTtl,
+    now + (opts.reducedMotion ? MUTUAL_BUBBLE_REDUCED_HIDE_MS : 5000),
+  );
 
   clearBubbleTimers(host);
   bubble.setText(copy);
@@ -174,16 +172,6 @@ export function hideMutualChatBubble(
   snapHidden(host);
 }
 
-/** Player Chebyshev ≤2 — same proximity band as activity / nameplates. */
-export function shouldShowMutualChatBubble(
-  gx: number,
-  gy: number,
-  localGx: number,
-  localGy: number,
-): boolean {
-  return chebyshevDistance(gx, gy, localGx, localGy) <= PROXIMITY_CELLS;
-}
-
 /**
  * Apply proximity gate while a bubble is live (walk out → hide; walk in before expiry → show).
  */
@@ -196,7 +184,6 @@ export function updateMutualChatBubbleVisibility(
   if (!bubble || host.mutualChatBubbleUntil == null) return;
 
   if (nowMs >= host.mutualChatBubbleUntil) {
-    // Timer/tween owns hide; keep alpha if fade in progress.
     return;
   }
 

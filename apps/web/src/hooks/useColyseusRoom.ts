@@ -14,6 +14,7 @@ import {
   type ColyseusChunksSyncPayload,
   type ColyseusCouncilDeliberationSyncPayload,
   type ColyseusLoreSyncPayload,
+  type ColyseusMutualChatBubblePayload,
   type ColyseusPersonalTimelineSyncPayload,
   type ColyseusWorldHistorySyncPayload,
   type RoomState,
@@ -32,6 +33,9 @@ export type GameClockState = {
   minute: number;
   label: string;
 };
+
+/** One-shot mutual-chat bubble + client seq so Phaser registry always sees a change. */
+export type MutualChatBubbleEvent = ColyseusMutualChatBubblePayload & { seq: number };
 
 function snapshotAmbientState(room: Room) {
   return snapshotAmbientStateFromSchema(room.state as Parameters<typeof snapshotAmbientStateFromSchema>[0]);
@@ -169,6 +173,8 @@ export function useColyseusRoom(
   const [npcActivityById, setNpcActivityById] = useState<Record<string, string>>({});
   const [npcAmbientById, setNpcAmbientById] = useState<Record<string, NpcAmbientSnapshot>>({});
   const [roomNpcs, setRoomNpcs] = useState<CouncilNpcSnapshot[]>([]);
+  const [mutualChatBubble, setMutualChatBubble] = useState<MutualChatBubbleEvent | null>(null);
+  const mutualChatBubbleSeqRef = useRef(0);
   const {
     loreByChunk,
     mergeLoreSync,
@@ -244,6 +250,7 @@ export function useColyseusRoom(
     let offWorldHistorySync: (() => void) | undefined;
     let offCouncilDeliberationSync: (() => void) | undefined;
     let offPersonalTimelineSync: (() => void) | undefined;
+    let offMutualChatBubble: (() => void) | undefined;
     let onStateChangeHandler: (() => void) | undefined;
     let onLeaveHandler: ((code: number, reason?: string) => void) | undefined;
 
@@ -341,6 +348,21 @@ export function useColyseusRoom(
           mergePersonalTimelineSyncRef.current?.(data);
         },
       );
+      offMutualChatBubble = joined.onMessage(
+        COLYSEUS_SERVER_MESSAGES.mutualChatBubble,
+        (data: ColyseusMutualChatBubblePayload) => {
+          if (generation !== joinGeneration) return;
+          if (!data?.npcId || !data?.peerNpcId || typeof data.text !== "string") return;
+          mutualChatBubbleSeqRef.current += 1;
+          setMutualChatBubble({
+            npcId: data.npcId,
+            peerNpcId: data.peerNpcId,
+            text: data.text,
+            expiresAt: typeof data.expiresAt === "number" ? data.expiresAt : Date.now() + 4000,
+            seq: mutualChatBubbleSeqRef.current,
+          });
+        },
+      );
       joined.send(COLYSEUS_CLIENT_MESSAGES.requestChunksSync, {});
     };
 
@@ -408,6 +430,7 @@ export function useColyseusRoom(
       offWorldHistorySync?.();
       offCouncilDeliberationSync?.();
       offPersonalTimelineSync?.();
+      offMutualChatBubble?.();
       const leaving = activeRoom ?? roomRef.current;
       if (leaving) {
         if (onStateChangeHandler) {
@@ -428,6 +451,7 @@ export function useColyseusRoom(
       setNpcActivityById({});
       setNpcAmbientById({});
       setRoomNpcs([]);
+      setMutualChatBubble(null);
       setRoom(null);
       setConnected(false);
     };
@@ -473,5 +497,6 @@ export function useColyseusRoom(
     npcActivityById,
     npcAmbientById,
     roomNpcs,
+    mutualChatBubble,
   };
 }
