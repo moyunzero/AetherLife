@@ -212,9 +212,9 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 | **Embedding** | Async embed of `history_summary` + `current_status` text；affection **band** 仅作 metadata filter，**不**入向量（D-EMBED-02）；write path 与公开 GET 解耦 |
 | **Shared SSOT** | `relationshipBandFromAffection` / `relationshipBandLabelZh` / `toRelationshipEdgeBandPublic`；`COLYSEUS_SERVER_MESSAGES.relationshipSync` |
 
-**验证：** `pnpm --filter @aetherlife/shared test -- councilRelationships` · `pnpm --filter @aetherlife/shared build` ·（后续 plan）player route + broadcast + `pnpm verify:phase28`
+**验证：** `pnpm --filter @aetherlife/shared test -- councilRelationships` · `pnpm --filter @aetherlife/shared build` · `pnpm --filter @aetherlife/game-server test -- npc-relationships` · `pnpm --filter @aetherlife/web test -- RelationshipGraphPanel useNpcRelationships` · `pnpm verify:phase28`（真实 LLM / `assertE2eRealLlm`）
 
-**锚点文件：** `packages/shared/src/councilRelationships.ts`, `packages/shared/src/colyseus.ts`, `docs/CONTRACTS.md`（本行）, `routes/npc-relationships.ts`（player GET — later plan）, embedding write path（later plan）.
+**锚点文件：** `packages/shared/src/councilRelationships.ts`, `packages/shared/src/colyseus.ts`, `docs/CONTRACTS.md`（本行）, `apps/game-server/src/routes/npc-relationships.ts`（player GET）, `apps/game-server/src/world/relationship-broadcast.ts`（`relationshipSync` + `mutualChatBubble`）, `apps/game-server/src/world/npc-relationships-repository.ts`（async embed）, `apps/web/src/hooks/useNpcRelationships.ts`, `apps/web/src/components/RelationshipGraphPanel.tsx`
 
 ---
 

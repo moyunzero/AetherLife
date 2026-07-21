@@ -204,6 +204,10 @@
 114. **Personal-timeline job 入队须 durable claim**：`claimPersonalTimelineJobId` / worker `claim_personal_timeline_job_id`（SET NX，前缀 `aetherlife:personal-timeline:job-claimed:`）覆盖 polish/weekly/multi/rel/event **以及** dyad pair/ambient-slot；**禁止**仅靠进程内存 debounce（重启会重复 LPUSH → 重复 LLM 行）。传记 UI：fetch 失败须展示 error（勿静默空列表）；已缓存条目在 `personalTimelineSync` 时须后台 refetch。回归：`personal-timeline.claim.test.ts` · `personal-timeline-dyad.test.ts` · `usePersonalTimeline.test.ts` · `pnpm uat:phase27:persona-diary`。
 115. **Speak 多轮连贯（260720-m4b）**：interactive 路径 `llm_social_turn._build_social_messages` **必须**注入 `recent_turns` Human/AI 链（`append_recent_dialogue_messages`）；**禁止** help offer（`player_offers_help` /「我可以帮你」）走 SOCIAL_EDGE deterministic stub；`recent_turns` 非空时 **禁止** CASUAL/SOCIAL_EDGE fast lane（B1 例外：空历史纯问候）。`augment_retrieved_with_dialogue_turns` 须含 `npc:` 行。回归：`pytest tests/test_speak_intent.py tests/test_help_reply_by_npc.py tests/test_llm_social_memory.py tests/test_casual_fast_lane.py tests/test_recall_merge.py -q` · `pnpm --filter @aetherlife/shared test -- speakIntent` · `pnpm agent:verify`。
 
+### Phase 28 — Council relationship advanced（C-09b / EA-6）
+
+116. **Provoke/belief reject 禁止 A↔B delta**：`evaluate_belief_gate` / `run_belief_gate_speak` 在 `decision=reject` 时 **不得** `apply` npcA↔npcB affection；信任分仅来自 **initiator** 的 `npc_attitudes` / collective `effectiveScore`（禁止用 peer 态度）。Mutual-chat 记忆走 `__council__` / REL-07，**禁止**污染玩家 speak `npc_memories` 作用域。Idle decay **必须** `applyIdleDecayDeltas`（**禁止** `applyDeltaToRow` / interact bump）。同一 room/day/pair 上 **mutual-chat supersedes** ambient dyad pair budget。Frozen VIS-04 铭牌三文件（`entityLabels` / `ProximityNameplate` / `entitySprites`）与 speakBusy 方案 A **禁止** drive-by 改动。回归：`pytest tests/test_belief_gate.py tests/test_npc_mutual_chat.py tests/test_relationship_rag.py -q` · `pnpm --filter @aetherlife/game-server test -- npc-relationship-decay npc-mutual-chat npc-relationships` · `pnpm verify:phase28`（`pnpm dev:stack`，禁 `LLM_MOCK`）。
+
 ## 记录
 
 ### ISSUE-001 — thinking 中切换 NPC Tab 后无法移动（UI 冻结）
