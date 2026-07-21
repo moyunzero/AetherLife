@@ -124,7 +124,7 @@ describe("relationship edge embedding write (D-EMBED-03)", () => {
     expect(stored).toBeNull();
   });
 
-  it("searchSimilarEdges ranks by cosine and prefers query match", async () => {
+  it("searchSimilarEdges ranks by cosine and filters activeNpcId", async () => {
     await insertRelationshipEdge({
       roomId: "room-sim",
       npcAId: "npc-1",
@@ -143,13 +143,23 @@ describe("relationship edge embedding write (D-EMBED-03)", () => {
       trust: 50,
       historySummary: "偶尔闲聊天气。",
     });
+    await insertRelationshipEdge({
+      roomId: "room-sim",
+      npcAId: "npc-4",
+      npcBId: "npc-5",
+      baseTag: "peer",
+      affection: 0,
+      trust: 50,
+      historySummary: "无关边。",
+    });
 
-    const q = await embedText("封印裂隙边境防务");
+    const targetText = "共守封印裂隙，边境防务同盟。";
+    const targetVec = await embedText(targetText);
     await updateEmbeddingForEdge(
       "room-sim",
       "npc-1",
       "npc-2",
-      await embedText("共守封印裂隙，边境防务同盟。"),
+      targetVec,
     );
     await updateEmbeddingForEdge(
       "room-sim",
@@ -157,15 +167,24 @@ describe("relationship edge embedding write (D-EMBED-03)", () => {
       "npc-3",
       await embedText("偶尔闲聊天气。"),
     );
+    await updateEmbeddingForEdge(
+      "room-sim",
+      "npc-4",
+      "npc-5",
+      await embedText("无关边。"),
+    );
 
     const hits = await searchSimilarEdges({
       roomId: "room-sim",
-      queryEmbedding: q,
+      queryEmbedding: targetVec,
       activeNpcId: "npc-1",
-      k: 2,
+      k: 5,
     });
-    expect(hits.length).toBeGreaterThanOrEqual(1);
-    expect(hits[0]!.npcAId === "npc-1" || hits[0]!.npcBId === "npc-1").toBe(true);
-    expect(hits[0]!.historySummary).toContain("封印");
+    expect(hits).toHaveLength(2);
+    expect(hits[0]!.historySummary).toBe(targetText);
+    expect(hits[0]!.score).toBeGreaterThanOrEqual(hits[1]!.score);
+    for (const hit of hits) {
+      expect(hit.npcAId === "npc-1" || hit.npcBId === "npc-1").toBe(true);
+    }
   });
 });
