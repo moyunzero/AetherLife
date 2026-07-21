@@ -369,10 +369,16 @@ export {
   normalizeEdgeIds,
   councilIndexEdgeIds,
   parseRelationshipDeltaInput,
+  relationshipBandFromAffection,
+  relationshipBandLabelZh,
   relationshipDeltaInputSchema,
+  relationshipEdgeBandPublicSchema,
   safeParseRelationshipDeltaInput,
+  toRelationshipEdgeBandPublic,
   type LinkedEdge,
+  type RelationshipBand,
   type RelationshipDeltaInput,
+  type RelationshipEdgeBandPublic,
   type RelationshipEdgePublic,
 } from "./councilRelationships.js";
 

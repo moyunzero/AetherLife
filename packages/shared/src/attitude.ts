@@ -3,7 +3,11 @@ export type AttitudeBand = "hostile" | "wary" | "neutral" | "warm" | "allied";
 export const ATTITUDE_SCORE_MIN = -100;
 export const ATTITUDE_SCORE_MAX = 100;
 
-/** D-15 band thresholds on effectiveScore. */
+/**
+ * D-15 band thresholds on effectiveScore.
+ * Phase 28 关系网 reuses these cutoffs via relationshipBandFromAffection
+ * (maps wary→cool, allied→close; separate ZH labels in councilRelationships).
+ */
 export function bandFromEffectiveScore(score: number): AttitudeBand {
   if (score < -30) return "hostile";
   if (score < 0) return "wary";
