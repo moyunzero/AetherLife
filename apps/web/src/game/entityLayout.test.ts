@@ -6,6 +6,7 @@ import {
   entityYSortDepthFromCenter,
   MAP_TILE_DEPTH_BASE,
   MAP_TILE_DEPTH_STEP,
+  clusterSouthSortWorldY,
   tiledObjectYSortDepth,
   ySortDepth,
   YSORT_LAYER,
@@ -82,6 +83,35 @@ describe("tiledObjectYSortDepth", () => {
 
   it("keeps ENTITY_DEPTH_BASE as documented baseline", () => {
     expect(ySortDepth(0, 0, 0)).toBe(ENTITY_DEPTH_BASE);
+  });
+});
+
+describe("clusterSouthSortWorldY", () => {
+  it("raises northern Campfire tiles to the cluster south edge", () => {
+    // Real home Campfire bottoms (TILE_SCALE=2): y=480→960, y=496→992
+    const parts = [
+      { bottomWorldX: 512, bottomWorldY: 960 },
+      { bottomWorldX: 544, bottomWorldY: 960 },
+      { bottomWorldX: 512, bottomWorldY: 992 },
+      { bottomWorldX: 544, bottomWorldY: 992 },
+    ];
+    const sortYs = clusterSouthSortWorldY(parts);
+    expect(sortYs).toEqual([992, 992, 992, 992]);
+
+    const flameDepth = tiledObjectYSortDepth(512, sortYs[0]!, YSORT_LAYER.OBJECT);
+    // Player standing on north footprint (gy=29 → foot row 30) must stay behind flames.
+    expect(entityYSortDepth(16, 29, YSORT_LAYER.PLAYER)).toBeLessThan(flameDepth);
+  });
+
+  it("keeps separate volumes with different south edges independent", () => {
+    const parts = [
+      { bottomWorldX: 0, bottomWorldY: 100 },
+      { bottomWorldX: 0, bottomWorldY: 132 },
+      { bottomWorldX: 400, bottomWorldY: 200 },
+      { bottomWorldX: 400, bottomWorldY: 232 },
+    ];
+    const sortYs = clusterSouthSortWorldY(parts);
+    expect(sortYs).toEqual([132, 132, 232, 232]);
   });
 });
 

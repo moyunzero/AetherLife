@@ -125,3 +125,51 @@ export function tiledObjectYSortDepth(
 ): number {
   return ySortDepth(bottomLeftWorldX, bottomLeftWorldY, layer);
 }
+
+/**
+ * Multi-tile volume props (e.g. Campfire 2×2): northern tiles must share the
+ * cluster's southernmost bottom Y, otherwise a player whose foot aligns with the
+ * north tile bottom (PLAYER layer +2) draws in front of the flames.
+ *
+ * Parts within `adjacencyWorldPx` Chebyshev distance form one cluster.
+ * Returns one sort-Y per input part (same order).
+ */
+export function clusterSouthSortWorldY(
+  parts: ReadonlyArray<{ bottomWorldX: number; bottomWorldY: number }>,
+  adjacencyWorldPx: number = CELL_PX,
+): number[] {
+  const n = parts.length;
+  if (n === 0) return [];
+
+  const parent = Array.from({ length: n }, (_, i) => i);
+  const find = (i: number): number => {
+    let x = i;
+    while (parent[x] !== x) {
+      parent[x] = parent[parent[x]!]!;
+      x = parent[x]!;
+    }
+    return x;
+  };
+  const union = (a: number, b: number): void => {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent[ra] = rb;
+  };
+
+  for (let i = 0; i < n; i += 1) {
+    for (let j = i + 1; j < n; j += 1) {
+      const dx = Math.abs(parts[i]!.bottomWorldX - parts[j]!.bottomWorldX);
+      const dy = Math.abs(parts[i]!.bottomWorldY - parts[j]!.bottomWorldY);
+      if (dx <= adjacencyWorldPx && dy <= adjacencyWorldPx) union(i, j);
+    }
+  }
+
+  const maxYByRoot = new Map<number, number>();
+  for (let i = 0; i < n; i += 1) {
+    const root = find(i);
+    const y = parts[i]!.bottomWorldY;
+    maxYByRoot.set(root, Math.max(maxYByRoot.get(root) ?? y, y));
+  }
+
+  return parts.map((_, i) => maxYByRoot.get(find(i))!);
+}

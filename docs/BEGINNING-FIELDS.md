@@ -61,6 +61,7 @@ Web agent 摘要：[apps/web/AGENTS.md](../apps/web/AGENTS.md) · 回归 ISSUE-0
 
 - Tiled tile object（Object Layer 1）：**左下角** 锚点
 - 玩家 / NPC：**格心 X + 格南缘 Y**（与 sprite 脚底一致）
+- **Campfire 等 volume tileset**（`VOLUME_CLUSTER_TILESETS`）：相邻 tile object 共用**最南底边** sort Y，避免北侧火焰被 PLAYER 层盖住
 - 高大物件（树冠）：将来走 Tiled **Overhead** 层 + `YSORT_OVERHEAD_DEPTH`，不单点 Y-sort
 
 ---
