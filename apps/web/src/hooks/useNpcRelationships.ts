@@ -32,16 +32,6 @@ type SyncState = {
   latestSeq?: number;
 };
 
-const RENDER_EDGE_KEYS = [
-  "npcAId",
-  "npcBId",
-  "baseTag",
-  "band",
-  "bandLabelZh",
-  "kindLabelZh",
-  "currentStatus",
-] as const;
-
 /** Strip any leaked affection/trust ints before state (T-28-10-LEAK). */
 export function toRenderEdge(raw: unknown): RelationshipRenderEdge | null {
   if (!raw || typeof raw !== "object") return null;
@@ -70,12 +60,6 @@ export function toRenderEdge(raw: unknown): RelationshipRenderEdge | null {
     kindLabelZh: row.kindLabelZh,
     currentStatus: row.currentStatus.filter((s): s is string => typeof s === "string"),
   };
-  // Ensure no accidental leak keys survive even if TS widen.
-  for (const key of Object.keys(row)) {
-    if (!(RENDER_EDGE_KEYS as readonly string[]).includes(key)) {
-      /* drop affection/trust/etc */
-    }
-  }
   return edge;
 }
 

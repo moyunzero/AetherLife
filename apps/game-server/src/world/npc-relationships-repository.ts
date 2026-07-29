@@ -177,6 +177,54 @@ function noteInteractAbs(roomId: string, npcAId: string, npcBId: string, abs: nu
   lastInteractAbsByEdge.set(edgeStampKey(roomId, npcAId, npcBId), abs);
 }
 
+/**
+ * After process restart, Maps are empty while SQL still has last_interact_at.
+ * Stamp current abs so recently-interacted edges are not treated as idle (abs=0).
+ * Returns how many edges were hydrated.
+ */
+export function hydrateInteractAbsFromEdges(
+  roomId: string,
+  absoluteGameMinute: number,
+  edges: ReadonlyArray<{
+    npcAId: string;
+    npcBId: string;
+    lastInteractAt: Date | null;
+  }>,
+): number {
+  let hydrated = 0;
+  for (const edge of edges) {
+    if (!edge.lastInteractAt) continue;
+    if (getLastInteractAbsMinute(roomId, edge.npcAId, edge.npcBId) !== undefined) {
+      continue;
+    }
+    noteInteractAbs(roomId, edge.npcAId, edge.npcBId, absoluteGameMinute);
+    hydrated += 1;
+  }
+  return hydrated;
+}
+
+/**
+ * Restore seed stamps for never-interacted edges after restart (seed abs=0).
+ * Without this, isIdleEdge falls back to 0 anyway — explicit stamp keeps parity with insert path.
+ */
+export function hydrateSeedAbsFromEdges(
+  roomId: string,
+  edges: ReadonlyArray<{
+    npcAId: string;
+    npcBId: string;
+    lastInteractAt: Date | null;
+  }>,
+): number {
+  let hydrated = 0;
+  for (const edge of edges) {
+    if (edge.lastInteractAt) continue;
+    if (getSeedAbsMinute(roomId, edge.npcAId, edge.npcBId) !== undefined) continue;
+    noteSeedAbs(roomId, edge.npcAId, edge.npcBId, 0);
+    hydrated += 1;
+  }
+  return hydrated;
+}
+
 function getSql(): ReturnType<typeof getSharedSql> | null {
   const url = process.env.DATABASE_URL;
   if (!url) return null;

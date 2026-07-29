@@ -22,10 +22,10 @@ import {
 const ROOM = "room-decay-28-04";
 
 describe("npc-relationship-decay", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     delete process.env.DATABASE_URL;
     clearNpcRelationshipsMemory();
-    clearRelationshipDecayState();
+    await clearRelationshipDecayState();
   });
 
   it("D-DECAY-01: idle decay applies deltas with no UI hint / biography / toast", async () => {
@@ -170,9 +170,25 @@ describe("npc-relationship-decay", () => {
     expect(src).not.toMatch(/applyDeltaToRow/);
     expect(src).toMatch(/applyIdleDecayDeltas/);
     expect(repo).toMatch(/applyIdleDecayDeltas/);
-    // Idle path must not reuse the interact bump helper.
-    const idleFn = repo.slice(repo.indexOf("export async function applyIdleDecayDeltas"));
+    // Idle path must not reuse the interact bump helper — bound the slice to the next export.
+    const idleStart = repo.indexOf("export async function applyIdleDecayDeltas");
+    const idleEnd = repo.indexOf("export function clearNpcRelationshipsMemory", idleStart);
+    expect(idleStart).toBeGreaterThanOrEqual(0);
+    expect(idleEnd).toBeGreaterThan(idleStart);
+    const idleFn = repo.slice(idleStart, idleEnd);
     expect(idleFn).not.toMatch(/applyDeltaToRow\(/);
+  });
+
+  it("GameRoom sequences mutual-chat before ambient dyad enqueue", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const room = readFileSync(join(here, "../colyseus/GameRoom.ts"), "utf8");
+    const tickStart = room.indexOf("private onAmbientTick");
+    const tickEnd = room.indexOf("private runRelationshipDecayIfDue");
+    const tick = room.slice(tickStart, tickEnd);
+    expect(tick).toMatch(/enqueueNpcMutualChatIfDue\(\)[\s\S]*\.then\(/);
+    expect(tick.indexOf("enqueueNpcMutualChatIfDue")).toBeLessThan(
+      tick.indexOf("enqueuePersonalTimelineDyadAmbientIfDue"),
+    );
   });
 
   it("GameRoom ambient tick wires maybeRunRelationshipDecay without LLM", () => {
@@ -184,5 +200,37 @@ describe("npc-relationship-decay", () => {
     const method = room.slice(room.indexOf("private runRelationshipDecayIfDue"));
     const body = method.slice(0, method.indexOf("private enqueueWorldVoteIfDue"));
     expect(body).not.toMatch(/npcSpeakJobs/);
+  });
+
+  it("restart hydrate: SQL last_interact_at prevents idle misclassify at abs=0", async () => {
+    const {
+      hydrateInteractAbsFromEdges,
+      getLastInteractAbsMinute,
+    } = await import("./npc-relationships-repository.js");
+
+    const nowAbs = GAME_MONTH_MINUTES + 50;
+    const hydrated = hydrateInteractAbsFromEdges(ROOM, nowAbs, [
+      {
+        npcAId: "npc-11",
+        npcBId: "npc-12",
+        lastInteractAt: new Date(),
+      },
+    ]);
+    expect(hydrated).toBe(1);
+    expect(getLastInteractAbsMinute(ROOM, "npc-11", "npc-12")).toBe(nowAbs);
+
+    await insertRelationshipEdge({
+      roomId: ROOM,
+      npcAId: "npc-11",
+      npcBId: "npc-12",
+      baseTag: "ally",
+      affection: 55,
+      trust: 80,
+    });
+
+    await clearRelationshipDecayState();
+    const result = await maybeRunRelationshipDecay(ROOM, nowAbs);
+    // Hydrated as "just interacted" at nowAbs → not idle → no decay this month.
+    expect(result.decayed).toBe(0);
   });
 });

@@ -420,3 +420,30 @@ def test_manipulation_cap_resets_on_next_game_day() -> None:
         )
         is None
     )
+
+
+def test_prune_stale_day_keys_on_claim() -> None:
+    bg.clear_manipulation_caps_for_test()
+    assert (
+        bg.claim_manipulation_slot(
+            room_id="room-prune",
+            player_id="p1",
+            npc_a_id="npc-1",
+            npc_b_id="npc-2",
+            day_key="day-0",
+        )
+        is None
+    )
+    # Claiming on a new day drops the prior day's in-process entries.
+    assert (
+        bg.claim_manipulation_slot(
+            room_id="room-prune",
+            player_id="p1",
+            npc_a_id="npc-1",
+            npc_b_id="npc-2",
+            day_key="day-1",
+        )
+        is None
+    )
+    assert all(key[1] == "day-1" for key in bg._pair_claims)
+    assert all(key[1] == "day-1" for key in bg._player_claims)

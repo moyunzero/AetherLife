@@ -7,11 +7,14 @@
  */
 
 import { MINUTES_PER_DAY, DAYS_PER_MONTH, clampAffection } from "@aetherlife/shared";
+import { Redis } from "ioredis";
 import {
   applyIdleDecayDeltas,
   listRelationshipsForRoom,
   getLastInteractAbsMinute,
   getSeedAbsMinute,
+  hydrateInteractAbsFromEdges,
+  hydrateSeedAbsFromEdges,
   type IdleDecayDelta,
 } from "./npc-relationships-repository.js";
 
@@ -20,6 +23,57 @@ export const GAME_MONTH_MINUTES = DAYS_PER_MONTH * MINUTES_PER_DAY;
 
 /** Last monthIndex for which decay ran (per room). */
 const lastDecayMonthByRoom = new Map<string, number>();
+
+const DECAY_MONTH_KEY_PREFIX = "aetherlife:rel-decay-month:";
+let decayRedis: Redis | null | undefined;
+
+function decayMonthRedisKey(roomId: string): string {
+  return `${DECAY_MONTH_KEY_PREFIX}${roomId}`;
+}
+
+function getDecayRedis(): Redis | null {
+  if (decayRedis !== undefined) return decayRedis;
+  const url = process.env.REDIS_URL;
+  if (!url) {
+    decayRedis = null;
+    return null;
+  }
+  decayRedis = new Redis(url, { maxRetriesPerRequest: null });
+  decayRedis.on("error", (err) => {
+    console.error("[redis] relationship-decay", err.message);
+  });
+  return decayRedis;
+}
+
+async function loadLastDecayMonth(roomId: string): Promise<number | undefined> {
+  if (lastDecayMonthByRoom.has(roomId)) {
+    return lastDecayMonthByRoom.get(roomId);
+  }
+  const redis = getDecayRedis();
+  if (!redis) return undefined;
+  try {
+    const raw = await redis.get(decayMonthRedisKey(roomId));
+    if (raw == null || raw === "") return undefined;
+    const n = Number.parseInt(raw, 10);
+    if (!Number.isFinite(n)) return undefined;
+    lastDecayMonthByRoom.set(roomId, n);
+    return n;
+  } catch (err) {
+    console.error("[relationship-decay] load last month failed", err);
+    return undefined;
+  }
+}
+
+async function saveLastDecayMonth(roomId: string, monthIndex: number): Promise<void> {
+  lastDecayMonthByRoom.set(roomId, monthIndex);
+  const redis = getDecayRedis();
+  if (!redis) return;
+  try {
+    await redis.set(decayMonthRedisKey(roomId), String(monthIndex));
+  } catch (err) {
+    console.error("[relationship-decay] save last month failed", err);
+  }
+}
 
 export type SoftBounds = { floor: number; ceiling: number };
 
@@ -83,8 +137,18 @@ export function monthIndexFromAbsoluteMinute(absoluteGameMinute: number): number
 }
 
 /** Test helper */
-export function clearRelationshipDecayState(): void {
+export async function clearRelationshipDecayState(): Promise<void> {
   lastDecayMonthByRoom.clear();
+  const redis = getDecayRedis();
+  if (!redis) return;
+  try {
+    const keys = await redis.keys(`${DECAY_MONTH_KEY_PREFIX}*`);
+    if (keys.length > 0) {
+      await redis.del(...keys);
+    }
+  } catch (err) {
+    console.error("[relationship-decay] clear redis month keys failed", err);
+  }
 }
 
 /**
@@ -167,11 +231,16 @@ export async function maybeRunRelationshipDecay(
   };
   if (monthIndex <= 0) return empty;
 
-  const prev = lastDecayMonthByRoom.get(roomId);
+  const prev = await loadLastDecayMonth(roomId);
   if (prev === monthIndex) return empty;
-  lastDecayMonthByRoom.set(roomId, monthIndex);
 
   const edges = await listRelationshipsForRoom(roomId);
+  // Restart-safe: rehydrate process-local abs stamps from SQL last_interact_at / seed.
+  hydrateInteractAbsFromEdges(roomId, absoluteGameMinute, edges);
+  hydrateSeedAbsFromEdges(roomId, edges);
+
+  await saveLastDecayMonth(roomId, monthIndex);
+
   const deltas: IdleDecayDelta[] = [];
   const rng = options?.rng ?? Math.random;
 

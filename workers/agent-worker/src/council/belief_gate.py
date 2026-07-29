@@ -87,6 +87,18 @@ def clear_manipulation_caps_for_test() -> None:
     _trust_penalty_claims.clear()
 
 
+def _prune_stale_day_keys(current_day_key: str) -> None:
+    """Drop in-process cap entries from prior game days (long-running worker)."""
+    for store in (_pair_claims, _player_claims):
+        stale = [key for key in store if key[1] != current_day_key]
+        for key in stale:
+            del store[key]
+    for store in (_reject_counts, _trust_penalty_claims):
+        stale = [key for key in store if key[1] != current_day_key]
+        for key in stale:
+            del store[key]
+
+
 @dataclass(frozen=True)
 class ManipulationIntent:
     kind: Literal["provoke", "joint", "none"]
@@ -259,6 +271,7 @@ def claim_manipulation_slot(
     day_key: str,
 ) -> RejectReason | None:
     """D-PLAYER-04: per-(A,B) 1/day + per-player 3/day. Returns reject reason or None."""
+    _prune_stale_day_keys(day_key)
     pair = _pair_key(room_id, npc_a_id, npc_b_id)
     pair_claim_key = (room_id, day_key, pair)
     player_claim_key = (room_id, day_key, player_id)
@@ -281,6 +294,7 @@ def note_belief_reject(
     day_key: str,
 ) -> int:
     """Count repeated rejects same day for micro trust penalty (D-PLAYER-06)."""
+    _prune_stale_day_keys(day_key)
     key = (room_id, day_key, player_id, npc_id)
     _reject_counts[key] = _reject_counts.get(key, 0) + 1
     return _reject_counts[key]

@@ -206,8 +206,9 @@
 
 ### Phase 28 — Council relationship advanced（C-09b / EA-6）
 
-116. **Provoke/belief reject 禁止 A↔B delta**：`evaluate_belief_gate` / `run_belief_gate_speak` 在 `decision=reject` 时 **不得** `apply` npcA↔npcB affection；信任分仅来自 **initiator** 的 `npc_attitudes` / collective `effectiveScore`（禁止用 peer 态度）。Mutual-chat 记忆走 `__council__` / REL-07，**禁止**污染玩家 speak `npc_memories` 作用域。Idle decay **必须** `applyIdleDecayDeltas`（**禁止** `applyDeltaToRow` / interact bump）。同一 room/day/pair 上 **mutual-chat supersedes** ambient dyad pair budget。Frozen VIS-04 铭牌三文件（`entityLabels` / `ProximityNameplate` / `entitySprites`）与 speakBusy 方案 A **禁止** drive-by 改动。回归：`pytest tests/test_belief_gate.py tests/test_npc_mutual_chat.py tests/test_relationship_rag.py -q` · `pnpm --filter @aetherlife/game-server test -- npc-relationship-decay npc-mutual-chat npc-relationships` · `pnpm verify:phase28`（`pnpm dev:stack`，禁 `LLM_MOCK`）。
+116. **Provoke/belief reject 禁止 A↔B delta**：`evaluate_belief_gate` / `run_belief_gate_speak` 在 `decision=reject` 时 **不得** `apply` npcA↔npcB affection；信任分仅来自 **initiator** 的 `npc_attitudes` / collective `effectiveScore`（禁止用 peer 态度）。Mutual-chat 记忆走 `__council__` / REL-07，**禁止**污染玩家 speak `npc_memories` 作用域。Idle decay **必须** `applyIdleDecayDeltas`（**禁止** `applyDeltaToRow` / interact bump）。同一 room/day/pair 上 **mutual-chat supersedes** ambient dyad pair budget：`GameRoom.onAmbientTick` **必须** `enqueueNpcMutualChatIfDue().then(dyad)`（禁止 fire-and-forget 并行）；`maybeEnqueueNpcMutualChat` **必须**在任何 `await enqueue` 前同步 claim 整批 pair。Frozen VIS-04 铭牌三文件（`entityLabels` / `ProximityNameplate` / `entitySprites`）与 speakBusy 方案 A **禁止** drive-by 改动。回归：`pytest tests/test_belief_gate.py tests/test_npc_mutual_chat.py tests/test_relationship_rag.py -q` · `pnpm --filter @aetherlife/game-server test -- npc-relationship-decay npc-mutual-chat npc-relationships` · `pnpm verify:phase28`（`pnpm dev:stack`，禁 `LLM_MOCK`）。
 117. **关系 apply-deltas 与 belief day-key 须带 room clock**：`POST .../npc-relationships/apply-deltas` **必须** `noteInteractAbs` 用 `getRoomVoteState(roomId).absoluteGameMinute`（**禁止** fallback `0` 导致 idle decay 误判）；`worker-state.state` **必须** 含 `absoluteGameMinute`；`day_key_from_snapshot` **优先** `absoluteGameMinute // 1440`（D-PLAYER-04/06 per-day cap）。回归：`npc-relationships.test.ts` apply-deltas stamp · `index.test.ts` worker-state clock · `test_belief_gate.py::test_day_key_from_snapshot_prefers_absolute_game_minute` · `test_manipulation_cap_resets_on_next_game_day`。
+118. **Decay stamp / belief cap 进程重启与长跑**：`maybeRunRelationshipDecay` 启动时 **必须** `hydrateInteractAbsFromEdges`（有 `last_interact_at`）+ `hydrateSeedAbsFromEdges`；`lastDecayMonthByRoom` 有 `REDIS_URL` 时持久化，防同月重复 decay。Belief `_pair_claims` / `_player_claims` / `_reject_counts` / `_trust_penalty_claims` 在 claim/note 时 **必须** prune 非当前 `day_key`。回归：`npc-relationship-decay.test.ts` hydrate · `test_belief_gate.py::test_prune_stale_day_keys_on_claim`。
 
 ## 记录
 
@@ -2920,6 +2921,34 @@ Worker 主循环仅在 npc-turn 队列 **连续 5s 为空** 时才 `BLPOP` chunk
 **防复发**
 
 - Guardrail #116 追加：belief gate 未接线 judge **必须** reject；decay floor 只对 ≥floor 的边生效
+
+---
+
+### ISSUE-110 — PR #22 CR 余项：mutual-chat 同 tick 串行 / decay 重启水化 / belief day prune
+
+- **状态:** fixed
+- **发现:** 2026-07-29（PR #22 CodeRabbit/Codex 余项复盘）
+- **阶段/范围:** Phase 28 · `GameRoom` · `npc-mutual-chat` · `npc-relationship-decay` · `belief_gate`
+- **严重性:** major（supersede 竞态 + 重启重复 decay）
+
+**修复**
+
+1. `GameRoom.onAmbientTick`：`enqueueNpcMutualChatIfDue().then(dyad)` — 禁止与 ambient dyad 并行 fire-and-forget
+2. `maybeEnqueueNpcMutualChat`：整批 pair **同步 claim** 后再 `await enqueue`
+3. `hydrateInteractAbsFromEdges` / `hydrateSeedAbsFromEdges` + Redis `lastDecayMonth` 持久化
+4. belief cap dict 按当前 `day_key` prune
+5. decay 测试 slice 收紧；去掉 `toRenderEdge` no-op key 循环
+
+**验证**
+
+- `pnpm --filter @aetherlife/game-server test -- npc-relationship-decay npc-mutual-chat`
+- `cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_belief_gate.py -q`
+- `pnpm --filter @aetherlife/web test -- useNpcRelationships`
+- `pnpm agent:verify`
+
+**防复发**
+
+- Guardrail #116（串行 supersede）· #118（hydrate + prune）
 
 ---
 

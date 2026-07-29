@@ -239,15 +239,19 @@ export async function maybeEnqueueNpcMutualChat(input: {
     return { enqueued: [], deferred: false, dayIndex, candidates };
   }
 
-  const enqueued: string[] = [];
+  // Claim the whole batch synchronously before any await so a same-tick
+  // ambient dyad scan (even mid-enqueue) sees full supersession.
+  const batch: Array<{ a: MutualChatNpcPos; b: MutualChatNpcPos; claim: string }> = [];
   for (const { a, b } of pairs) {
-    if (remaining <= 0) break;
+    if (batch.length >= remaining) break;
     const claim = pairClaimKey(input.roomId, dayIndex, a.id, b.id);
     if (pairClaims.has(claim)) continue;
-
-    // Claim before awaiting enqueue so same-tick ambient dyad selection
-    // observes mutual-chat supersession; roll back if enqueue fails.
     pairClaims.add(claim);
+    batch.push({ a, b, claim });
+  }
+
+  const enqueued: string[] = [];
+  for (const { a, b, claim } of batch) {
     let jobId: string | null = null;
     try {
       jobId = await enqueueNpcMutualChatJob({
@@ -267,7 +271,6 @@ export async function maybeEnqueueNpcMutualChat(input: {
     }
 
     enqueued.push(jobId);
-    remaining -= 1;
     countByRoomDay.set(rdKey, (countByRoomDay.get(rdKey) ?? 0) + 1);
   }
 
