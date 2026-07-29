@@ -5,6 +5,7 @@ import {
   type CouncilDeliberationPublicState,
   type CouncilDeliberationVoteKind,
   type LinkedEdge,
+  normalizeEdgeIds,
   safeParseCouncilDeliberationSyncPayload,
 } from "@aetherlife/shared";
 
@@ -155,6 +156,42 @@ export function reduceDeliberationSync(
   return { core, deferred, immediateToasts, deliberationJustStarted };
 }
 
+/** Undirected pair key for linkedEdges union (D-MUTUAL-04). */
+export function linkedEdgePairKey(edge: LinkedEdge): string {
+  const { npcAId, npcBId } = normalizeEdgeIds(edge.npcAId, edge.npcBId);
+  return `${npcAId}|${npcBId}`;
+}
+
+/**
+ * Union incoming linkedEdges into prior roster hints by undirected pair.
+ * Does not clear unrelated prior hints (D-MUTUAL-04).
+ */
+export function mergeLinkedEdgesHint(
+  prev: LinkedEdge[],
+  incoming: LinkedEdge[],
+): LinkedEdge[] {
+  const byKey = new Map<string, LinkedEdge>();
+  for (const edge of prev) {
+    if (!edge?.npcAId || !edge?.npcBId || edge.npcAId === edge.npcBId) continue;
+    try {
+      const norm = normalizeEdgeIds(edge.npcAId, edge.npcBId);
+      byKey.set(linkedEdgePairKey(norm), norm);
+    } catch {
+      /* skip invalid */
+    }
+  }
+  for (const edge of incoming) {
+    if (!edge?.npcAId || !edge?.npcBId || edge.npcAId === edge.npcBId) continue;
+    try {
+      const norm = normalizeEdgeIds(edge.npcAId, edge.npcBId);
+      byKey.set(linkedEdgePairKey(norm), norm);
+    } catch {
+      /* skip invalid */
+    }
+  }
+  return [...byKey.values()];
+}
+
 export function applyPendingUiEvents(
   core: DeliberationCoreState,
   events: PendingUiEvent[],
@@ -228,6 +265,16 @@ export function useCouncilDeliberation(speakBusy = false) {
     });
   }, []);
 
+  const mergeLinkedEdgesHintPayload = useCallback((raw: unknown) => {
+    if (!raw || typeof raw !== "object") return;
+    const edges = (raw as { linkedEdges?: LinkedEdge[] }).linkedEdges;
+    if (!Array.isArray(edges) || edges.length === 0) return;
+    setCore((prev) => ({
+      ...prev,
+      linkedEdges: mergeLinkedEdgesHint(prev.linkedEdges, edges),
+    }));
+  }, []);
+
   useEffect(() => {
     const prevBusy = prevSpeakBusyRef.current;
     prevSpeakBusyRef.current = speakBusy;
@@ -283,6 +330,7 @@ export function useCouncilDeliberation(speakBusy = false) {
     toastQueue,
     chronicleUnread,
     mergeCouncilDeliberationSync,
+    mergeLinkedEdgesHint: mergeLinkedEdgesHintPayload,
     markChronicleVoteEntry,
     clearChronicleUnread,
     consumeVoteToast,

@@ -271,3 +271,10 @@ def iter_rel07_trigger_deltas(deltas: list[RelationshipDelta]) -> list[Relations
 
 def linked_edges_from_deltas(deltas: list[RelationshipDelta]) -> list[dict[str, str]]:
     return [{"npcAId": d["npcAId"], "npcBId": d["npcBId"]} for d in deltas if d.get("affectionDelta")]
+
+
+def clamp_player_provoke_delta(delta: int) -> int:
+    """D-PLAYER-03: player provoke/joint edge |Δ| clamped to 2–6."""
+    from src.council.belief_gate import clamp_player_ab_delta
+
+    return clamp_player_ab_delta(delta)

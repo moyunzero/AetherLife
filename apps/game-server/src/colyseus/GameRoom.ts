@@ -48,6 +48,8 @@ import { maybeEnqueuePersonalTimelineWeekly } from "../world/personal-timeline-w
 import {
   maybeEnqueueDyadFromAmbient,
 } from "../world/personal-timeline-dyad.js";
+import { maybeEnqueueNpcMutualChat } from "../world/npc-mutual-chat.js";
+import { maybeRunRelationshipDecay } from "../world/npc-relationship-decay.js";
 import { setNpcSpeakPhase } from "./speak-schema.js";
 
 export const AMBIENT_MS = 6000;
@@ -438,7 +440,25 @@ export class GameRoom extends Room {
     }
     this.enqueueWorldVoteIfDue();
     this.enqueuePersonalTimelineWeeklyIfDue();
-    this.enqueuePersonalTimelineDyadAmbientIfDue();
+    // Await mutual-chat claims before ambient dyad so same-tick supersession is real (D-MUTUAL / A2).
+    void this.enqueueNpcMutualChatIfDue()
+      .then(() => {
+        this.enqueuePersonalTimelineDyadAmbientIfDue();
+      })
+      .catch((err) => {
+        console.error("[GameRoom] mutual-chat→dyad sequence failed", err);
+        this.enqueuePersonalTimelineDyadAmbientIfDue();
+      });
+    // D-DECAY-04: silent idle decay — no speak-slot defer, no LLM, no relationshipSync.
+    this.runRelationshipDecayIfDue();
+  }
+
+  /** Protected path: minimal monthly idle-decay hook only (Phase 28 plan 04). */
+  private runRelationshipDecayIfDue(): void {
+    const abs = getRoomVoteState(this.mapRoomId).absoluteGameMinute;
+    void maybeRunRelationshipDecay(this.mapRoomId, abs).catch((err) => {
+      console.error("[GameRoom] relationship decay failed", err);
+    });
   }
 
   private enqueueWorldVoteIfDue(): void {
@@ -462,6 +482,25 @@ export class GameRoom extends Room {
     }).catch((err) => {
       console.error("[GameRoom] personal-timeline weekly enqueue failed", err);
     });
+  }
+
+  /** D-MUTUAL-07: defer when any speak in-flight (same as world-vote). No LLM in tick. */
+  private enqueueNpcMutualChatIfDue(): Promise<void> {
+    if (this.npcSpeakJobs.size > 0) return Promise.resolve();
+    const abs = getRoomVoteState(this.mapRoomId).absoluteGameMinute;
+    const { state: mapState } = getOrCreate(this.mapRoomId);
+    return maybeEnqueueNpcMutualChat({
+      roomId: this.mapRoomId,
+      npcs: mapState.npcs.map((n) => ({ id: n.id, x: n.x, y: n.y })),
+      absoluteGameMinute: abs,
+      gameMinuteOfDay: this.gameState.gameMinute,
+      busyNpcIds: this.npcSpeakJobs,
+      npcSpeakInFlight: false,
+    })
+      .then(() => undefined)
+      .catch((err) => {
+        console.error("[GameRoom] npc-mutual-chat enqueue failed", err);
+      });
   }
 
   private enqueuePersonalTimelineDyadAmbientIfDue(): void {

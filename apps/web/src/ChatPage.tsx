@@ -1,14 +1,21 @@
 import { bandLabelZh, createDefaultRoom, isBackgroundNpc, type RoomState, type WorldHistoryPublicEntry } from "@aetherlife/shared";
 import type {
   ColyseusPersonalTimelineSyncPayload,
+  ColyseusRelationshipSyncPayload,
   ColyseusWorldHistorySyncPayload,
 } from "@aetherlife/shared";
+import { COLYSEUS_SERVER_MESSAGES } from "@aetherlife/shared";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useColyseusRoom } from "./hooks/useColyseusRoom.js";
 import { discoveredLoreRows } from "./hooks/useChunkLore.js";
 import { useNpcChat } from "./hooks/useNpcChat.js";
 import { usePersonalTimeline } from "./hooks/usePersonalTimeline.js";
+import { useNpcRelationships } from "./hooks/useNpcRelationships.js";
+import {
+  resolveDefaultCenterNpcId,
+  type RelationshipGraphMode,
+} from "./components/RelationshipGraphPanel.js";
 import { MovementPanel } from "./components/MovementPanel.js";
 import { PhaserGame, probePhaserBoot, readReducedMotion } from "./components/PhaserGame.js";
 import { CollectiveAttitudeOverlay } from "./components/CollectiveAttitudeOverlay.js";
@@ -72,6 +79,9 @@ export function ChatPage() {
   const mergePersonalTimelineSyncRef = useRef<(payload: ColyseusPersonalTimelineSyncPayload) => void>(
     () => {},
   );
+  const mergeRelationshipSyncRef = useRef<(payload: ColyseusRelationshipSyncPayload) => void>(
+    () => {},
+  );
   const markChronicleVoteEntryRef = useRef<() => void>(() => {});
   const onWorldHistorySync = useCallback((payload: ColyseusWorldHistorySyncPayload) => {
     mergeWorldHistorySyncRef.current(payload);
@@ -84,6 +94,9 @@ export function ChatPage() {
   }, []);
   const onPersonalTimelineSync = useCallback((payload: ColyseusPersonalTimelineSyncPayload) => {
     mergePersonalTimelineSyncRef.current(payload);
+  }, []);
+  const onRelationshipSync = useCallback((payload: ColyseusRelationshipSyncPayload) => {
+    mergeRelationshipSyncRef.current(payload);
   }, []);
   const {
     room,
@@ -109,6 +122,7 @@ export function ChatPage() {
     npcActivityById,
     npcAmbientById,
     roomNpcs,
+    mutualChatBubble,
   } = useColyseusRoom(
     mapRoomId,
     moveMap,
@@ -184,12 +198,41 @@ export function ChatPage() {
     toastQueue: councilVoteToastQueue,
     chronicleUnread,
     mergeCouncilDeliberationSync,
+    mergeLinkedEdgesHint,
     markChronicleVoteEntry,
     clearChronicleUnread,
     consumeVoteToast,
   } = useCouncilDeliberation(speakQueueBusy);
   mergeCouncilDeliberationSyncRef.current = mergeCouncilDeliberationSync;
   markChronicleVoteEntryRef.current = markChronicleVoteEntry;
+
+  useEffect(() => {
+    if (!room) return;
+    const off = room.onMessage(
+      COLYSEUS_SERVER_MESSAGES.relationshipLinkedHint,
+      (data: unknown) => {
+        mergeLinkedEdgesHint(data);
+      },
+    );
+    return () => {
+      off();
+    };
+  }, [room, mergeLinkedEdgesHint]);
+
+  useEffect(() => {
+    if (!room) return;
+    const off = room.onMessage(
+      COLYSEUS_SERVER_MESSAGES.relationshipSync,
+      (data: unknown) => {
+        if (!data || typeof data !== "object") return;
+        const row = data as ColyseusRelationshipSyncPayload;
+        if (typeof row.hasUpdate !== "boolean") return;
+        mergeRelationshipSyncRef.current(row);
+      },
+    );
+    return () => off();
+  }, [room]);
+
   const councilVoteToast = councilVoteToastQueue[0] ?? null;
   const dismissCouncilVoteToast = useCallback(() => {
     consumeVoteToast();
@@ -249,6 +292,42 @@ export function ChatPage() {
     playerId,
     collectiveRecentEvents: collectiveSnapshot?.recentEvents,
   });
+
+  const relationshipsTabFocused = drawerOpen && drawerTab === "relationships";
+  const {
+    edges: relationshipEdges,
+    loading: relationshipLoading,
+    error: relationshipError,
+    hasUpdate: relationshipHasUpdate,
+    mergeRelationshipSync,
+  } = useNpcRelationships(mapRoomId, connected, relationshipsTabFocused);
+  mergeRelationshipSyncRef.current = mergeRelationshipSync;
+
+  const [lastRosterNpcId, setLastRosterNpcId] = useState("npc-1");
+  const [relationshipCenterNpcId, setRelationshipCenterNpcId] = useState("npc-1");
+  const [relationshipGraphMode, setRelationshipGraphMode] =
+    useState<RelationshipGraphMode>("ego");
+
+  // Reset center/mode only on tab focus transition — never mid-session when
+  // activeNpcId changes, so the user's selected center survives.
+  const relationshipsTabWasFocusedRef = useRef(false);
+  useEffect(() => {
+    const wasFocused = relationshipsTabWasFocusedRef.current;
+    relationshipsTabWasFocusedRef.current = relationshipsTabFocused;
+    if (!relationshipsTabFocused || wasFocused) return;
+    setRelationshipCenterNpcId(
+      resolveDefaultCenterNpcId(activeNpcId, lastRosterNpcId),
+    );
+    setRelationshipGraphMode("ego");
+  }, [relationshipsTabFocused, activeNpcId, lastRosterNpcId]);
+
+  const handleOpenPersonalBiography = useCallback(
+    (npcId: string) => {
+      setLastRosterNpcId(npcId);
+      void openPersonalBiography(npcId);
+    },
+    [openPersonalBiography],
+  );
 
   const latestCollectiveEvent = collectiveSnapshot?.recentEvents[0];
   const collectiveFeedbackKind =
@@ -579,7 +658,17 @@ export function ChatPage() {
             personalTimelineHasUpdate={personalTimelineHasUpdate}
             personalTimelineLoadingNpcId={personalTimelineLoadingNpcId}
             personalTimelineErrorByNpcId={personalTimelineErrorByNpcId}
-            onOpenPersonalBiography={openPersonalBiography}
+            onOpenPersonalBiography={handleOpenPersonalBiography}
+            relationshipEdges={relationshipEdges}
+            relationshipLoading={relationshipLoading}
+            relationshipError={relationshipError}
+            relationshipHasUpdate={relationshipHasUpdate}
+            relationshipCenterNpcId={relationshipCenterNpcId}
+            onRelationshipCenterChange={setRelationshipCenterNpcId}
+            relationshipGraphMode={relationshipGraphMode}
+            onRelationshipGraphModeChange={setRelationshipGraphMode}
+            lastRosterNpcId={lastRosterNpcId}
+            relationshipStaleHint={relationshipHasUpdate && relationshipsTabFocused}
             roomId={mapRoomId}
             roomConnected={connected}
             lastParsedIntent={lastParsedIntent}
@@ -736,6 +825,7 @@ export function ChatPage() {
                 npcActivityById={npcActivityById}
                 npcAmbientById={npcAmbientById}
                 speakBusyNpcId={speakBusyNpcId}
+                mutualChatBubble={mutualChatBubble}
                 onBootFailed={() => {
                   setPhaserOk(false);
                   setBootOk(false);

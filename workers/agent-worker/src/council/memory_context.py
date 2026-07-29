@@ -11,6 +11,10 @@ from src.council.personal_timeline_rag import (
     fetch_personal_timeline_context,
     merge_personal_rag_into_canon,
 )
+from src.council.relationship_rag import (
+    fetch_relationship_rag_context,
+    merge_relationship_rag_into_canon,
+)
 from src.council.world_history_rag import (
     fetch_world_history_canon_context,
     format_canon_bullet,
@@ -74,6 +78,7 @@ def fetch_dual_rag_context(
         canon_entries=canon_entries,
     )
     personal_bullets: list[str] = []
+    relationship_bullets: list[str] = []
     if npc_id.startswith("npc-"):
         personal_bullets = fetch_personal_timeline_context(
             client,
@@ -83,9 +88,18 @@ def fetch_dual_rag_context(
             query,
         )
         canon_context = merge_personal_rag_into_canon(canon_context, personal_bullets)
+        relationship_bullets = fetch_relationship_rag_context(
+            client,
+            settings,
+            room_id,
+            npc_id,
+            query,
+        )
+        canon_context = merge_relationship_rag_into_canon(canon_context, relationship_bullets)
     return {
         "canon_context": canon_context,
         "canon_entries": canon_entries,
         "council_retrieved": retrieved,
         "personal_timeline_bullets": personal_bullets,
+        "relationship_rag_bullets": relationship_bullets,
     }

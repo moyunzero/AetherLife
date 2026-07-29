@@ -35,6 +35,14 @@ import {
   type NpcAmbientUiState,
 } from "./activityLabels.js";
 import {
+  createMutualChatBubble,
+  hideMutualChatBubble,
+  mutualChatBubbleY,
+  showMutualChatBubble,
+  updateMutualChatBubbleVisibility,
+  type MutualChatBubbleHost,
+} from "./MutualChatBubble.js";
+import {
   createIntentLabel,
   intentLabelY,
   updateIntentLabels,
@@ -153,6 +161,7 @@ export class RoomScene extends Phaser.Scene {
   private lastExploreGy = Number.NaN;
   private lastViewportTickMs = 0;
   private lastViewportNpcIdsKey = "";
+  private lastMutualChatBubbleSeq = -1;
   private collectiveDebugText: Phaser.GameObjects.Text | null = null;
   private preloadStartMs = 0;
   private readonly onLoadError = (): void => {
@@ -406,6 +415,7 @@ export class RoomScene extends Phaser.Scene {
     this.tickCollectiveDebug();
     this.refreshNameplates();
     this.refreshNpcAmbientLabels();
+    this.refreshMutualChatBubbles();
   }
 
   private useSpriteEntities(): boolean {
@@ -523,6 +533,75 @@ export class RoomScene extends Phaser.Scene {
       {},
     );
     this.registry.set("npcIntentVisible", visibleIntentNpcIds);
+  }
+
+  private refreshMutualChatBubbles(): void {
+    if (this.registry.get("uatHomesteadFrame") === true) return;
+
+    const payload = this.registry.get("mutualChatBubble") as
+      | {
+          npcId: string;
+          peerNpcId: string;
+          text: string;
+          expiresAt: number;
+          seq: number;
+        }
+      | null
+      | undefined;
+
+    // Ignore stale registry payloads (e.g. scene restart) — expired TTL must not re-show.
+    if (
+      payload &&
+      payload.seq !== this.lastMutualChatBubbleSeq &&
+      payload.expiresAt > Date.now()
+    ) {
+      this.lastMutualChatBubbleSeq = payload.seq;
+      this.presentMutualChatBubble(payload);
+    }
+
+    const sessionId = this.getSessionId();
+    if (!sessionId) return;
+    const logic = this.motionBridge?.getLogicGrid();
+    const self = this.playerSprites.get(sessionId);
+    const localCell = logic
+      ? { x: logic.x, y: logic.y }
+      : self
+        ? { x: self.gridX, y: self.gridY }
+        : null;
+
+    for (const ent of this.npcSprites.values()) {
+      if (!ent.npcId || !(ent as MutualChatBubbleHost).mutualChatBubble) continue;
+      updateMutualChatBubbleVisibility(ent as MutualChatBubbleHost, localCell);
+    }
+  }
+
+  private presentMutualChatBubble(payload: {
+    npcId: string;
+    peerNpcId: string;
+    text: string;
+    expiresAt: number;
+  }): void {
+    const reducedMotion = Boolean(this.registry.get("reducedMotion"));
+    const sessionId = this.getSessionId();
+    const logic = this.motionBridge?.getLogicGrid();
+    const self = sessionId ? this.playerSprites.get(sessionId) : undefined;
+    const localCell = logic
+      ? { x: logic.x, y: logic.y }
+      : self
+        ? { x: self.gridX, y: self.gridY }
+        : null;
+
+    const ent = [...this.npcSprites.values()].find((e) => e.npcId === payload.npcId);
+    if (!ent) return;
+    const host = ent as MutualChatBubbleHost;
+    if (!host.mutualChatBubble) {
+      this.attachNpcMutualChatBubble(ent);
+    }
+    showMutualChatBubble(this, host, payload.text, {
+      reducedMotion,
+      expiresAt: payload.expiresAt,
+    });
+    updateMutualChatBubbleVisibility(host, localCell);
   }
 
   /** Explore HUD coords — game-loop tick (Wave 2); React reads registry `exploreGrid`. */
@@ -822,6 +901,7 @@ export class RoomScene extends Phaser.Scene {
     this.attachNpcActivityLabel(ent, isBg);
     if (!isBg) {
       this.attachNpcIntentLabel(ent);
+      this.attachNpcMutualChatBubble(ent);
     }
     if (!this.useSpriteEntities()) return ent;
 
@@ -832,6 +912,8 @@ export class RoomScene extends Phaser.Scene {
     ent.facingDir = "down";
     ent.activityLabel?.setY(activityLabelY(true, ent.spriteProfile));
     ent.intentLabel?.setY(intentLabelY(true, ent.spriteProfile));
+    const mutualHost = ent as MutualChatBubbleHost;
+    mutualHost.mutualChatBubble?.setY(mutualChatBubbleY(true, ent.spriteProfile));
     const avatar = createNpcSprite(this, npcId, isBg ? BG_NPC_TINT : undefined);
     const bubble = createSpeechBubble(this, ent.spriteProfile);
     ent.body.setVisible(false);
@@ -864,6 +946,16 @@ export class RoomScene extends Phaser.Scene {
     activityLabel.y = activityLabelY(ent.spriteMode === true, ent.spriteProfile);
     ent.container.add(activityLabel);
     ent.activityLabel = activityLabel;
+  }
+
+  private attachNpcMutualChatBubble(ent: EntitySprite): void {
+    if (!ent.npcId) return;
+    const host = ent as MutualChatBubbleHost;
+    if (host.mutualChatBubble) return;
+    const bubble = createMutualChatBubble(this, ent.npcId);
+    bubble.y = mutualChatBubbleY(ent.spriteMode === true, ent.spriteProfile);
+    ent.container.add(bubble);
+    host.mutualChatBubble = bubble;
   }
 
   private attachNpcIntentLabel(ent: EntitySprite): void {
@@ -915,6 +1007,8 @@ export class RoomScene extends Phaser.Scene {
     ent.activityLabelTween = undefined;
     ent.intentLabelTween?.stop();
     ent.intentLabelTween = undefined;
+    // Helper also hides the bubble; manual timer removal alone left it stuck visible.
+    hideMutualChatBubble(this, ent as MutualChatBubbleHost);
     ent.moveTween?.stop();
     ent.moveTween = undefined;
     this.tweens.killTweensOf(ent.ring);

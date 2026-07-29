@@ -2129,6 +2129,185 @@ body {
   min-height: 0;
 }
 
+.relationship-graph-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+  min-height: 0;
+  color: var(--shell-ink, #2c2416);
+}
+
+.relationship-graph-panel__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.relationship-graph-panel__subtitle {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--shell-muted, #7a6f5c);
+}
+
+.relationship-graph-panel__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.relationship-graph-panel__mode-toggle {
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--shell-parchment) 55%, #8a7a60);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--shell-parchment) 70%, #fff);
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.relationship-graph-panel__mode-toggle--active {
+  border-color: var(--shell-accent, #c9a227);
+  box-shadow: inset 0 0 0 1px var(--shell-accent, #c9a227);
+}
+
+.relationship-graph-panel__stale-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--shell-muted, #7a6f5c);
+}
+
+.relationship-graph-panel__loading,
+.relationship-graph-panel__error,
+.relationship-graph-panel__empty-body {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.relationship-graph-panel__empty-title {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.relationship-graph-panel__canvas-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.relationship-graph-panel__svg {
+  width: 100%;
+  max-width: 360px;
+  margin: 0 auto;
+  background: color-mix(in srgb, var(--shell-parchment) 70%, #fff);
+  border: 1px solid color-mix(in srgb, var(--shell-parchment) 55%, #8a7a60);
+  border-radius: 4px;
+}
+
+.relationship-graph-panel__node {
+  fill: color-mix(in srgb, var(--shell-parchment) 70%, #fff);
+  stroke: color-mix(in srgb, var(--shell-parchment) 55%, #8a7a60);
+  stroke-width: 1;
+}
+
+.relationship-graph-panel__node--center {
+  fill: color-mix(in srgb, var(--shell-parchment) 55%, #fff);
+  stroke: var(--shell-accent, #c9a227);
+  stroke-width: 2;
+}
+
+.relationship-graph-panel__node-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.relationship-graph-panel__node-label {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--shell-ink, #2c2416);
+  pointer-events: none;
+}
+
+.relationship-graph-panel__edge-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.relationship-graph-panel__edge-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.relationship-graph-panel__edge-names {
+  font-size: 14px;
+}
+
+.relationship-graph-panel__band-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  border: 1px solid transparent;
+}
+
+.relationship-graph-panel__band-chip--hostile {
+  color: #b54a4a;
+  border-color: color-mix(in srgb, #b54a4a 35%, transparent);
+}
+
+.relationship-graph-panel__band-chip--cool {
+  color: #a89060;
+  border-color: color-mix(in srgb, #a89060 35%, transparent);
+}
+
+.relationship-graph-panel__band-chip--neutral {
+  color: var(--shell-muted, #7a6f5c);
+  border-color: color-mix(in srgb, var(--shell-muted, #7a6f5c) 35%, transparent);
+}
+
+.relationship-graph-panel__band-chip--warm {
+  color: #7a9a6e;
+  border-color: color-mix(in srgb, #7a9a6e 35%, transparent);
+}
+
+.relationship-graph-panel__band-chip--close {
+  color: var(--shell-accent, #c9a227);
+  border-color: color-mix(in srgb, var(--shell-accent, #c9a227) 35%, transparent);
+}
+
+.relationship-graph-panel__kind-label {
+  color: var(--shell-muted, #7a6f5c);
+}
+
+.relationship-graph-panel__status-chip {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--shell-parchment) 70%, #fff);
+  font-size: 12px;
+}
+
 .world-history-panel--embedded {
   display: flex;
   flex-direction: column;

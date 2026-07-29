@@ -218,6 +218,7 @@ describe("game-server", () => {
     expect(Array.isArray(res.body.state.npcs)).toBe(true);
     expect(Array.isArray(res.body.nearbyLore)).toBe(true);
     expect(res.body.memoryCounts).toBeUndefined();
+    expect(typeof res.body.state.absoluteGameMinute).toBe("number");
   });
 
   it("GET /internal/rooms/default/memory-context returns context shape", async () => {

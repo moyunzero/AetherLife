@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { bandFromEffectiveScore, type AttitudeBand } from "./attitude.js";
+import { relationshipKindLabelZh } from "./council/relationshipLabels.js";
 import type { CouncilArchetype } from "./council/types.js";
 import { COUNCIL_NPC_IDS, type CouncilNpcId } from "./council/constants.js";
 
@@ -45,6 +47,83 @@ export type RelationshipEdgePublic = {
   historySummary: string;
   updatedAt: string;
 };
+
+/**
+ * Player-facing affection bands for 关系网 (D-GRAPH-02 / UI-SPEC).
+ * Same numeric cutoffs as {@link bandFromEffectiveScore}; ids differ from
+ * collective AttitudeBand (`wary`→`cool`, `allied`→`close`).
+ */
+export type RelationshipBand = "hostile" | "cool" | "neutral" | "warm" | "close";
+
+const ATTITUDE_TO_RELATIONSHIP_BAND: Record<AttitudeBand, RelationshipBand> = {
+  hostile: "hostile",
+  wary: "cool",
+  neutral: "neutral",
+  warm: "warm",
+  allied: "close",
+};
+
+/** Map affection score → relationship band (reuses attitude numeric thresholds). */
+export function relationshipBandFromAffection(affection: number): RelationshipBand {
+  return ATTITUDE_TO_RELATIONSHIP_BAND[bandFromEffectiveScore(affection)];
+}
+
+/** UI-SPEC ZH labels for 关系网 — never collective 戒备/同盟. */
+export function relationshipBandLabelZh(band: RelationshipBand): string {
+  switch (band) {
+    case "hostile":
+      return "敌对";
+    case "cool":
+      return "冷淡";
+    case "neutral":
+      return "平常";
+    case "warm":
+      return "亲近";
+    case "close":
+      return "亲密";
+  }
+}
+
+/**
+ * Player GET DTO — band-mapped only; never includes affection/trust integers (D-GRAPH-02).
+ * Worker/internal still use {@link RelationshipEdgePublic}.
+ */
+export type RelationshipEdgeBandPublic = {
+  npcAId: string;
+  npcBId: string;
+  baseTag: string;
+  band: RelationshipBand;
+  bandLabelZh: string;
+  kindLabelZh: string;
+  currentStatus: string[];
+};
+
+export const relationshipEdgeBandPublicSchema = z
+  .object({
+    npcAId: z.string().min(1),
+    npcBId: z.string().min(1),
+    baseTag: z.string(),
+    band: z.enum(["hostile", "cool", "neutral", "warm", "close"]),
+    bandLabelZh: z.string().min(1),
+    kindLabelZh: z.string().min(1),
+    currentStatus: z.array(z.string()),
+  })
+  .strict();
+
+export function toRelationshipEdgeBandPublic(
+  edge: RelationshipEdgePublic,
+): RelationshipEdgeBandPublic {
+  const band = relationshipBandFromAffection(edge.affection);
+  return {
+    npcAId: edge.npcAId,
+    npcBId: edge.npcBId,
+    baseTag: edge.baseTag,
+    band,
+    bandLabelZh: relationshipBandLabelZh(band),
+    kindLabelZh: relationshipKindLabelZh(edge.baseTag),
+    currentStatus: edge.currentStatus,
+  };
+}
 
 export const relationshipDeltaInputSchema = z
   .object({

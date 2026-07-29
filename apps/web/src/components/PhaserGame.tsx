@@ -10,7 +10,7 @@ import {
   type NpcState,
   type RoomState,
 } from "@aetherlife/shared";
-import type { NpcAmbientSnapshot, PlayerSnapshot } from "../hooks/useColyseusRoom.js";
+import type { MutualChatBubbleEvent, NpcAmbientSnapshot, PlayerSnapshot } from "../hooks/useColyseusRoom.js";
 import type { LocalPlayerMotionBridge } from "../game/localPlayerMotion.js";
 import type { MovementSyncController } from "../game/MovementSyncController.js";
 import { ExploreCoordsStrip } from "./ExploreCoordsStrip.js";
@@ -62,6 +62,8 @@ type Props = {
   npcActivityById?: Record<string, string>;
   npcAmbientById?: Record<string, NpcAmbientSnapshot>;
   speakBusyNpcId?: string | null;
+  /** One-shot NPC↔NPC mutual-chat bubble (D-MUTUAL-02). */
+  mutualChatBubble?: MutualChatBubbleEvent | null;
   onBootFailed?: () => void;
   /** Map click on NPC sprite — opens dialogue overlay (same as corner-menu engage). */
   onNpcSpriteClick?: (npcId: string) => void;
@@ -109,6 +111,7 @@ type RegistrySnapshot = {
   npcActivityById: Record<string, string>;
   npcAmbientById: Record<string, NpcAmbientSnapshot>;
   speakBusyNpcId: string | null;
+  mutualChatBubble: MutualChatBubbleEvent | null;
   onNpcSpriteClick: ((npcId: string) => void) | null;
 };
 
@@ -139,6 +142,7 @@ function pushRoomRegistry(game: Phaser.Game, snap: RegistrySnapshot): void {
   game.registry.set("npcActivityById", snap.npcActivityById);
   game.registry.set("npcAmbientById", snap.npcAmbientById);
   game.registry.set("speakBusyNpcId", snap.speakBusyNpcId);
+  game.registry.set("mutualChatBubble", snap.mutualChatBubble);
   game.registry.set("onNpcSpriteClick", snap.onNpcSpriteClick);
   game.registry.set("roomSync", Date.now());
 }
@@ -217,6 +221,7 @@ export async function probePhaserBoot(timeoutMs = BOOT_TIMEOUT_MS): Promise<bool
         npcActivityById: {},
         npcAmbientById: {},
         speakBusyNpcId: null,
+        mutualChatBubble: null,
         onNpcSpriteClick: null,
       });
       game.events.once("ready", () => finish(true));
@@ -257,6 +262,7 @@ export function PhaserGame({
   npcActivityById = {},
   npcAmbientById = {},
   speakBusyNpcId = null,
+  mutualChatBubble = null,
   onBootFailed,
   onNpcSpriteClick,
   onViewportVisibleNpcIdsChange,
@@ -313,6 +319,7 @@ export function PhaserGame({
     npcActivityById,
     npcAmbientById,
     speakBusyNpcId,
+    mutualChatBubble,
     onNpcSpriteClick: onNpcSpriteClick ?? null,
   });
   registryRef.current = {
@@ -340,6 +347,7 @@ export function PhaserGame({
     npcActivityById,
     npcAmbientById,
     speakBusyNpcId,
+    mutualChatBubble,
     onNpcSpriteClick: onNpcSpriteClick ?? null,
   };
 
@@ -396,6 +404,7 @@ export function PhaserGame({
       npcActivityById,
       npcAmbientById,
       speakBusyNpcId,
+      mutualChatBubble,
       onNpcSpriteClick: snap.onNpcSpriteClick,
     });
 
@@ -521,6 +530,7 @@ export function PhaserGame({
       npcActivityById,
       npcAmbientById,
       speakBusyNpcId,
+      mutualChatBubble,
       onNpcSpriteClick: onNpcSpriteClick ?? null,
     });
 
@@ -553,6 +563,7 @@ export function PhaserGame({
     npcActivityById,
     npcAmbientById,
     speakBusyNpcId,
+    mutualChatBubble,
     onNpcSpriteClick,
   ]);
 

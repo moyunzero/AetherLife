@@ -26,7 +26,7 @@ Behavioral baseline (Cursor): [`.cursor/rules/Guidelines.mdc`](.cursor/rules/Gui
 
 Planned phase work: GSD commands in [CLAUDE.md](./CLAUDE.md) (`/gsd-quick`, `/gsd-debug`, `/gsd-execute-phase`). Do not bypass GSD unless the user explicitly asks.
 
-**Phase 9 语音暂缓：** 勿实现 STT/TTS；恢复前读 [.planning/phases/09-voice-pipeline/09-STATUS.md](./.planning/phases/09-voice-pipeline/09-STATUS.md)。**当前活跃：** v5 **Phase 27**（Personal Life Timeline）— 见 [.planning/STATE.md](./.planning/STATE.md)；勿默认接 Phase 10。
+**Phase 9 语音暂缓：** 勿实现 STT/TTS；恢复前读 [.planning/phases/09-voice-pipeline/09-STATUS.md](./.planning/phases/09-voice-pipeline/09-STATUS.md)。**v5 SHIPPED（2026-07-21）：** 议会世界观 Phases 23–28 已归档 — 见 [.planning/STATE.md](./.planning/STATE.md) · `.planning/milestones/v5-*`；下一里程碑用 `/gsd-new-milestone`；勿默认接 Phase 10。
 
 ---
 

@@ -11,6 +11,7 @@ export type DrawerTab =
   | "history"
   | "collective"
   | "council"
+  | "relationships"
   | "chronicle"
   | "discoveries"
   | "memory";
@@ -113,6 +114,14 @@ export function DialogueBar({
             onClick={() => onOpenDrawer("council")}
           >
             议会
+          </button>
+          <button
+            type="button"
+            className="dialogue-bar__drawer-btn"
+            aria-label="关系网"
+            onClick={() => onOpenDrawer("relationships")}
+          >
+            关系网
           </button>
           <button
             type="button"

@@ -204,6 +204,13 @@
 114. **Personal-timeline job 入队须 durable claim**：`claimPersonalTimelineJobId` / worker `claim_personal_timeline_job_id`（SET NX，前缀 `aetherlife:personal-timeline:job-claimed:`）覆盖 polish/weekly/multi/rel/event **以及** dyad pair/ambient-slot；**禁止**仅靠进程内存 debounce（重启会重复 LPUSH → 重复 LLM 行）。传记 UI：fetch 失败须展示 error（勿静默空列表）；已缓存条目在 `personalTimelineSync` 时须后台 refetch。回归：`personal-timeline.claim.test.ts` · `personal-timeline-dyad.test.ts` · `usePersonalTimeline.test.ts` · `pnpm uat:phase27:persona-diary`。
 115. **Speak 多轮连贯（260720-m4b）**：interactive 路径 `llm_social_turn._build_social_messages` **必须**注入 `recent_turns` Human/AI 链（`append_recent_dialogue_messages`）；**禁止** help offer（`player_offers_help` /「我可以帮你」）走 SOCIAL_EDGE deterministic stub；`recent_turns` 非空时 **禁止** CASUAL/SOCIAL_EDGE fast lane（B1 例外：空历史纯问候）。`augment_retrieved_with_dialogue_turns` 须含 `npc:` 行。回归：`pytest tests/test_speak_intent.py tests/test_help_reply_by_npc.py tests/test_llm_social_memory.py tests/test_casual_fast_lane.py tests/test_recall_merge.py -q` · `pnpm --filter @aetherlife/shared test -- speakIntent` · `pnpm agent:verify`。
 
+### Phase 28 — Council relationship advanced（C-09b / EA-6）
+
+116. **Provoke/belief reject 禁止 A↔B delta**：`evaluate_belief_gate` / `run_belief_gate_speak` 在 `decision=reject` 时 **不得** `apply` npcA↔npcB affection；信任分仅来自 **initiator** 的 `npc_attitudes` / collective `effectiveScore`（禁止用 peer 态度）。Mutual-chat 记忆走 `__council__` / REL-07，**禁止**污染玩家 speak `npc_memories` 作用域。Idle decay **必须** `applyIdleDecayDeltas`（**禁止** `applyDeltaToRow` / interact bump）。同一 room/day/pair 上 **mutual-chat supersedes** ambient dyad pair budget：`GameRoom.onAmbientTick` **必须** `enqueueNpcMutualChatIfDue().then(dyad)`（禁止 fire-and-forget 并行）；`maybeEnqueueNpcMutualChat` **必须**在任何 `await enqueue` 前同步 claim 整批 pair。Frozen VIS-04 铭牌三文件（`entityLabels` / `ProximityNameplate` / `entitySprites`）与 speakBusy 方案 A **禁止** drive-by 改动。回归：`pytest tests/test_belief_gate.py tests/test_npc_mutual_chat.py tests/test_relationship_rag.py -q` · `pnpm --filter @aetherlife/game-server test -- npc-relationship-decay npc-mutual-chat npc-relationships` · `pnpm verify:phase28`（`pnpm dev:stack`，禁 `LLM_MOCK`）。
+117. **关系 apply-deltas 与 belief day-key 须带 room clock**：`POST .../npc-relationships/apply-deltas` **必须** `noteInteractAbs` 用 `getRoomVoteState(roomId).absoluteGameMinute`（**禁止** fallback `0` 导致 idle decay 误判）；`worker-state.state` **必须** 含 `absoluteGameMinute`；`day_key_from_snapshot` **优先** `absoluteGameMinute // 1440`（D-PLAYER-04/06 per-day cap）。回归：`npc-relationships.test.ts` apply-deltas stamp · `index.test.ts` worker-state clock · `test_belief_gate.py::test_day_key_from_snapshot_prefers_absolute_game_minute` · `test_manipulation_cap_resets_on_next_game_day`。
+118. **Decay stamp / belief cap 进程重启与长跑**：`maybeRunRelationshipDecay` 启动时 **必须** `hydrateInteractAbsFromEdges`（有 `last_interact_at`）+ `hydrateSeedAbsFromEdges`；`lastDecayMonthByRoom` 有 `REDIS_URL` 时持久化，防同月重复 decay。Belief `_pair_claims` / `_player_claims` / `_reject_counts` / `_trust_penalty_claims` 在 claim/note 时 **必须** prune 非当前 `day_key`。回归：`npc-relationship-decay.test.ts` hydrate · `test_belief_gate.py::test_prune_stale_day_keys_on_claim`。
+119. **Campfire 等多 tile volume 须共用南缘 Y-sort**：`HomeMapBackground` 对 `VOLUME_CLUSTER_TILESETS`（当前仅 `Campfire`）用 `clusterSouthSortWorldY` 把相邻 tile object 的 sort Y 抬到集群最南底边；**禁止**全局改 `YSORT_LAYER.PLAYER`/`OBJECT` 来「修」篝火。勿把 collection-of-images 道具加入该集合。回归：`entityLayout.test.ts` · 实机站北侧火焰须盖住腿。
+
 ## 记录
 
 ### ISSUE-001 — thinking 中切换 NPC Tab 后无法移动（UI 冻结）
@@ -2844,6 +2851,139 @@ Worker 主循环仅在 npc-turn 队列 **连续 5s 为空** 时才 `BLPOP` chunk
 **防复发**
 
 - Guardrail #115
+
+---
+
+### ISSUE-108 — apply-deltas / belief gate 缺 room clock（decay 误判 + cap 永锁 day-0）
+
+- **状态:** fixed
+- **发现:** 2026-07-21（Codex PR #22 review）
+- **阶段/范围:** Phase 28 · `internal-npc-relationships` · `worker-state` · `belief_gate.py`
+- **严重性:** major（关系 decay 语义 + provoke cap 防滥用）
+
+**复现**
+
+1. Worker 经 `POST .../apply-deltas` 写关系 delta → `lastInteractAbs` 恒为 `0`
+2. 游戏月 rollover 后 `maybeRunRelationshipDecay` 将刚互动的边判为 idle 并 decay
+3. Speak 路径 `day_key_from_snapshot` 读 `room_snapshot` 无 `gameMinute` → 恒 `day-0` → D-PLAYER-04 pair/player cap 与 D-PLAYER-06 reject penalty 在长跑 worker 内永不重置
+
+**根因**
+
+- `internal-npc-relationships` 未传 `absoluteGameMinute`；repository fallback `?? 0`
+- `buildWorkerStatePayload` 仅返回空间快照，不含单调时钟
+- `day_key_from_snapshot` 未读 `absoluteGameMinute`
+
+**修复**
+
+- apply-deltas route：`getRoomVoteState(roomId).absoluteGameMinute` stamp
+- worker-state：`state.absoluteGameMinute` 随 spatial snapshot 返回
+- `day_key_from_snapshot`：优先 `absoluteGameMinute // 1440`
+
+**验证**
+
+- `pnpm --filter @aetherlife/game-server test`（353 passed）
+- `cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_belief_gate.py -q`（14 passed）
+
+**防复发**
+
+- Guardrail #117；C-01 worker-state clock；C-09 apply-deltas stamp
+
+---
+
+### ISSUE-109 — PR #22 CodeRabbit 批量 CR：decay 上弹 / belief fallback 误接受 / mutual-chat claim 竞态等
+
+- **状态:** fixed
+- **发现:** 2026-07-21（CodeRabbit PR #22 review，10 条有效 + 2 条跳过）
+- **阶段/范围:** Phase 28 · mutual-chat / decay / belief gate / 关系图 UI
+- **严重性:** major（decay 语义 + belief 防滥用）
+
+**有效修复（10）**
+
+1. `npc-mutual-chat.ts`：pair claim 移到 `await enqueue` **之前**（同 tick ambient dyad 可见 supersession），失败/null 回滚
+2. `queue/npc-mutual-chat.ts`：`mockJobs.set` 仅无 `REDIS_URL` 时执行（防生产 Map 无限增长）
+3. `npc-relationship-decay.ts`：正向 affection **低于** band floor 时继续向 0 漂移，禁止 `Math.max(floor,…)` 上弹
+4. `ChatPage.tsx`：关系图 center/mode 仅在 tab **focus 转变**时重置（ref 记录 prev），会话中切 NPC 不清用户选择
+5. `RoomScene.stopEntityMotion`：改用 `hideMutualChatBubble`（原手动清 timer 会让气泡永久卡显）
+6. `RoomScene.refreshMutualChatBubbles`：`expiresAt <= now` 的 registry 残留 payload 跳过（scene 重建不重播）
+7. `belief_gate.default_llm_judge`：非 mock 未接线路径 accept → **reject**（`llm_judge_unwired`，Δ0）
+8. `test_npc_mutual_chat.py`：hint URL 过滤只留 `linked-edges-hint`；去掉 `or True` 恒真断言并捕获位置参数 text
+
+**跳过（2）**
+
+- `relationship_rag` 条件化 lazy embed：public payload 无 `hasEmbedding` 字段，且 server `ensureRelationshipEdgeEmbedding` 非 force 时已短路（有向量即 return false，不调 embed LLM）— 满足 finding 自述的保留条件
+- mutual-chat bubble LLM 内容过滤：worker 无既定 Python content-filter 路径（`ContentGuard` 在 ai-gateway，非 worker 依赖）；引入跨包审核路径超出最小修复，留待后续设计
+
+**验证**
+
+- `pnpm --filter @aetherlife/game-server test`（354 passed，含新增 decay 不上弹用例）
+- `pnpm --filter @aetherlife/web test`（192 passed）
+- `cd workers/agent-worker && LLM_MOCK=1 uv run pytest -q`（414 passed，含 fallback reject 用例）
+
+**防复发**
+
+- Guardrail #116 追加：belief gate 未接线 judge **必须** reject；decay floor 只对 ≥floor 的边生效
+
+---
+
+### ISSUE-110 — PR #22 CR 余项：mutual-chat 同 tick 串行 / decay 重启水化 / belief day prune
+
+- **状态:** fixed
+- **发现:** 2026-07-29（PR #22 CodeRabbit/Codex 余项复盘）
+- **阶段/范围:** Phase 28 · `GameRoom` · `npc-mutual-chat` · `npc-relationship-decay` · `belief_gate`
+- **严重性:** major（supersede 竞态 + 重启重复 decay）
+
+**修复**
+
+1. `GameRoom.onAmbientTick`：`enqueueNpcMutualChatIfDue().then(dyad)` — 禁止与 ambient dyad 并行 fire-and-forget
+2. `maybeEnqueueNpcMutualChat`：整批 pair **同步 claim** 后再 `await enqueue`
+3. `hydrateInteractAbsFromEdges` / `hydrateSeedAbsFromEdges` + Redis `lastDecayMonth` 持久化
+4. belief cap dict 按当前 `day_key` prune
+5. decay 测试 slice 收紧；去掉 `toRenderEdge` no-op key 循环
+
+**验证**
+
+- `pnpm --filter @aetherlife/game-server test -- npc-relationship-decay npc-mutual-chat`
+- `cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_belief_gate.py -q`
+- `pnpm --filter @aetherlife/web test -- useNpcRelationships`
+- `pnpm agent:verify`
+
+**防复发**
+
+- Guardrail #116（串行 supersede）· #118（hydrate + prune）
+
+---
+
+### ISSUE-111 — 站篝火北侧时火焰不盖腿（Y-sort）
+
+- **状态:** fixed
+- **发现:** 2026-07-29
+- **阶段/范围:** `apps/web` · `HomeMapBackground` / `entityLayout`
+- **严重性:** minor（视觉）
+
+**复现**
+
+1. `pnpm dev:stack` 进 home。
+2. 站在 Campfire **北侧**紧邻格（约 gy=29）。
+3. 玩家腿画在火焰前面（应被北侧火焰遮挡）。
+
+**根因**
+
+- Campfire 为 4 个 Tiled tile object：北排底边 world Y≈960，南排≈992。
+- 玩家脚底 sort Y 与北排底边对齐时，`YSORT_LAYER.PLAYER (+2)` 压过 `OBJECT (+1)` → 人在火前。
+
+**修复**
+
+- `clusterSouthSortWorldY`：相邻 volume 部件共用最南底边 sort Y。
+- `HomeMapBackground`：仅 `VOLUME_CLUSTER_TILESETS = {"Campfire"}` 走聚类；其它 object 仍按自身底边。
+
+**验证**
+
+- `pnpm --filter @aetherlife/web exec vitest run src/game/entityLayout.test.ts`
+- 实机：北侧站立时火焰盖住腿；其它道具 Y-sort 不变。
+
+**防复发**
+
+- Guardrail #119 · [BEGINNING-FIELDS.md](./BEGINNING-FIELDS.md) Y-sort 注记
 
 ---
 

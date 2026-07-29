@@ -163,6 +163,8 @@ export const npcRelationships = pgTable(
     lastInteractAt: timestamp("last_interact_at", { withTimezone: true }),
     currentStatus: jsonb("current_status").notNull().default([]),
     historySummary: text("history_summary").notNull().default(""),
+    /** Speak RAG / edge similarity; nullable until async embed (D-EMBED-02/03). */
+    embedding: vector2048("embedding"),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

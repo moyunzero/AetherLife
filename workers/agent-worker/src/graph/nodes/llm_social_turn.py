@@ -584,6 +584,12 @@ def _invoke_tool_turn(
 def llm_social_turn(state: GraphState, *, settings: Settings | None = None) -> GraphState:
     cfg = settings or get_settings()
     player_message = state.get("player_message") or ""
+    # D-PLAYER-01/02: tag provoke/joint early; belief_gate_speak node gates before compose_reply.
+    from src.council.belief_gate import detect_manipulation_intent
+
+    manip = detect_manipulation_intent(player_message)
+    if manip.kind != "none":
+        state = {**state, "manipulation_intent": manip.kind}
     speak_intent = state.get("speak_intent") or ""
     room_snapshot = state.get("room_snapshot") or {}
     dialogue_context = build_dialogue_context(player_message, state.get("recent_turns"))

@@ -71,6 +71,13 @@
       "when": 1751155200000,
       "tag": "0011_npc_personal_timeline",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1751241600000,
+      "tag": "0012_npc_relationships_embedding",
+      "breakpoints": true
     }
   ]
 }

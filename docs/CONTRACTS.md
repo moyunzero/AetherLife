@@ -13,7 +13,7 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 | 层 | 契约 |
 |----|------|
 | **身份来源** | Colyseus `speak` → `playerId` → job payload `playerId` |
-| **状态读取** | speak 热路径：`GET /internal/rooms/:id/worker-state?skipNearbyLore=1`（默认）+ header `X-Player-Id` → `roomStateForInitiator` → `state.player` = 发起者实时格（无 memoryCounts）；NARRATIVE + lore markers 可 lazy `skipNearbyLore=0`；legacy/debug：`GET /rooms/:id/state` 仍可用 |
+| **状态读取** | speak 热路径：`GET /internal/rooms/:id/worker-state?skipNearbyLore=1`（默认）+ header `X-Player-Id` → `roomStateForInitiator` → `state.player` = 发起者实时格；`state.absoluteGameMinute` = 房间单调时钟（belief gate day-key / REL stamp）；无 memoryCounts；NARRATIVE + lore markers 可 lazy `skipNearbyLore=0`；legacy/debug：`GET /rooms/:id/state` 仍可用 |
 | **Pre-LLM 降级** | worker `fetch_state` 超时后返回进程内 stale snapshot（`_stale` / `_stale_age_ms`），**不得** hard-fail job；move 仍 `invalidateWorkerStateForPlayer` |
 | **Memory 热路径** | `GET .../memory-context`：`skipEmbed=1` 用于 CASUAL/SOCIAL_EDGE/NARRATIVE；RECALL 须 full embed；5s 进程内 cache；header `X-Speak-Hot-Path: 1` 优先 embed 队列 |
 | **Prompt** | 「我 / 下方 / 旁边」仅相对 **本次** `state.player`（见 `workers/.../prompt.py`） |
@@ -186,7 +186,7 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 | **种子** | 房间 **首次创建**（`getOrCreate`）异步 `seedCouncilRelationshipsIfNeeded`：从 registry `relationships[]` 映射 `base_tag` + 初始 `affection`/`trust`；**66 条边**（`COUNCIL_NPC_IDS` 全对）；幂等 `countRelationshipsForRoom >= 66` 跳过 |
 | **Registry 映射** | 种子读 registry 时用 `councilIndexEdgeIds`（席位序 npc-1…12）；**存储**仍用 `normalizeEdgeIds`（字符串序，满足 CHECK） |
 | **Worker 读** | `GET /internal/rooms/:roomId/npc-relationships`；`requireWorkerAuth`；可选 `?npcId=` + `limit` 返回 top-N by `|affection|` |
-| **Worker 写** | `POST /internal/rooms/:roomId/npc-relationships/apply-deltas`；body `{ deltas: RelationshipDeltaInput[], voteEpoch? }` → `{ linkedEdges }`；单次 `|affectionDelta| ≤ 15`；server clamp affection/trust；**仅** worker `world_vote` job 异步调用 — **禁止** Colyseus `onMessage` |
+| **Worker 写** | `POST /internal/rooms/:roomId/npc-relationships/apply-deltas`；body `{ deltas: RelationshipDeltaInput[], voteEpoch? }` → `{ linkedEdges }`；单次 `|affectionDelta| ≤ 15`；server clamp affection/trust；route **必须** stamp `lastInteractAbs` 为 `getRoomVoteState(roomId).absoluteGameMinute`；**仅** worker 异步调用 — **禁止** Colyseus `onMessage` |
 | **UI linkedEdges** | Worker **全量** apply-deltas 后，`councilDeliberationSync.linkedEdges` 仅广播 `filter_linked_edges_for_ui(top_k=8, min_abs=8)` 子集；名册 hint 用 broadcast 子集，**非** apply 响应全边 |
 | **Reset** | `POST /rooms/:id/reset` **不得**删除 `npc_relationships`（room-shared，与 `world_history` / `__council__` 同类保留） |
 | **UI** | 客户端 **无**公开 REST；`linkedEdges` 仅经 `councilDeliberationSync` 广播；名册 `council-roster-relationship-hint`（`linkedEdges` 上次 vote job）subtle hint only |
@@ -196,6 +196,25 @@ TS game-server、Python worker、LLM Prompt、`@aetherlife/game-actions` 之间�
 **验证：** `pnpm --filter @aetherlife/shared test -- councilDeliberation` · `pnpm --filter @aetherlife/game-server test -- npc-relationships councilRelationshipSeed world-vote` · `cd workers/agent-worker && LLM_MOCK=1 uv run pytest tests/test_world_vote.py -q` · `pnpm verify:phase25`（REL-05 affection delta）· `pnpm verify:phase26`（REL-08 drift unit 子进程，非 LLM 硬断言）
 
 **锚点文件：** `world/npc-relationships-repository.ts`, `memory/councilRelationshipSeed.ts`, `routes/internal-npc-relationships.ts`, `room/store.ts`, `packages/shared/src/councilRelationships.ts`, `packages/shared/src/councilDeliberation.ts`, `packages/npc-memory/migrations/0009_npc_relationships.sql`, `packages/npc-memory/migrations/0010_npc_leaning_drift.sql`, `workers/agent-worker/src/council/leaning_drift.py`.
+
+---
+
+## C-09b — Player relationship graph + sync + embedding [Phase 28]
+
+> **Additive to C-09.** Do **not** rewrite C-09 worker apply semantics. C-09 historical row「客户端 **无**公开 REST」remains as Phase 25 history; **C-09b supersedes that clause for Phase 28+** player graph surfaces. Worker apply-deltas / `requireWorkerAuth` stay under **C-09**.
+
+| 层 | 契约 |
+|----|------|
+| **公开读** | `GET /rooms/:roomId/npc-relationships` → **band-mapped** `RelationshipEdgeBandPublic[]`（`band` / `bandLabelZh` / `kindLabelZh` / `currentStatus` / npc ids）；**禁止**返回 `affection` / `trust` 整数（D-GRAPH-02 / D-API-01） |
+| **Auth** | `X-Player-Id` + `assertScopedPlayerRequest`（镜像 C-11 personal-timeline 公开读）；**无** public write |
+| **Colyseus** | `relationshipSync` payload `{ hasUpdate: boolean; latestSeq?: number }` — **hint-only invalidate**；客户端 refetch GET；**禁止**经 WS 推送边全文（D-API-01） |
+| **Worker 写** | 仍走 C-09 `POST .../npc-relationships/apply-deltas` + `requireWorkerAuth`；本契约不改变 delta clamp / voteEpoch 语义 |
+| **Embedding** | Async embed of `history_summary` + `current_status` text；affection **band** 仅作 metadata filter，**不**入向量（D-EMBED-02）；write path 与公开 GET 解耦 |
+| **Shared SSOT** | `relationshipBandFromAffection` / `relationshipBandLabelZh` / `toRelationshipEdgeBandPublic`；`COLYSEUS_SERVER_MESSAGES.relationshipSync` |
+
+**验证：** `pnpm --filter @aetherlife/shared test -- councilRelationships` · `pnpm --filter @aetherlife/shared build` · `pnpm --filter @aetherlife/game-server test -- npc-relationships` · `pnpm --filter @aetherlife/web test -- RelationshipGraphPanel useNpcRelationships` · `pnpm verify:phase28`（真实 LLM / `assertE2eRealLlm`）
+
+**锚点文件：** `packages/shared/src/councilRelationships.ts`, `packages/shared/src/colyseus.ts`, `docs/CONTRACTS.md`（本行）, `apps/game-server/src/routes/npc-relationships.ts`（player GET）, `apps/game-server/src/world/relationship-broadcast.ts`（`relationshipSync` + `mutualChatBubble`）, `apps/game-server/src/world/npc-relationships-repository.ts`（async embed）, `apps/web/src/hooks/useNpcRelationships.ts`, `apps/web/src/components/RelationshipGraphPanel.tsx`
 
 ---
 

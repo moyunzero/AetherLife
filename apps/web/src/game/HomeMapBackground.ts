@@ -4,6 +4,7 @@ import { ASSET_KEYS, TILE_PX } from "./assetManifest.js";
 import {
   MAP_TILE_DEPTH_BASE,
   MAP_TILE_DEPTH_STEP,
+  clusterSouthSortWorldY,
   tiledObjectYSortDepth,
   YSORT_LAYER,
 } from "./entityLayout.js";
@@ -16,6 +17,19 @@ const TILE_SCALE = CELL_PX / TILE_PX;
 
 /** Editor-only layer — hidden in Tiled, not shown in game. */
 const SKIP_LAYER_NAMES = new Set(["RockSlopes", "Collision"]);
+
+/**
+ * Atlas props authored as adjacent tile objects that must Y-sort as one volume
+ * (south edge). Do not add collection-of-images props here.
+ */
+const VOLUME_CLUSTER_TILESETS = new Set(["Campfire"]);
+
+type PendingObjectYSort = {
+  sprite: Phaser.GameObjects.Sprite;
+  bottomWorldX: number;
+  bottomWorldY: number;
+  tilesetName: string;
+};
 
 type TiledLayerMeta = {
   name: string;
@@ -72,6 +86,42 @@ function resolveGidTexture(
   }
 
   return null;
+}
+
+function tilesetNameForGid(tilesets: TiledTilesetDef[], gid: number): string | null {
+  const cleanGid = stripGidFlags(gid);
+  const sorted = [...tilesets].sort((a, b) => b.firstgid - a.firstgid);
+  return sorted.find((ts) => cleanGid >= ts.firstgid)?.name ?? null;
+}
+
+/** Apply per-object Y-sort; Campfire (etc.) clusters share southernmost bottom Y. */
+function applyObjectLayerYSortDepths(pending: PendingObjectYSort[]): void {
+  const volume: PendingObjectYSort[] = [];
+  const normal: PendingObjectYSort[] = [];
+  for (const item of pending) {
+    if (VOLUME_CLUSTER_TILESETS.has(item.tilesetName)) volume.push(item);
+    else normal.push(item);
+  }
+
+  for (const item of normal) {
+    item.sprite.setDepth(
+      tiledObjectYSortDepth(item.bottomWorldX, item.bottomWorldY, YSORT_LAYER.OBJECT),
+    );
+  }
+
+  if (volume.length === 0) return;
+  const sortYs = clusterSouthSortWorldY(
+    volume.map((item) => ({
+      bottomWorldX: item.bottomWorldX,
+      bottomWorldY: item.bottomWorldY,
+    })),
+  );
+  for (let i = 0; i < volume.length; i += 1) {
+    const item = volume[i]!;
+    item.sprite.setDepth(
+      tiledObjectYSortDepth(item.bottomWorldX, sortYs[i]!, YSORT_LAYER.OBJECT),
+    );
+  }
 }
 
 /** Tiled tile objects anchor bottom-left at (x, y); match Phaser createFromObjects semantics. */
@@ -244,6 +294,7 @@ export class HomeMapBackground {
             : rawLayer.objects;
 
         let shadowIndex = 0;
+        const pendingYSort: PendingObjectYSort[] = [];
         for (const rawObj of sortedObjects) {
           if (!rawObj.gid) continue;
 
@@ -262,17 +313,21 @@ export class HomeMapBackground {
             if (meta.opacity !== undefined && meta.opacity < 1) {
               sprite.setAlpha(meta.opacity);
             }
-            const bottomWorldX = (rawObj.x ?? 0) * TILE_SCALE;
-            const bottomWorldY = (rawObj.y ?? 0) * TILE_SCALE;
-            sprite.setDepth(
-              tiledObjectYSortDepth(bottomWorldX, bottomWorldY, YSORT_LAYER.OBJECT),
-            );
+            pendingYSort.push({
+              sprite,
+              bottomWorldX: (rawObj.x ?? 0) * TILE_SCALE,
+              bottomWorldY: (rawObj.y ?? 0) * TILE_SCALE,
+              tilesetName: tilesetNameForGid(bakedTilesets, rawObj.gid) ?? "",
+            });
             this.layers.push(sprite);
           }
 
           if (resolved) {
             applyObjectTileAnimation(scene, sprite, rawObj.gid);
           }
+        }
+        if (!isShadowLayer) {
+          applyObjectLayerYSortDepths(pendingYSort);
         }
       }
     }

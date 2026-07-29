@@ -18,6 +18,7 @@ import {
   claimPersonalTimelineJobId,
   enqueuePersonalTimelineEventJob,
 } from "../queue/personal-timeline.js";
+import { isPairClaimedForMutualChat } from "./npc-mutual-chat.js";
 import { getRoomVoteState } from "./world-vote-state.js";
 
 const DYAD_CHEBYSHEV_MAX = 2;
@@ -200,6 +201,8 @@ export async function maybeEnqueueDyadFromAmbient(input: {
       const { npcAId, npcBId } = normalizeEdgeIds(a.id, b.id);
       const claim = pairClaimKey(input.roomId, dayIndex, a.id, b.id);
       if (dyadDayClaims.has(claim)) continue;
+      // D-MUTUAL / A2: mutual-chat supersedes ambient dyad for same room/day/pair.
+      if (isPairClaimedForMutualChat(input.roomId, dayIndex, a.id, b.id)) continue;
       const score =
         stableStringHash(`dyad-ambient:${input.roomId}:${dayIndex}:${npcAId}:${npcBId}`) %
         100;
@@ -214,6 +217,7 @@ export async function maybeEnqueueDyadFromAmbient(input: {
     if (remaining <= 0) break;
     const claim = pairClaimKey(input.roomId, dayIndex, a.id, b.id);
     if (dyadDayClaims.has(claim)) continue;
+    if (isPairClaimedForMutualChat(input.roomId, dayIndex, a.id, b.id)) continue;
 
     const durablePair = durablePairClaimId(input.roomId, dayIndex, a.id, b.id);
     if (!(await claimPersonalTimelineJobId(durablePair))) continue;
