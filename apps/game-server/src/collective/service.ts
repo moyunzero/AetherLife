@@ -48,6 +48,10 @@ export type CollectiveContext = {
   playerReputation: number;
   allowedTools: AllowedTool[];
   recentSummaries: string[];
+  /** Semantic state for worker/speak only (D-BELIEF-05); null when no attitude row. */
+  currentMood: string | null;
+  keyBeliefs: string[] | null;
+  summary: string | null;
 };
 
 export type CollectiveStateAttitude = {
@@ -269,8 +273,9 @@ export class CollectiveService {
       windowDeltas.length === 0
         ? 0
         : windowDeltas.reduce((sum, d) => sum + d, 0) / windowDeltas.length;
+    const attitudeRow = await this.repo.getAttitudeRow(roomId, npcId, playerId);
     const playerReputation =
-      (await this.repo.getAttitude(roomId, npcId, playerId)) ?? personalitySeedForNpc(npcId);
+      attitudeRow?.reputation ?? personalitySeedForNpc(npcId);
     const effectiveScore = computeEffectiveScore(playerReputation, windowDeltas);
     const band = bandFromEffectiveScore(effectiveScore);
 
@@ -281,6 +286,9 @@ export class CollectiveService {
       playerReputation,
       allowedTools: allowedToolsForBand(band),
       recentSummaries: events.slice(0, 5).map((e) => e.summary),
+      currentMood: attitudeRow?.currentMood ?? null,
+      keyBeliefs: attitudeRow ? [...attitudeRow.keyBeliefs] : null,
+      summary: attitudeRow?.summary ?? null,
     };
   }
 
@@ -292,6 +300,7 @@ export class CollectiveService {
     const record = getOrCreate(roomId);
     const npcIds = filterNpcId ? [filterNpcId] : record.state.npcs.map((n) => n.id);
 
+    // D-BELIEF-11: public DTO — reputation/band only; never mood/keyBeliefs/summary.
     const attitudes = await Promise.all(
       npcIds.map(async (npcId) => {
         const ctx = await this.getCollectiveContext(roomId, npcId, playerId);
@@ -302,7 +311,7 @@ export class CollectiveService {
           collectiveWindowMean: ctx.collectiveWindowMean,
           effectiveScore: ctx.effectiveScore,
           band: ctx.band,
-        };
+        } satisfies CollectiveStateAttitude;
       }),
     );
 

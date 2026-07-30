@@ -175,4 +175,55 @@ describe("CollectiveService", () => {
     const rep = await repo.getAttitude("prop-fail", "npc-1", "p-a");
     expect(rep).toBe(personalitySeedForNpc("npc-1") + KIND_FIXED_DELTA.help);
   });
+
+  it("getCollectiveContext carries semantic from attitude row (D-BELIEF-05)", async () => {
+    const svc = CollectiveService.getInstance();
+    const repo = svc.repoRef();
+    await repo.upsertSemanticState("r-sem-ctx", "npc-1", "p-a", {
+      mood: "恼火",
+      beliefs: ["我不信他的承诺"],
+      summary: "玩家曾失信",
+    });
+
+    const ctx = await svc.getCollectiveContext("r-sem-ctx", "npc-1", "p-a");
+    expect(ctx.currentMood).toBe("恼火");
+    expect(ctx.keyBeliefs).toEqual(["我不信他的承诺"]);
+    expect(ctx.summary).toBe("玩家曾失信");
+    expect(ctx.band).toBeTruthy();
+    expect(ctx.allowedTools.length).toBeGreaterThan(0);
+    expect(typeof ctx.playerReputation).toBe("number");
+  });
+
+  it("getCollectiveContext omits semantic when no attitude row", async () => {
+    const svc = CollectiveService.getInstance();
+    const ctx = await svc.getCollectiveContext("r-no-att", "npc-1", "p-missing");
+    expect(ctx.currentMood).toBeNull();
+    expect(ctx.keyBeliefs).toBeNull();
+    expect(ctx.summary).toBeNull();
+    expect(ctx.playerReputation).toBe(personalitySeedForNpc("npc-1"));
+  });
+
+  it("getCollectiveState public payload strips mood/beliefs/summary (D-BELIEF-11)", async () => {
+    const svc = CollectiveService.getInstance();
+    const repo = svc.repoRef();
+    await repo.upsertSemanticState("default", "npc-1", "p-pub", {
+      mood: "戏谑",
+      beliefs: ["他爱开玩笑"],
+      summary: "内部摘要勿泄露",
+    });
+
+    const ctx = await svc.getCollectiveContext("default", "npc-1", "p-pub");
+    expect(ctx.currentMood).toBe("戏谑");
+
+    const publicPayload = await svc.getCollectiveState("default", "p-pub", "npc-1");
+    const row = publicPayload.attitudes.find((a) => a.npcId === "npc-1");
+    expect(row).toBeDefined();
+    expect(row).not.toHaveProperty("currentMood");
+    expect(row).not.toHaveProperty("keyBeliefs");
+    expect(row).not.toHaveProperty("summary");
+    expect(row).not.toHaveProperty("mood");
+    expect(row).not.toHaveProperty("beliefs");
+    expect(JSON.stringify(publicPayload)).not.toContain("戏谑");
+    expect(JSON.stringify(publicPayload)).not.toContain("内部摘要勿泄露");
+  });
 });

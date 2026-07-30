@@ -196,4 +196,23 @@ describe("MemoryService.storeReflection optional semantic (D-BELIEF-03/07/13)", 
     expect(row?.keyBeliefs).toEqual(["我看穿了他"]);
     expect(row?.summary).toBe("先有");
   });
+
+  it("buildMemoryContext.collective includes semantic for worker (D-BELIEF-05)", async () => {
+    const service = MemoryService.getInstance();
+    const repo = CollectiveService.getInstance().repoRef();
+    await repo.upsertSemanticState("room-mc-sem", "npc-1", "p1", {
+      mood: "愉悦",
+      beliefs: ["我信任他"],
+      summary: "近期友好",
+    });
+
+    const ctx = await service.buildMemoryContext("room-mc-sem", "你好", "npc-1", "p1", {
+      skipEmbed: true,
+    });
+    expect(ctx.collective.currentMood).toBe("愉悦");
+    expect(ctx.collective.keyBeliefs).toEqual(["我信任他"]);
+    expect(ctx.collective.summary).toBe("近期友好");
+    expect(ctx.collective.band).toBeTruthy();
+    expect(ctx.collective.allowedTools.length).toBeGreaterThan(0);
+  });
 });
