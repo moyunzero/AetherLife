@@ -226,6 +226,18 @@ export {
 } from "./attitude.js";
 
 export {
+  KEY_BELIEF_MAX_CHARS,
+  KEY_BELIEF_MAX_COUNT,
+  NPC_MOODS,
+  SEMANTIC_SUMMARY_MAX_CHARS,
+  clampSemanticState,
+  isNpcMood,
+  type ClampedSemanticState,
+  type NpcMood,
+  type SemanticStateInput,
+} from "./council/semanticState.js";
+
+export {
   NPC_ACTIVITY_KEYS,
   NPC_ACTIVITY_LABEL_ZH,
   activityDisplayZh,
