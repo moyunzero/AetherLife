@@ -222,11 +222,17 @@ async function prepareBenchmarkRound(playerId) {
 
 /** Phase 19 overlay-first T_think: NOT legacy drawer `.message--thinking`.
  *  Canonical selectors for verify:phase20 live in scripts/lib/speak-browser-round.mjs
- *  and scripts/lib/e2e-memory-helpers.mjs — keep benchmark locators aligned manually. */
+ *  and scripts/lib/e2e-memory-helpers.mjs — keep benchmark locators aligned manually.
+ *
+ *  Also accept composer aria-busy: DialogueOverlay suppresses `.dialogue-overlay__thinking`
+ *  whenever a displayLine exists (client casual stub or prior NPC line), so thinking-only
+ *  DOM is often absent on B1「你好」and all subsequent turns. Composer busy is the reliable
+ *  “speak accepted” signal for T_think. */
 const THINKING_LOCATOR =
   '[data-testid="dialogue-overlay"] .dialogue-overlay__thinking, ' +
   '.dialogue-bar__summary-text--thinking, ' +
-  '[data-testid="composer-speak-status"]';
+  '[data-testid="composer-speak-status"], ' +
+  'textarea.composer__input[aria-busy="true"]';
 
 const OVERLAY_STREAMING = '[data-testid="dialogue-overlay-streaming"]';
 
@@ -328,9 +334,17 @@ async function runSpeakRound(page, message, { expectMove }) {
   });
 
   const replyBaseline = await captureReplyBaseline(page);
-  const t0 = Date.now();
   await closeShellDrawer(page);
   const composer = page.locator("textarea.composer__input");
+  // Prior round may still hold composer busy (worker memory-tail / backlog).
+  await page.waitForFunction(
+    () => {
+      const input = document.querySelector("textarea.composer__input");
+      return input && !input.disabled && input.getAttribute("aria-busy") !== "true";
+    },
+    { timeout: SPEAK_TIMEOUT_MS },
+  );
+  const t0 = Date.now();
   await composer.fill(message);
   await page.locator("button.composer__submit").click();
 
