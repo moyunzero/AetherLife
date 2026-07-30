@@ -207,6 +207,17 @@ JSON：`.planning/benchmarks/speak-browser-1781155186602.json`
 
 对照 § 目标：B1 TTFT **达标**（p50 ≤2s）；首字由 Web `client_mirror` 在 dispatch 打 mark，不再依赖 Redis BRPOP + worker HTTP。B1 total p50 **4521 ms**（达标 ≤5s）；p95 **9476 ms** 仍受 fast lane `done` 与 LLM 路由波动影响。
 
+**Run 2026-07-30 — Phase 29 post-retrieval**（`BENCHMARK_ROUNDS=15`，`pnpm dev:stack` 真实 LLM，`LLM_PROVIDER=nvidia`；JSON：`.planning/benchmarks/speak-browser-1785396046577.json`；harness `ed33d56` T_think/aria-busy）：
+
+| 用例 | total p50 | total p95 | ttft p50 | bubble p50 | `t_memory_ms` p50/p95 |
+|------|-----------|-----------|----------|------------|------------------------|
+| B1 闲聊 | **13448 ms** | 53846 ms | **28 ms** | 125 ms | 0 / 0（fast lane） |
+| B2 物理 | **153619 ms** | 237685 ms | 142408 ms | 142568 ms | 1626 / 1985 |
+| B3 快路径 | **146922 ms** | 226424 ms | 142087 ms | 142278 ms | 1282 / 2360 |
+| B_recall | **153362 ms** | 195313 ms | 148714 ms | 148802 ms | — |
+
+对照 P4 基线（B1 total **4521** / TTFT **1**）：B1 total **REGRESS ~3.0×** → **D-PERF-01/02 不宣称通过**。观察：B2/B3/B_recall TTFT ~142s 由 worker 队列 + social 429/timeout + 前序 job **memory-tail ~365–374s** 串行饥饿主导，**不宜直接归咎 forgetting-curve SQL / halfvec**；需 follow-up 隔离。详见 `.planning/phases/29-npc-memory-retrieval-quality/29-VERIFICATION.md` Task 2。
+
 **Run 2026-06-10 — P0/P1 基线**（`BENCHMARK_ROUNDS=5`，无 `speakPartial` / `speakIntent`）：
 
 | 用例 | 消息 | total p50 | total p95 | bubble p50 | nl_parse p50 |
