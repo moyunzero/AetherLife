@@ -15,18 +15,7 @@ function edge(
   baseTag: string,
   affection: number,
 ): PropagationEdge {
-  return {
-    npcAId,
-    npcBId,
-    baseTag,
-    affection,
-    trust: 50,
-    interactionCount: 0,
-    lastInteractAt: null,
-    currentStatus: [],
-    historySummary: "",
-    updatedAt: new Date().toISOString(),
-  };
+  return { npcAId, npcBId, baseTag, affection };
 }
 
 describe("PROPAGATION constants (D-PROP-10)", () => {
