@@ -2,7 +2,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   computeRecencyFactor,
   computeWeightedScore,
+  DEFAULT_K_OVERFETCH_CAP,
+  rerankCandidatesByForgettingCurve,
+  resolveKOverfetch,
   resolveRecencyConfig,
+  type AnnCandidate,
 } from "./repository.js";
 
 describe("computeWeightedScore", () => {
@@ -122,5 +126,54 @@ describe("SQL ≡ TS forgetting-curve parity (D-DECAY-04)", () => {
       expect(sqlRecency).toBeCloseTo(computeRecencyFactor(ageHours, importance, cfg), 12);
       expect(sqlScore).toBeCloseTo(computeWeightedScore(cos, importance, ageHours, cfg), 12);
     }
+  });
+});
+
+describe("resolveKOverfetch (D-ANN-03)", () => {
+  it("defaults to max(20, 4*k)", () => {
+    expect(resolveKOverfetch(5)).toBe(20);
+    expect(resolveKOverfetch(1)).toBe(20);
+    expect(resolveKOverfetch(10)).toBe(40);
+  });
+
+  it("caps at DEFAULT_K_OVERFETCH_CAP", () => {
+    expect(resolveKOverfetch(10_000)).toBe(DEFAULT_K_OVERFETCH_CAP);
+  });
+});
+
+describe("rerankCandidatesByForgettingCurve (D-ANN-03)", () => {
+  const cfg = { s0: 72, floor: 0.3, sEpsilon: 1e-3 };
+
+  it("returns at most k rows scored with forgetting-curve", () => {
+    const candidates: AnnCandidate[] = [
+      { id: "a", text: "near-old", importance: 1, cosineSimilarity: 0.99, ageHours: 500 },
+      { id: "b", text: "far-fresh-important", importance: 10, cosineSimilarity: 0.7, ageHours: 1 },
+      { id: "c", text: "mid", importance: 5, cosineSimilarity: 0.85, ageHours: 24 },
+      { id: "d", text: "noise", importance: 2, cosineSimilarity: 0.5, ageHours: 10 },
+    ];
+    const out = rerankCandidatesByForgettingCurve(candidates, 2, cfg);
+    expect(out).toHaveLength(2);
+    for (const row of out) {
+      expect(row.score).toBeCloseTo(
+        computeWeightedScore(
+          candidates.find((c) => c.id === row.id)!.cosineSimilarity,
+          row.importance,
+          candidates.find((c) => c.id === row.id)!.ageHours,
+          cfg,
+        ),
+        10,
+      );
+    }
+    expect(out[0]!.score).toBeGreaterThanOrEqual(out[1]!.score);
+  });
+
+  it("prefers high-importance fresh over near-but-stale when scores dictate", () => {
+    const candidates: AnnCandidate[] = [
+      { id: "stale", text: "stale", importance: 1, cosineSimilarity: 0.95, ageHours: 1e6 },
+      { id: "fresh", text: "fresh", importance: 10, cosineSimilarity: 0.8, ageHours: 0 },
+    ];
+    const out = rerankCandidatesByForgettingCurve(candidates, 1, cfg);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.id).toBe("fresh");
   });
 });
