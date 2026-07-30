@@ -94,6 +94,56 @@ export function computeWeightedScore(
   return cosineSimilarity * importanceFactor * recency;
 }
 
+/** Hard cap for ANN overfetch (T-29-04-02 DoS mitigation). */
+export const DEFAULT_K_OVERFETCH_CAP = 200;
+
+/**
+ * Candidate pool size for distance ORDER BY before forgetting-curve rerank.
+ * Default: max(20, 4*k), capped (D-ANN-03 / RESEARCH Open Q2).
+ */
+export function resolveKOverfetch(
+  k: number,
+  env: Record<string, string | undefined> = envSource(),
+): number {
+  const safeK = Number.isFinite(k) && k > 0 ? Math.floor(k) : 5;
+  const rawCap = env.MEMORY_K_OVERFETCH_CAP;
+  let cap = DEFAULT_K_OVERFETCH_CAP;
+  if (rawCap !== undefined && rawCap !== "") {
+    const n = Number(rawCap);
+    if (Number.isFinite(n) && n >= 1) cap = Math.floor(n);
+  }
+  return Math.min(cap, Math.max(20, 4 * safeK));
+}
+
+/** Distance-ordered ANN candidate before weighted rerank. */
+export type AnnCandidate = {
+  id: string;
+  text: string;
+  importance: number;
+  cosineSimilarity: number;
+  ageHours: number;
+};
+
+/**
+ * Re-score distance candidates with forgetting-curve formula; return top k (D-ANN-03).
+ */
+export function rerankCandidatesByForgettingCurve(
+  candidates: AnnCandidate[],
+  k: number,
+  cfg: RecencyConfig = resolveRecencyConfig(),
+): Array<SimilarMemory & { id: string }> {
+  const safeK = Number.isFinite(k) && k > 0 ? Math.floor(k) : 5;
+  return candidates
+    .map((c) => ({
+      id: c.id,
+      text: c.text,
+      importance: c.importance,
+      score: computeWeightedScore(c.cosineSimilarity, c.importance, c.ageHours, cfg),
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, safeK);
+}
+
 export class MemoryRepository {
   constructor(private readonly db: Db) {}
 
@@ -144,14 +194,32 @@ export class MemoryRepository {
   }): Promise<SimilarMemory[]> {
     const npcId = input.npcId ?? DEFAULT_NPC_ID;
     const k = input.k ?? 5;
+    const kOverfetch = resolveKOverfetch(k);
     const vectorLiteral = `[${input.queryEmbedding.join(",")}]`;
     const cfg = resolveRecencyConfig();
 
+    // D-ANN-03: ORDER BY halfvec distance ASC LIMIT k_overfetch so HNSW can be used,
+    // then re-score with forgetting-curve and take top k.
     const result = await this.db.execute(sql`
+      WITH candidates AS (
+        SELECT
+          text,
+          importance,
+          created_at,
+          (embedding::halfvec(2048) <=> ${vectorLiteral}::halfvec(2048)) AS dist
+        FROM npc_memories
+        WHERE room_id = ${input.roomId}
+          AND player_id = ${input.playerId}
+          AND npc_id = ${npcId}
+          AND summarized_at IS NULL
+          AND embedding IS NOT NULL
+        ORDER BY embedding::halfvec(2048) <=> ${vectorLiteral}::halfvec(2048) ASC
+        LIMIT ${kOverfetch}
+      )
       SELECT
         text,
         importance,
-        (1 - (embedding <=> ${vectorLiteral}::vector))
+        (1 - dist)
           * (0.5 + COALESCE(importance, 5) / 20.0)
           * GREATEST(
               ${cfg.floor}::float8,
@@ -164,12 +232,7 @@ export class MemoryRepository {
                     )
               )
             ) AS score
-      FROM npc_memories
-      WHERE room_id = ${input.roomId}
-        AND player_id = ${input.playerId}
-        AND npc_id = ${npcId}
-        AND summarized_at IS NULL
-        AND embedding IS NOT NULL
+      FROM candidates
       ORDER BY score DESC
       LIMIT ${k}
     `);
