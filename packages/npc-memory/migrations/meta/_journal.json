@@ -78,6 +78,20 @@
       "when": 1751241600000,
       "tag": "0012_npc_relationships_embedding",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1753833600000,
+      "tag": "0013_npc_memories_halfvec_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1753920000000,
+      "tag": "0014_npc_attitudes_semantic_state",
+      "breakpoints": true
     }
   ]
 }
