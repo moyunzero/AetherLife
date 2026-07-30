@@ -154,19 +154,18 @@ describe("dialogue-session", () => {
       npcReply: "你好呀",
     });
 
-    await vi.waitFor(() => {
-      expect(fake.rpush).toHaveBeenCalled();
-    });
-
     const key = dialogueRedisKey("room-a", "p1", "npc-2");
     expect(key).toBe("aetherlife:dialogue:room-a:p1:npc-2");
+
+    await vi.waitFor(() => {
+      expect(fake.expire).toHaveBeenCalledWith(key, 7 * 24 * 60 * 60);
+    });
     expect(fake.rpush).toHaveBeenCalledWith(
       key,
       JSON.stringify({ role: "player", text: "你好" }),
       JSON.stringify({ role: "npc", text: "你好呀" }),
     );
     expect(fake.ltrim).toHaveBeenCalledWith(key, -20, -1);
-    expect(fake.expire).toHaveBeenCalledWith(key, 7 * 24 * 60 * 60);
   });
 
   it("getRecentTurnsAsync rehydrates from Redis on Map miss", async () => {
