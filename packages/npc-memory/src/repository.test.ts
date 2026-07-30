@@ -119,13 +119,27 @@ describe("SQL ≡ TS forgetting-curve parity (D-DECAY-04)", () => {
       { ageHours: 1e6, importance: 0, cos: 0.5 },
     ];
     for (const { ageHours, importance, cos } of fixtures) {
-      // Mirrors searchSimilar SQL: GREATEST(floor, exp(-age*ln2 / GREATEST(ε, S0*imp/5)))
+      // Mirrors searchSimilar SQL: GREATEST(floor, exp(-age*ln2 / GREATEST(ε, S0*COALESCE(imp,5)/5)))
       const S = Math.max(cfg.sEpsilon, cfg.s0 * (importance / 5));
       const sqlRecency = Math.max(cfg.floor, Math.exp((-ageHours * Math.LN2) / S));
       const sqlScore = cos * (0.5 + importance / 20) * sqlRecency;
       expect(sqlRecency).toBeCloseTo(computeRecencyFactor(ageHours, importance, cfg), 12);
       expect(sqlScore).toBeCloseTo(computeWeightedScore(cos, importance, ageHours, cfg), 12);
     }
+  });
+
+  it("NULL importance defaults to 5 for both importanceFactor and S (SQL COALESCE parity)", () => {
+    const cfg = { s0: 72, floor: 0.3, sEpsilon: 1e-3 };
+    const ageHours = 24;
+    const cos = 0.9;
+    const importanceDefault = 5;
+    const S = Math.max(cfg.sEpsilon, cfg.s0 * (importanceDefault / 5));
+    const sqlRecency = Math.max(cfg.floor, Math.exp((-ageHours * Math.LN2) / S));
+    const sqlScore = cos * (0.5 + importanceDefault / 20) * sqlRecency;
+    expect(sqlScore).toBeCloseTo(
+      computeWeightedScore(cos, importanceDefault, ageHours, cfg),
+      12,
+    );
   });
 });
 

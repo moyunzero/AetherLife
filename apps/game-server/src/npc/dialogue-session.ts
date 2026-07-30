@@ -133,13 +133,21 @@ export async function getRecentTurnsAsync(
   const key = dialogueRedisKey(roomId, playerId, npcId);
   try {
     const raw = await redis.lrange(key, 0, -1);
+    // Concurrent appendCompletedTurn during LRANGE must win — do not clobber Map.
+    if (sessions.has(k)) {
+      return (sessions.get(k) ?? []).slice(-limit);
+    }
     const turns: DialogueTurn[] = [];
     for (const item of raw) {
       const turn = parseTurn(item);
       if (turn) turns.push(turn);
     }
+    // Do not negatively cache empty threads (multi-instance / later Redis write).
+    if (turns.length === 0) {
+      return [];
+    }
     sessions.set(k, turns);
-    if (turns.length > 0) knownRedisKeys.add(key);
+    knownRedisKeys.add(key);
     return turns.slice(-limit);
   } catch (err) {
     console.error("[dialogue-session] Redis rehydrate failed", err);

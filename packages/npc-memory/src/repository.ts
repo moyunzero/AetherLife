@@ -228,7 +228,7 @@ export class MemoryRepository {
                   * LN(2)
                   / GREATEST(
                       ${cfg.sEpsilon}::float8,
-                      ${cfg.s0}::float8 * COALESCE(importance, 0) / 5.0
+                      ${cfg.s0}::float8 * COALESCE(importance, 5) / 5.0
                     )
               )
             ) AS score

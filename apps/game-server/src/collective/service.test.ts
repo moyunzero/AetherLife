@@ -2,6 +2,7 @@ import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { CollectiveRepository } from "@aetherlife/npc-memory";
 import {
   KIND_FIXED_DELTA,
+  PROPAGATION_MAX_FANOUT,
   personalitySeedForNpc,
   type RelationshipEdgePublic,
 } from "@aetherlife/shared";
@@ -113,7 +114,7 @@ describe("CollectiveService", () => {
   });
 
   it("propagation applies friend reputation without extra collective events", async () => {
-    vi.spyOn(npcRelationships, "listRelationshipsForRoom").mockResolvedValue([
+    const listSpy = vi.spyOn(npcRelationships, "listRelationshipsForRoom").mockResolvedValue([
       propEdge({
         npcAId: "npc-1",
         npcBId: "npc-friend",
@@ -134,6 +135,13 @@ describe("CollectiveService", () => {
       singlePlayerOk: true,
     });
 
+    expect(listSpy).toHaveBeenCalledWith(
+      "prop-room",
+      expect.objectContaining({
+        npcId: "npc-1",
+        limit: PROPAGATION_MAX_FANOUT * 5,
+      }),
+    );
     expect(result).toEqual(expect.objectContaining({ recorded: true }));
     const events = await repo.listEventsInWindow("prop-room", "npc-1", 300_000);
     expect(events).toHaveLength(1);

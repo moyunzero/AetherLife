@@ -243,6 +243,55 @@ describe("dialogue-session", () => {
     expect(getRecentTurns("room-evict", "p1", "npc-2")).toEqual(restored);
   });
 
+  it("getRecentTurnsAsync does not clobber Map turns appended during LRANGE", async () => {
+    const fake = createFakeRedis();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    fake.lrange = vi.fn(async (key: string) => {
+      await gate;
+      const list = fake.store.get(key) ?? [];
+      return [...list];
+    });
+    setDialogueRedisForTests(fake as unknown as import("ioredis").default);
+
+    const pending = getRecentTurnsAsync("room-race", "p1", "npc-1");
+    appendCompletedTurn({
+      roomId: "room-race",
+      playerId: "p1",
+      npcId: "npc-1",
+      playerMessage: "during await",
+      npcReply: "kept",
+    });
+    release();
+    const turns = await pending;
+    expect(turns).toEqual([
+      { role: "player", text: "during await" },
+      { role: "npc", text: "kept" },
+    ]);
+  });
+
+  it("getRecentTurnsAsync does not negatively cache empty Redis threads", async () => {
+    const fake = createFakeRedis();
+    setDialogueRedisForTests(fake as unknown as import("ioredis").default);
+    const key = dialogueRedisKey("room-empty", "p1", "npc-1");
+
+    expect(await getRecentTurnsAsync("room-empty", "p1", "npc-1")).toEqual([]);
+    expect(getRecentTurns("room-empty", "p1", "npc-1")).toEqual([]);
+
+    fake.store.set(key, [
+      JSON.stringify({ role: "player", text: "later" }),
+      JSON.stringify({ role: "npc", text: "seen" }),
+    ]);
+    const turns = await getRecentTurnsAsync("room-empty", "p1", "npc-1");
+    expect(turns).toEqual([
+      { role: "player", text: "later" },
+      { role: "npc", text: "seen" },
+    ]);
+    expect(fake.lrange.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
   it("clearDialogueForPlayer removes Map and Redis for known keys", async () => {
     const fake = createFakeRedis();
     setDialogueRedisForTests(fake as unknown as import("ioredis").default);

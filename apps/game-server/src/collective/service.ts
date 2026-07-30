@@ -121,9 +121,11 @@ export class CollectiveService {
     const alreadyUpdated = new Set(args.witnessUpdates.map((u) => u.npcId));
     let edges;
     try {
+      // Overfetch past FANOUT so alreadyUpdated / polarity / MIN_AFFECTION filters
+      // can still fill up to PROPAGATION_MAX_FANOUT neighbors (D-PROP / CR).
       edges = await listRelationshipsForRoom(args.roomId, {
         npcId: args.targetNpcId,
-        limit: PROPAGATION_MAX_FANOUT,
+        limit: PROPAGATION_MAX_FANOUT * 5,
       });
     } catch (err) {
       console.error("[collective] relationship propagation list failed", err);
