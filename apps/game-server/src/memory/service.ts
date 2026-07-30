@@ -606,12 +606,16 @@ export class MemoryService {
     text: string,
     npcId: string,
     playerId: string,
+    semantic?: { mood?: string | null; beliefs?: string[] | null; summary?: string | null },
   ): Promise<void> {
     if (this.test) {
       await this.test.appendSummary({ roomId, playerId, npcId, kind: "reflection", text });
-      return;
+    } else {
+      await this.repo!.appendSummary({ roomId, playerId, npcId, kind: "reflection", text });
     }
-    await this.repo!.appendSummary({ roomId, playerId, npcId, kind: "reflection", text });
+    if (semantic) {
+      await this.upsertAttitudeSemantic(roomId, npcId, playerId, semantic);
+    }
   }
 
   /**

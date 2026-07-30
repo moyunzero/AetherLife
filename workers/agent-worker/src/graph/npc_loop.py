@@ -20,7 +20,7 @@ from src.graph.action_intent import (
 )
 from src.graph.action_sanitize import tool_calls_to_actions
 from src.graph.prompt import build_turn_messages
-from src.graph.reflect import run_reflect_llm, should_reflect
+from src.graph.reflect import run_reflect_llm_structured, should_reflect
 from src.graph.state import GraphState
 from src.graph.summarize import maybe_bulk_summarize
 from src.graph.recall_merge import (
@@ -507,15 +507,18 @@ def maybe_reflect_turn(
         player_id=_player_id(state),
     )
     texts = [row.get("text", "") for row in recent if row.get("text")]
-    reflection = run_reflect_llm(texts, settings)
-    if reflection:
+    structured = run_reflect_llm_structured(texts, settings)
+    if structured and structured.text:
         store_reflection(
             client,
             settings,
             state["room_id"],
-            reflection,
+            structured.text,
             npc_id=npc_id,
             player_id=_player_id(state),
+            mood=structured.mood,
+            beliefs=structured.beliefs,
+            summary=structured.summary,
         )
     return state
 

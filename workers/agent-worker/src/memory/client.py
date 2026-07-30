@@ -200,10 +200,20 @@ def store_reflection(
     *,
     npc_id: str = "npc-1",
     player_id: str = "__legacy__",
+    mood: str | None = None,
+    beliefs: list[str] | None = None,
+    summary: str | None = None,
 ) -> None:
+    body: dict[str, Any] = {"text": text, "npcId": npc_id, "playerId": player_id}
+    if mood is not None:
+        body["mood"] = mood
+    if beliefs is not None:
+        body["beliefs"] = beliefs
+    if summary is not None:
+        body["summary"] = summary
     res = client.post(
         f"{settings.game_server_url}/internal/rooms/{room_id}/reflect",
-        json={"text": text, "npcId": npc_id, "playerId": player_id},
+        json=body,
         headers=_game_headers(settings, player_id=player_id),
         timeout=30.0,
     )
