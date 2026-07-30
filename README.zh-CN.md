@@ -20,6 +20,7 @@ AI 驱动的多人联机生活模拟 Web 游戏：与拥有记忆的 NPC 用自�
 - [测试](#测试)
 - [文档](#文档)
 - [贡献](#贡献)
+- [素材贡献](#素材贡献)
 - [License](#license)
 
 ## 项目简介
@@ -230,6 +231,12 @@ Action schema：[packages/game-actions/README.md](./packages/game-actions/README
 ## 贡献
 
 欢迎 Issue 与 PR。请先阅读 [CONTRIBUTING.md](./CONTRIBUTING.md)。请勿提交 `.env` 或 API 密钥。
+
+## 素材贡献
+
+| 素材 | 作者 | 用途 |
+|------|------|------|
+| [The Fantasy Tileset](https://ventilatore.itch.io/the-fantasy-tileset) | [Ventilatore](https://ventilatore.itch.io) | 始源区（Beginning Fields）家园地图（16×16 瓦片，Tiled） |
 
 ## License
 

@@ -20,6 +20,7 @@ AI-driven multiplayer life-simulation web game: guide memory-bearing NPCs throug
 - [Testing](#testing)
 - [Documentation](#documentation)
 - [Contributing](#contributing)
+- [Asset Credits](#asset-credits)
 - [License](#license)
 
 ## About
@@ -229,6 +230,12 @@ Action schema: [packages/game-actions/README.md](./packages/game-actions/README.
 ## Contributing
 
 Issues and PRs welcome. Read [CONTRIBUTING.md](./CONTRIBUTING.md) first. Never commit `.env` or API keys.
+
+## Asset Credits
+
+| Asset | Author | Use |
+|-------|--------|-----|
+| [The Fantasy Tileset](https://ventilatore.itch.io/the-fantasy-tileset) | [Ventilatore](https://ventilatore.itch.io) | Beginning Fields home map (16×16 tiles, Tiled) |
 
 ## License
 
