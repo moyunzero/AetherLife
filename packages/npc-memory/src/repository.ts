@@ -18,10 +18,73 @@ export type AppendMemoryInput = {
   embedding?: number[];
 };
 
-/** Weighted retrieval score from 03-RESEARCH.md */
-export function computeWeightedScore(cosineSimilarity: number, importance: number): number {
-  const factor = 0.5 + (importance || 5) / 20;
-  return cosineSimilarity * factor;
+/** Ebbinghaus recency knobs (D-DECAY-02/02b/03). */
+export type RecencyConfig = {
+  /** Baseline half-life hours S₀ (default 72). */
+  s0: number;
+  /** Floor for recencyFactor (default 0.3). */
+  floor: number;
+  /** Min S when importance→0 (default 1e-3). */
+  sEpsilon: number;
+};
+
+const DEFAULT_RECENCY: RecencyConfig = {
+  s0: 72,
+  floor: 0.3,
+  sEpsilon: 1e-3,
+};
+
+function parsePositiveNumber(raw: string | undefined, fallback: number): number {
+  if (raw === undefined || raw === "") return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return n;
+}
+
+/** Read MEMORY_RECENCY_* env; invalid values → defaults. */
+export function resolveRecencyConfig(env: NodeJS.ProcessEnv = process.env): RecencyConfig {
+  const s0 = parsePositiveNumber(env.MEMORY_RECENCY_HALFLIFE_HOURS, DEFAULT_RECENCY.s0);
+  const floorRaw = env.MEMORY_RECENCY_FLOOR;
+  let floor = DEFAULT_RECENCY.floor;
+  if (floorRaw !== undefined && floorRaw !== "") {
+    const n = Number(floorRaw);
+    if (Number.isFinite(n) && n >= 0 && n <= 1) floor = n;
+  }
+  const sEpsilon = parsePositiveNumber(env.MEMORY_RECENCY_S_EPSILON, DEFAULT_RECENCY.sEpsilon);
+  return { s0, floor, sEpsilon };
+}
+
+/**
+ * recencyFactor = max(FLOOR, exp(-ageHours × ln2 / S))
+ * S = max(ε, S0 × importance/5)
+ */
+export function computeRecencyFactor(
+  ageHours: number,
+  importance: number,
+  cfg: RecencyConfig = resolveRecencyConfig(),
+): number {
+  const S = Math.max(cfg.sEpsilon, cfg.s0 * (importance / 5));
+  return Math.max(cfg.floor, Math.exp((-ageHours * Math.LN2) / S));
+}
+
+/**
+ * Weighted retrieval score.
+ * Two-arg: legacy cos × (0.5 + (importance||5)/20).
+ * With ageHours: cos × (0.5 + importance/20) × recencyFactor (D-DECAY-01).
+ */
+export function computeWeightedScore(
+  cosineSimilarity: number,
+  importance: number,
+  ageHours?: number,
+  cfg?: RecencyConfig,
+): number {
+  if (ageHours === undefined) {
+    const factor = 0.5 + (importance || 5) / 20;
+    return cosineSimilarity * factor;
+  }
+  const importanceFactor = 0.5 + importance / 20;
+  const recency = computeRecencyFactor(ageHours, importance, cfg ?? resolveRecencyConfig());
+  return cosineSimilarity * importanceFactor * recency;
 }
 
 export class MemoryRepository {
