@@ -5,7 +5,7 @@ import {
   type SimilarMemory,
   type SummaryKind,
 } from "@aetherlife/npc-memory";
-import { COUNCIL_MEMORY_PLAYER_ID } from "@aetherlife/shared";
+import { clampSemanticState, COUNCIL_MEMORY_PLAYER_ID } from "@aetherlife/shared";
 import { embedText } from "./embed.js";
 import { scoreImportance } from "./importance.js";
 import type { CollectiveContext } from "../collective/service.js";
@@ -612,6 +612,32 @@ export class MemoryService {
       return;
     }
     await this.repo!.appendSummary({ roomId, playerId, npcId, kind: "reflection", text });
+  }
+
+  /**
+   * Clamp then upsert attitude semantic columns (D-BELIEF-07/09/13).
+   * Illegal/omitted fields are not written — prior values preserved.
+   * Wired for reflect path in 29-06; no public HTTP surface (D-BELIEF-10).
+   */
+  async upsertAttitudeSemantic(
+    roomId: string,
+    npcId: string,
+    playerId: string,
+    input: { mood?: string | null; beliefs?: string[] | null; summary?: string | null },
+  ): Promise<void> {
+    const clamped = clampSemanticState(input);
+    if (
+      clamped.mood === undefined &&
+      clamped.beliefs === undefined &&
+      clamped.summary === undefined
+    ) {
+      return;
+    }
+    await CollectiveService.getInstance().repoRef().upsertSemanticState(roomId, npcId, playerId, {
+      ...(clamped.mood !== undefined ? { mood: clamped.mood } : {}),
+      ...(clamped.beliefs !== undefined ? { beliefs: clamped.beliefs } : {}),
+      ...(clamped.summary !== undefined ? { summary: clamped.summary } : {}),
+    });
   }
 
   async storeBulkSummary(

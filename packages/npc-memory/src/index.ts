@@ -23,8 +23,10 @@ export {
 export {
   CollectiveRepository,
   createCollectiveRepository,
+  type AttitudeRow,
   type CollectiveEventRow,
   type InsertCollectiveEventInput,
+  type SemanticStatePatch,
 } from "./collective/repository.js";
 export {
   COLLECTIVE_EVENT_TTL_MS,
