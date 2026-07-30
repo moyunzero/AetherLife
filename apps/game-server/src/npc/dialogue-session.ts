@@ -189,6 +189,34 @@ export function clearDialogueForPlayer(roomId: string, playerId: string): void {
   void deleteRedisKeys(toDelete);
 }
 
+/**
+ * Drop in-process Map cache for a room only — Redis lists stay intact.
+ * Simulates game-server restart Map loss for D-SESS / UAT (LRANGE rehydrate).
+ */
+export function evictDialogueMapForRoom(roomId: string): number {
+  const id = roomId.trim();
+  if (!id) return 0;
+  const prefix = `${id}:`;
+  let n = 0;
+  for (const k of [...sessions.keys()]) {
+    if (k.startsWith(prefix)) {
+      sessions.delete(k);
+      n += 1;
+    }
+  }
+  return n;
+}
+
+/** Test / UAT: async turns for a thread (Map hit or Redis rehydrate). */
+export async function listDialogueTurnsForUat(
+  roomId: string,
+  playerId: string,
+  npcId: string,
+  limit = 10,
+): Promise<DialogueTurn[]> {
+  return getRecentTurnsAsync(roomId, playerId, npcId, limit);
+}
+
 /** Test helper */
 export function clearDialogueSessions(): void {
   sessions.clear();

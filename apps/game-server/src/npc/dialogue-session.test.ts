@@ -4,6 +4,7 @@ import {
   clearDialogueForPlayer,
   clearDialogueSessions,
   dialogueRedisKey,
+  evictDialogueMapForRoom,
   getRecentTurns,
   getRecentTurnsAsync,
   resetDialogueRedisForTests,
@@ -207,6 +208,39 @@ describe("dialogue-session", () => {
     const turns = await getRecentTurnsAsync("room-c", "p1", "npc-1");
     expect(turns).toHaveLength(2);
     expect(fake.lrange).not.toHaveBeenCalled();
+  });
+
+  it("evictDialogueMapForRoom drops Map but Redis rehydrate still works", async () => {
+    const fake = createFakeRedis();
+    setDialogueRedisForTests(fake as unknown as import("ioredis").default);
+
+    appendCompletedTurn({
+      roomId: "room-evict",
+      playerId: "p1",
+      npcId: "npc-2",
+      playerMessage: "暗号是蓝莓派七号",
+      npcReply: "记下了",
+    });
+    appendCompletedTurn({
+      roomId: "other-room",
+      playerId: "p1",
+      npcId: "npc-2",
+      playerMessage: "keep me",
+      npcReply: "ok",
+    });
+    await vi.waitFor(() => expect(fake.rpush.mock.calls.length).toBeGreaterThanOrEqual(2));
+
+    expect(evictDialogueMapForRoom("room-evict")).toBe(1);
+    expect(getRecentTurns("room-evict", "p1", "npc-2")).toEqual([]);
+    expect(getRecentTurns("other-room", "p1", "npc-2")).toHaveLength(2);
+    expect(fake.del).not.toHaveBeenCalled();
+
+    const restored = await getRecentTurnsAsync("room-evict", "p1", "npc-2");
+    expect(restored).toEqual([
+      { role: "player", text: "暗号是蓝莓派七号" },
+      { role: "npc", text: "记下了" },
+    ]);
+    expect(getRecentTurns("room-evict", "p1", "npc-2")).toEqual(restored);
   });
 
   it("clearDialogueForPlayer removes Map and Redis for known keys", async () => {

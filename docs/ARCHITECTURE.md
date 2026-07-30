@@ -109,6 +109,8 @@ Web  更新对话 UI · Phaser 铭牌 thinking/speaking · 地图若有 move/int
 
 序列与延迟细节：[LLM-E2E-FLOW-AND-LATENCY.md](./LLM-E2E-FLOW-AND-LATENCY.md)。
 
+**Dialogue continuity（Phase 29 / D-SESS）：** 当前对话轮次缓存在进程内 `Map`（`aetherlife:dialogue:v1:{room}:{npc}:{player}`），并异步写入 Redis List。进程重启或 Map miss 后，`getRecentTurnsAsync` 从 Redis 回填 Map。D-SESS UAT 用 Map-evict（`POST .../dialogue-map-evict`）模拟 miss，无需杀进程 — `pnpm uat:phase29:dialogue-restart`。
+
 ### 3.2 移动同步闭环
 
 ```
@@ -195,6 +197,13 @@ AI-web/
 | 叙事记忆 | `npc_memories`（room+npc+player） | worker memory tail / internal memories |
 | 集体态度 | `collective_events` + `npc_attitudes` | worker 社交结构化写回；规则类可由 server |
 | Ambient intent | 内存 cache + schema 字段 | internal `npc-intent` |
+
+**Phase 29 记忆检索补充：**
+
+- 遗忘曲线加权检索（`packages/npc-memory` SSOT）；ANN = halfvec overfetch → 曲线重排。
+- 短期对话：进程内 Map + Redis List；miss 后 `getRecentTurnsAsync` 回填（§3.1 D-SESS）。
+- Semantic（mood/beliefs）仅 LLM / 内部可见；公开 API strip（C-05）。
+- PROP 2-hop 好感传播常量锁定；不进 ChatState 级联。
 
 **单一变异入口：** 世界动作经 `POST /internal/rooms/:id/apply-actions`（Bearer `INTERNAL_WORKER_TOKEN`）。公开 mutation 路由已移除（C-03）。
 

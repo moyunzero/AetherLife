@@ -5,11 +5,14 @@ from __future__ import annotations
 import re
 from typing import Any
 
-FALLBACK_REPLY = "我还不能确定能否那样做——让我先试着与房间互动。"
+FALLBACK_REPLY = "抱歉，我这边还做不到。"
 
 STATE_CHANGE_PATTERNS = [
-    re.compile(r"\b(opened|closed|moved|picked up|picked|walked|went to|entered|left)\b", re.I),
-    re.compile(r"(打开了|关闭了|移动到|走向|拿起了|捡起了|去把门打开|就去打开|把门打开|我现在就去)", re.I),
+    re.compile(r"\b(opened|closed|picked up|walked|went to|entered|moved to)\b", re.I),
+    re.compile(
+        r"(打开了|关闭了|移动到|走向了|走向门|拿起了|捡起了|去把门打开|就去打开|把门打开|我现在就去(?:把门|打开|拿|捡|走|过去))",
+        re.I,
+    ),
 ]
 
 STATE_CHANGING_TOOLS = frozenset({"move", "interact", "transfer", "wait"})

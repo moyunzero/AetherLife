@@ -70,6 +70,7 @@
     "verify:phase27": "node scripts/verify-phase27.mjs",
     "verify:phase28": "node scripts/verify-phase28.mjs",
     "uat:phase27:persona-diary": "node scripts/uat-phase27-persona-diary.mjs",
+    "uat:phase29:dialogue-restart": "node scripts/uat-phase29-dialogue-restart.mjs",
     "uat:phase26": "node scripts/uat-phase26-playwright.mjs",
     "uat:phase25:core-ui": "node scripts/uat-phase25-core-ui.mjs",
     "uat:phase25:speak-defer": "node scripts/uat-phase25-speak-defer.mjs",
