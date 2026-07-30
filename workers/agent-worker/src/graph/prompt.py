@@ -141,6 +141,9 @@ def format_attitude_context(
     effective_score: int | None,
     summaries: list[str] | None,
     just_happened: str | None = None,
+    mood: str | None = None,
+    beliefs: list[str] | None = None,
+    summary: str | None = None,
 ) -> str:
     resolved_band = band or "neutral"
     label = BAND_LABEL_ZH.get(resolved_band, resolved_band)
@@ -152,6 +155,17 @@ def format_attitude_context(
     ]
     if just_happened and just_happened.strip():
         lines.append(f"- justHappened: {just_happened.strip()[:80]}")
+    mood_text = (mood or "").strip()
+    if mood_text:
+        lines.append(f"- mood: {mood_text}")
+    belief_items = [b.strip() for b in (beliefs or []) if b and b.strip()]
+    if belief_items:
+        lines.append("- beliefs:")
+        for item in belief_items[:5]:
+            lines.append(f"  · {item}")
+    summary_text = (summary or "").strip()
+    if summary_text:
+        lines.append(f"- summary: {summary_text}")
     items = [s.strip() for s in (summaries or []) if s and s.strip()]
     if items:
         lines.append("- recent collective summaries:")

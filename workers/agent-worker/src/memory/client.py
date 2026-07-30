@@ -91,12 +91,23 @@ def parse_collective_from_context(ctx: dict[str, Any]) -> dict[str, Any]:
         allowed = allowed_tools_for_band(band)
     summaries = collective.get("recentSummaries")
     effective = collective.get("effectiveScore")
-    return {
+    out: dict[str, Any] = {
         "attitude_band": band,
         "effective_score": int(effective) if isinstance(effective, (int, float)) else None,
         "allowed_tools": [str(t) for t in allowed],
         "collective_summaries": [str(s) for s in summaries] if isinstance(summaries, list) else [],
     }
+    # D-BELIEF-05: semantic for speak prompt only — never feeds allowed_tools.
+    mood = collective.get("currentMood")
+    if isinstance(mood, str) and mood.strip():
+        out["current_mood"] = mood.strip()
+    beliefs = collective.get("keyBeliefs")
+    if isinstance(beliefs, list):
+        out["key_beliefs"] = [str(b) for b in beliefs if b]
+    attitude_summary = collective.get("summary")
+    if isinstance(attitude_summary, str) and attitude_summary.strip():
+        out["attitude_summary"] = attitude_summary.strip()
+    return out
 
 
 def fetch_recent_memories(
