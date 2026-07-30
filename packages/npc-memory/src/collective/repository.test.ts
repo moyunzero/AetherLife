@@ -99,4 +99,59 @@ describe("CollectiveRepository (in-memory)", () => {
     expect(await repo.getAttitude("r3", "npc-1", "p-a")).toBeNull();
     expect(await repo.listEventsInWindow("r3", "npc-1", DEFAULT_COLLECTIVE_WINDOW_MS)).toHaveLength(0);
   });
+
+  it("upsertSemanticState replaces beliefs and returns mood/beliefs/summary via getAttitudeRow", async () => {
+    const repo = new CollectiveRepository(null);
+    await repo.applyReputationDelta("r-sem", "npc-1", "p-a", 0);
+    await repo.upsertSemanticState("r-sem", "npc-1", "p-a", {
+      mood: "恼火",
+      beliefs: ["我不信他的承诺"],
+      summary: "他反复失信",
+    });
+
+    const row = await repo.getAttitudeRow("r-sem", "npc-1", "p-a");
+    expect(row).not.toBeNull();
+    expect(row!.currentMood).toBe("恼火");
+    expect(row!.keyBeliefs).toEqual(["我不信他的承诺"]);
+    expect(row!.summary).toBe("他反复失信");
+    expect(row!.reputation).toBe(personalitySeedForNpc("npc-1"));
+
+    await repo.upsertSemanticState("r-sem", "npc-1", "p-a", {
+      beliefs: ["我决定再观察一次"],
+    });
+    const afterReplace = await repo.getAttitudeRow("r-sem", "npc-1", "p-a");
+    expect(afterReplace!.keyBeliefs).toEqual(["我决定再观察一次"]);
+    expect(afterReplace!.currentMood).toBe("恼火");
+    expect(afterReplace!.summary).toBe("他反复失信");
+  });
+
+  it("omit path leaves prior semantic columns unchanged (D-BELIEF-07)", async () => {
+    const repo = new CollectiveRepository(null);
+    await repo.upsertSemanticState("r-omit", "npc-2", "p-a", {
+      mood: "愉悦",
+      beliefs: ["我信任他"],
+      summary: "进展顺利",
+    });
+    await repo.upsertSemanticState("r-omit", "npc-2", "p-a", {});
+    const row = await repo.getAttitudeRow("r-omit", "npc-2", "p-a");
+    expect(row!.currentMood).toBe("愉悦");
+    expect(row!.keyBeliefs).toEqual(["我信任他"]);
+    expect(row!.summary).toBe("进展顺利");
+  });
+
+  it("applyReputationDelta does not wipe mood/beliefs/summary (Pitfall 3)", async () => {
+    const repo = new CollectiveRepository(null);
+    await repo.upsertSemanticState("r-rep", "npc-1", "p-a", {
+      mood: "警惕",
+      beliefs: ["他可能在试探我"],
+      summary: "保持距离",
+    });
+    const before = await repo.getAttitudeRow("r-rep", "npc-1", "p-a");
+    await repo.applyReputationDelta("r-rep", "npc-1", "p-a", -8);
+    const after = await repo.getAttitudeRow("r-rep", "npc-1", "p-a");
+    expect(after!.currentMood).toBe("警惕");
+    expect(after!.keyBeliefs).toEqual(["他可能在试探我"]);
+    expect(after!.summary).toBe("保持距离");
+    expect(after!.reputation).toBe((before!.reputation) - 8);
+  });
 });
