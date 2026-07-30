@@ -41,8 +41,15 @@ function parsePositiveNumber(raw: string | undefined, fallback: number): number 
   return n;
 }
 
+function envSource(): Record<string, string | undefined> {
+  const g = globalThis as { process?: { env?: Record<string, string | undefined> } };
+  return g.process?.env ?? {};
+}
+
 /** Read MEMORY_RECENCY_* env; invalid values → defaults. */
-export function resolveRecencyConfig(env: NodeJS.ProcessEnv = process.env): RecencyConfig {
+export function resolveRecencyConfig(
+  env: Record<string, string | undefined> = envSource(),
+): RecencyConfig {
   const s0 = parsePositiveNumber(env.MEMORY_RECENCY_HALFLIFE_HOURS, DEFAULT_RECENCY.s0);
   const floorRaw = env.MEMORY_RECENCY_FLOOR;
   let floor = DEFAULT_RECENCY.floor;
@@ -138,13 +145,25 @@ export class MemoryRepository {
     const npcId = input.npcId ?? DEFAULT_NPC_ID;
     const k = input.k ?? 5;
     const vectorLiteral = `[${input.queryEmbedding.join(",")}]`;
+    const cfg = resolveRecencyConfig();
 
     const result = await this.db.execute(sql`
       SELECT
         text,
         importance,
         (1 - (embedding <=> ${vectorLiteral}::vector))
-          * (0.5 + COALESCE(importance, 5) / 20.0) AS score
+          * (0.5 + COALESCE(importance, 5) / 20.0)
+          * GREATEST(
+              ${cfg.floor}::float8,
+              EXP(
+                - (EXTRACT(EPOCH FROM (now() - created_at)) / 3600.0)
+                  * LN(2)
+                  / GREATEST(
+                      ${cfg.sEpsilon}::float8,
+                      ${cfg.s0}::float8 * COALESCE(importance, 0) / 5.0
+                    )
+              )
+            ) AS score
       FROM npc_memories
       WHERE room_id = ${input.roomId}
         AND player_id = ${input.playerId}

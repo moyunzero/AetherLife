@@ -1,4 +1,5 @@
 import {
+  computeWeightedScore,
   createDb,
   MemoryRepository,
   type SimilarMemory,
@@ -97,6 +98,7 @@ class TestMemoryBackend {
     text: string;
     importance: number;
     embedding?: number[];
+    createdAt?: Date;
   }) {
     const id = this.nextId();
     this.memories.push({
@@ -108,7 +110,7 @@ class TestMemoryBackend {
       importance: input.importance,
       embedding: input.embedding ?? [],
       summarizedAt: null,
-      createdAt: new Date(),
+      createdAt: input.createdAt ?? new Date(),
     });
     return id;
   }
@@ -145,6 +147,7 @@ class TestMemoryBackend {
     const dot = (a: number[], b: number[]) =>
       a.reduce((sum, v, i) => sum + v * (b[i] ?? 0), 0);
     const norm = (v: number[]) => Math.sqrt(v.reduce((s, x) => s + x * x, 0)) || 1;
+    const now = Date.now();
 
     return this.memories
       .filter(
@@ -159,7 +162,8 @@ class TestMemoryBackend {
         const sim =
           dot(m.embedding, input.queryEmbedding) /
           (norm(m.embedding) * norm(input.queryEmbedding));
-        const score = sim * (0.5 + m.importance / 20);
+        const ageHours = (now - m.createdAt.getTime()) / 3_600_000;
+        const score = computeWeightedScore(sim, m.importance, ageHours);
         return { text: m.text, score, importance: m.importance };
       })
       .sort((a, b) => b.score - a.score)
@@ -320,6 +324,22 @@ export class MemoryService {
   static resetForTests(): void {
     instance = null;
     testBackend = null;
+  }
+
+  /** @internal vitest helper — seed row with explicit createdAt/embedding. */
+  async seedMemoryForTests(input: {
+    roomId: string;
+    playerId: string;
+    npcId: string;
+    text: string;
+    importance: number;
+    embedding: number[];
+    createdAt: Date;
+  }): Promise<void> {
+    if (!this.test) {
+      throw new Error("seedMemoryForTests requires TestMemoryBackend");
+    }
+    await this.test.appendMemory(input);
   }
 
   async appendPlayerMemory(
