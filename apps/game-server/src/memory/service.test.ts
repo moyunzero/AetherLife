@@ -126,3 +126,74 @@ describe("TestMemoryBackend forgetting-curve parity (D-DECAY-06)", () => {
     expect(ctx.retrieved[0]?.text).toBe("fresh-mid");
   });
 });
+
+describe("MemoryService.storeReflection optional semantic (D-BELIEF-03/07/13)", () => {
+  beforeEach(() => {
+    delete process.env.DATABASE_URL;
+    MemoryService.resetForTests();
+    CollectiveService.resetForTests(new CollectiveRepository(null));
+  });
+
+  it("stores reflection text and upserts mood/beliefs on success", async () => {
+    const service = MemoryService.getInstance();
+    await service.storeReflection("room-ref", "最近对方缓和了。", "npc-1", "p1", {
+      mood: "亲近",
+      beliefs: ["我愿意再给他一次机会"],
+      summary: "关系回暖",
+    });
+
+    const ctx = await service.buildMemoryContext("room-ref", "x", "npc-1", "p1", {
+      skipEmbed: true,
+    });
+    expect(ctx.latestReflection).toBe("最近对方缓和了。");
+
+    const row = await CollectiveService.getInstance()
+      .repoRef()
+      .getAttitudeRow("room-ref", "npc-1", "p1");
+    expect(row?.currentMood).toBe("亲近");
+    expect(row?.keyBeliefs).toEqual(["我愿意再给他一次机会"]);
+    expect(row?.summary).toBe("关系回暖");
+  });
+
+  it("illegal mood stores text only and preserves prior semantic", async () => {
+    const service = MemoryService.getInstance();
+    const repo = CollectiveService.getInstance().repoRef();
+    await repo.upsertSemanticState("room-keep", "npc-1", "p1", {
+      mood: "警惕",
+      beliefs: ["我不信他的承诺"],
+      summary: "旧摘要",
+    });
+
+    await service.storeReflection("room-keep", "散文反思。", "npc-1", "p1", {
+      mood: "angry",
+      beliefs: ["我怀疑他的动机"],
+    });
+
+    const ctx = await service.buildMemoryContext("room-keep", "x", "npc-1", "p1", {
+      skipEmbed: true,
+    });
+    expect(ctx.latestReflection).toBe("散文反思。");
+
+    const row = await repo.getAttitudeRow("room-keep", "npc-1", "p1");
+    expect(row?.currentMood).toBe("警惕");
+    expect(row?.keyBeliefs).toEqual(["我怀疑他的动机"]);
+    expect(row?.summary).toBe("旧摘要");
+  });
+
+  it("omitted semantic keys leave prior mood/beliefs unchanged", async () => {
+    const service = MemoryService.getInstance();
+    const repo = CollectiveService.getInstance().repoRef();
+    await repo.upsertSemanticState("room-omit", "npc-1", "p1", {
+      mood: "戏谑",
+      beliefs: ["我看穿了他"],
+      summary: "先有",
+    });
+
+    await service.storeReflection("room-omit", "只有散文。", "npc-1", "p1");
+
+    const row = await repo.getAttitudeRow("room-omit", "npc-1", "p1");
+    expect(row?.currentMood).toBe("戏谑");
+    expect(row?.keyBeliefs).toEqual(["我看穿了他"]);
+    expect(row?.summary).toBe("先有");
+  });
+});
