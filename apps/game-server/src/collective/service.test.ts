@@ -1,17 +1,32 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { CollectiveRepository } from "@aetherlife/npc-memory";
-import { KIND_FIXED_DELTA, personalitySeedForNpc } from "@aetherlife/shared";
+import {
+  KIND_FIXED_DELTA,
+  personalitySeedForNpc,
+  type RelationshipEdgePublic,
+} from "@aetherlife/shared";
 import { CollectiveService } from "./service.js";
 import * as npcRelationships from "../world/npc-relationships-repository.js";
-import {
-  clearNpcRelationshipsMemory,
-  insertRelationshipEdge,
-} from "../world/npc-relationships-repository.js";
+
+function propEdge(
+  partial: Pick<RelationshipEdgePublic, "npcAId" | "npcBId" | "baseTag" | "affection">,
+): RelationshipEdgePublic {
+  return {
+    trust: 50,
+    interactionCount: 0,
+    lastInteractAt: null,
+    currentStatus: [],
+    historySummary: "",
+    updatedAt: new Date().toISOString(),
+    ...partial,
+  };
+}
 
 describe("CollectiveService", () => {
   beforeEach(() => {
     CollectiveService.resetForTests(new CollectiveRepository(null));
-    clearNpcRelationshipsMemory();
+    // Avoid real Postgres when DATABASE_URL is set (propagation list can hang / flake).
+    vi.spyOn(npcRelationships, "listRelationshipsForRoom").mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -98,14 +113,14 @@ describe("CollectiveService", () => {
   });
 
   it("propagation applies friend reputation without extra collective events", async () => {
-    await insertRelationshipEdge({
-      roomId: "prop-room",
-      npcAId: "npc-1",
-      npcBId: "npc-friend",
-      baseTag: "ally",
-      affection: 50,
-      trust: 50,
-    });
+    vi.spyOn(npcRelationships, "listRelationshipsForRoom").mockResolvedValue([
+      propEdge({
+        npcAId: "npc-1",
+        npcBId: "npc-friend",
+        baseTag: "ally",
+        affection: 50,
+      }),
+    ]);
 
     const svc = CollectiveService.getInstance();
     const repo = svc.repoRef();
@@ -128,14 +143,14 @@ describe("CollectiveService", () => {
   });
 
   it("recordWorkerEvent propagation keeps event count === 1", async () => {
-    await insertRelationshipEdge({
-      roomId: "prop-worker",
-      npcAId: "npc-1",
-      npcBId: "npc-friend",
-      baseTag: "ally",
-      affection: 50,
-      trust: 50,
-    });
+    vi.spyOn(npcRelationships, "listRelationshipsForRoom").mockResolvedValue([
+      propEdge({
+        npcAId: "npc-1",
+        npcBId: "npc-friend",
+        baseTag: "ally",
+        affection: 50,
+      }),
+    ]);
 
     const svc = CollectiveService.getInstance();
     const repo = svc.repoRef();
