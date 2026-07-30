@@ -48,6 +48,7 @@ export type MemoryContext = {
   latestBulkSummary: string | null;
   latestReflection: string | null;
   timingMs: number;
+  /** Includes semantic (mood/beliefs/summary) for worker speak — not public HTTP (D-BELIEF-11). */
   collective: CollectiveContext;
 };
 
