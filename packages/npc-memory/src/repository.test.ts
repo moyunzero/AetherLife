@@ -104,3 +104,23 @@ describe("resolveRecencyConfig", () => {
     expect(resolveRecencyConfig()).toEqual({ s0: 48, floor: 0.2, sEpsilon: 0.01 });
   });
 });
+
+describe("SQL ≡ TS forgetting-curve parity (D-DECAY-04)", () => {
+  it("matches fixture inputs for the SQL age/S/floor expression", () => {
+    const cfg = { s0: 72, floor: 0.3, sEpsilon: 1e-3 };
+    const fixtures: Array<{ ageHours: number; importance: number; cos: number }> = [
+      { ageHours: 0, importance: 5, cos: 1 },
+      { ageHours: 24, importance: 1, cos: 0.9 },
+      { ageHours: 72, importance: 10, cos: 0.7 },
+      { ageHours: 1e6, importance: 0, cos: 0.5 },
+    ];
+    for (const { ageHours, importance, cos } of fixtures) {
+      // Mirrors searchSimilar SQL: GREATEST(floor, exp(-age*ln2 / GREATEST(ε, S0*imp/5)))
+      const S = Math.max(cfg.sEpsilon, cfg.s0 * (importance / 5));
+      const sqlRecency = Math.max(cfg.floor, Math.exp((-ageHours * Math.LN2) / S));
+      const sqlScore = cos * (0.5 + importance / 20) * sqlRecency;
+      expect(sqlRecency).toBeCloseTo(computeRecencyFactor(ageHours, importance, cfg), 12);
+      expect(sqlScore).toBeCloseTo(computeWeightedScore(cos, importance, ageHours, cfg), 12);
+    }
+  });
+});
