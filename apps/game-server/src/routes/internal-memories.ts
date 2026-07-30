@@ -218,8 +218,30 @@ export function createInternalMemoriesRouter(): Router {
       return;
     }
 
+    const semantic: {
+      mood?: string;
+      beliefs?: string[];
+      summary?: string;
+    } = {};
+    if (typeof req.body?.mood === "string") {
+      semantic.mood = req.body.mood;
+    }
+    if (Array.isArray(req.body?.beliefs)) {
+      semantic.beliefs = req.body.beliefs.filter((b: unknown): b is string => typeof b === "string");
+    }
+    if (typeof req.body?.summary === "string") {
+      semantic.summary = req.body.summary;
+    }
+    const hasSemantic = Object.keys(semantic).length > 0;
+
     try {
-      await MemoryService.getInstance().storeReflection(roomId, text, npcId, playerId);
+      await MemoryService.getInstance().storeReflection(
+        roomId,
+        text,
+        npcId,
+        playerId,
+        hasSemantic ? semantic : undefined,
+      );
       invalidateMemoryContextForPlayer(roomId, playerId, npcId);
       res.json({ ok: true });
     } catch (err) {

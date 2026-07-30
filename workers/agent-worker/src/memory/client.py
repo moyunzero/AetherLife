@@ -91,12 +91,23 @@ def parse_collective_from_context(ctx: dict[str, Any]) -> dict[str, Any]:
         allowed = allowed_tools_for_band(band)
     summaries = collective.get("recentSummaries")
     effective = collective.get("effectiveScore")
-    return {
+    out: dict[str, Any] = {
         "attitude_band": band,
         "effective_score": int(effective) if isinstance(effective, (int, float)) else None,
         "allowed_tools": [str(t) for t in allowed],
         "collective_summaries": [str(s) for s in summaries] if isinstance(summaries, list) else [],
     }
+    # D-BELIEF-05: semantic for speak prompt only — never feeds allowed_tools.
+    mood = collective.get("currentMood")
+    if isinstance(mood, str) and mood.strip():
+        out["current_mood"] = mood.strip()
+    beliefs = collective.get("keyBeliefs")
+    if isinstance(beliefs, list):
+        out["key_beliefs"] = [str(b) for b in beliefs if b]
+    attitude_summary = collective.get("summary")
+    if isinstance(attitude_summary, str) and attitude_summary.strip():
+        out["attitude_summary"] = attitude_summary.strip()
+    return out
 
 
 def fetch_recent_memories(
@@ -200,10 +211,20 @@ def store_reflection(
     *,
     npc_id: str = "npc-1",
     player_id: str = "__legacy__",
+    mood: str | None = None,
+    beliefs: list[str] | None = None,
+    summary: str | None = None,
 ) -> None:
+    body: dict[str, Any] = {"text": text, "npcId": npc_id, "playerId": player_id}
+    if mood is not None:
+        body["mood"] = mood
+    if beliefs is not None:
+        body["beliefs"] = beliefs
+    if summary is not None:
+        body["summary"] = summary
     res = client.post(
         f"{settings.game_server_url}/internal/rooms/{room_id}/reflect",
-        json={"text": text, "npcId": npc_id, "playerId": player_id},
+        json=body,
         headers=_game_headers(settings, player_id=player_id),
         timeout=30.0,
     )

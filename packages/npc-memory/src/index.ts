@@ -1,8 +1,11 @@
 export { createDb, getSharedDb, getSharedSql, resetSharedDbForTests, type Db } from "./db.js";
 export {
+  computeRecencyFactor,
   computeWeightedScore,
+  resolveRecencyConfig,
   MemoryRepository,
   type AppendMemoryInput,
+  type RecencyConfig,
   type SimilarMemory,
 } from "./repository.js";
 export {
@@ -20,8 +23,10 @@ export {
 export {
   CollectiveRepository,
   createCollectiveRepository,
+  type AttitudeRow,
   type CollectiveEventRow,
   type InsertCollectiveEventInput,
+  type SemanticStatePatch,
 } from "./collective/repository.js";
 export {
   COLLECTIVE_EVENT_TTL_MS,

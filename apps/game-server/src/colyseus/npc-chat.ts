@@ -7,7 +7,7 @@ import {
 } from "@aetherlife/shared";
 import { addNpcTurnJob } from "../queue/npc-turn.js";
 import { getOrCreate } from "../room/store.js";
-import { getRecentTurns } from "../npc/dialogue-session.js";
+import { getRecentTurnsAsync } from "../npc/dialogue-session.js";
 
 export function validateChatMessage(message: unknown): string | null {
   if (typeof message !== "string") return null;
@@ -41,7 +41,8 @@ export async function startNpcChatTurn(
   options?: { casualPreviewEmitted?: boolean },
 ): Promise<string> {
   getOrCreate(roomId);
-  const recentTurns = getRecentTurns(roomId, playerId, npcId, 10);
+  // Async hydrate (Redis on Map miss) — speak stub in GameRoom/chat stays sync getRecentTurns.
+  const recentTurns = await getRecentTurnsAsync(roomId, playerId, npcId, 10);
   return addNpcTurnJob({
     roomId,
     playerMessage: message,

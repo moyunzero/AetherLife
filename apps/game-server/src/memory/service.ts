@@ -1,10 +1,11 @@
 import {
+  computeWeightedScore,
   createDb,
   MemoryRepository,
   type SimilarMemory,
   type SummaryKind,
 } from "@aetherlife/npc-memory";
-import { COUNCIL_MEMORY_PLAYER_ID } from "@aetherlife/shared";
+import { clampSemanticState, COUNCIL_MEMORY_PLAYER_ID } from "@aetherlife/shared";
 import { embedText } from "./embed.js";
 import { scoreImportance } from "./importance.js";
 import type { CollectiveContext } from "../collective/service.js";
@@ -47,6 +48,7 @@ export type MemoryContext = {
   latestBulkSummary: string | null;
   latestReflection: string | null;
   timingMs: number;
+  /** Includes semantic (mood/beliefs/summary) for worker speak — not public HTTP (D-BELIEF-11). */
   collective: CollectiveContext;
 };
 
@@ -97,6 +99,7 @@ class TestMemoryBackend {
     text: string;
     importance: number;
     embedding?: number[];
+    createdAt?: Date;
   }) {
     const id = this.nextId();
     this.memories.push({
@@ -108,7 +111,7 @@ class TestMemoryBackend {
       importance: input.importance,
       embedding: input.embedding ?? [],
       summarizedAt: null,
-      createdAt: new Date(),
+      createdAt: input.createdAt ?? new Date(),
     });
     return id;
   }
@@ -145,6 +148,7 @@ class TestMemoryBackend {
     const dot = (a: number[], b: number[]) =>
       a.reduce((sum, v, i) => sum + v * (b[i] ?? 0), 0);
     const norm = (v: number[]) => Math.sqrt(v.reduce((s, x) => s + x * x, 0)) || 1;
+    const now = Date.now();
 
     return this.memories
       .filter(
@@ -159,7 +163,8 @@ class TestMemoryBackend {
         const sim =
           dot(m.embedding, input.queryEmbedding) /
           (norm(m.embedding) * norm(input.queryEmbedding));
-        const score = sim * (0.5 + m.importance / 20);
+        const ageHours = (now - m.createdAt.getTime()) / 3_600_000;
+        const score = computeWeightedScore(sim, m.importance, ageHours);
         return { text: m.text, score, importance: m.importance };
       })
       .sort((a, b) => b.score - a.score)
@@ -320,6 +325,22 @@ export class MemoryService {
   static resetForTests(): void {
     instance = null;
     testBackend = null;
+  }
+
+  /** @internal vitest helper — seed row with explicit createdAt/embedding. */
+  async seedMemoryForTests(input: {
+    roomId: string;
+    playerId: string;
+    npcId: string;
+    text: string;
+    importance: number;
+    embedding: number[];
+    createdAt: Date;
+  }): Promise<void> {
+    if (!this.test) {
+      throw new Error("seedMemoryForTests requires TestMemoryBackend");
+    }
+    await this.test.appendMemory(input);
   }
 
   async appendPlayerMemory(
@@ -586,12 +607,42 @@ export class MemoryService {
     text: string,
     npcId: string,
     playerId: string,
+    semantic?: { mood?: string | null; beliefs?: string[] | null; summary?: string | null },
   ): Promise<void> {
     if (this.test) {
       await this.test.appendSummary({ roomId, playerId, npcId, kind: "reflection", text });
+    } else {
+      await this.repo!.appendSummary({ roomId, playerId, npcId, kind: "reflection", text });
+    }
+    if (semantic) {
+      await this.upsertAttitudeSemantic(roomId, npcId, playerId, semantic);
+    }
+  }
+
+  /**
+   * Clamp then upsert attitude semantic columns (D-BELIEF-07/09/13).
+   * Illegal/omitted fields are not written — prior values preserved.
+   * Wired for reflect path in 29-06; no public HTTP surface (D-BELIEF-10).
+   */
+  async upsertAttitudeSemantic(
+    roomId: string,
+    npcId: string,
+    playerId: string,
+    input: { mood?: string | null; beliefs?: string[] | null; summary?: string | null },
+  ): Promise<void> {
+    const clamped = clampSemanticState(input);
+    if (
+      clamped.mood === undefined &&
+      clamped.beliefs === undefined &&
+      clamped.summary === undefined
+    ) {
       return;
     }
-    await this.repo!.appendSummary({ roomId, playerId, npcId, kind: "reflection", text });
+    await CollectiveService.getInstance().repoRef().upsertSemanticState(roomId, npcId, playerId, {
+      ...(clamped.mood !== undefined ? { mood: clamped.mood } : {}),
+      ...(clamped.beliefs !== undefined ? { beliefs: clamped.beliefs } : {}),
+      ...(clamped.summary !== undefined ? { summary: clamped.summary } : {}),
+    });
   }
 
   async storeBulkSummary(

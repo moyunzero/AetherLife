@@ -37,7 +37,12 @@ import { getChunkLore } from "../world/lore-repository.js";
 import { getChunkLoreCached } from "../world/lore-chunk-cache.js";
 import { getRoomVoteState } from "../world/world-vote-state.js";
 import { logInternalLatency } from "../observability/internalLatency.js";
-import { clearDialogueForPlayer } from "../npc/dialogue-session.js";
+import {
+  appendCompletedTurn,
+  clearDialogueForPlayer,
+  evictDialogueMapForRoom,
+  listDialogueTurnsForUat,
+} from "../npc/dialogue-session.js";
 import {
   getCachedWorkerState,
   setCachedWorkerState,
@@ -392,6 +397,59 @@ export function createInternalRoomsRouter(): Router {
   const router = Router();
 
   router.post("/:roomId/apply-actions", requireWorkerAuth, applyActionsHandler);
+
+  /** UAT / D-SESS: drop in-memory dialogue Map for room; Redis transcript stays. */
+  router.post("/:roomId/dialogue-map-evict", requireWorkerAuth, (req, res) => {
+    const { roomId } = req.params;
+    if (!roomId?.trim()) {
+      res.status(400).json({ ok: false, error: "roomId required" });
+      return;
+    }
+    const evicted = evictDialogueMapForRoom(roomId);
+    res.json({ ok: true, evicted });
+  });
+
+  /**
+   * UAT seed: append one player+npc turn (Map + Redis mirror) without LLM.
+   * Body: { playerId, npcId, playerMessage, npcReply }
+   */
+  router.post("/:roomId/dialogue-append", requireWorkerAuth, (req, res) => {
+    const { roomId } = req.params;
+    const playerId = typeof req.body?.playerId === "string" ? req.body.playerId.trim() : "";
+    const npcId = typeof req.body?.npcId === "string" ? req.body.npcId.trim() : "";
+    const playerMessage =
+      typeof req.body?.playerMessage === "string" ? req.body.playerMessage.trim() : "";
+    const npcReply = typeof req.body?.npcReply === "string" ? req.body.npcReply.trim() : "";
+    if (!roomId?.trim() || !playerId || !npcId || !playerMessage || !npcReply) {
+      res.status(400).json({
+        ok: false,
+        error: "roomId, playerId, npcId, playerMessage, npcReply required",
+      });
+      return;
+    }
+    appendCompletedTurn({ roomId, playerId, npcId, playerMessage, npcReply });
+    res.json({ ok: true });
+  });
+
+  /** UAT / D-SESS: read turns via getRecentTurnsAsync (Map miss → Redis rehydrate). */
+  router.get("/:roomId/dialogue-turns", requireWorkerAuth, async (req, res) => {
+    const { roomId } = req.params;
+    const playerId = typeof req.query.playerId === "string" ? req.query.playerId.trim() : "";
+    const npcId = typeof req.query.npcId === "string" ? req.query.npcId.trim() : "";
+    const limitRaw = Number(req.query.limit ?? 10);
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(40, Math.floor(limitRaw)) : 10;
+    if (!roomId?.trim() || !playerId || !npcId) {
+      res.status(400).json({ ok: false, error: "roomId, playerId, npcId required" });
+      return;
+    }
+    try {
+      const turns = await listDialogueTurnsForUat(roomId, playerId, npcId, limit);
+      res.json({ ok: true, turns });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "dialogue-turns failed";
+      res.status(500).json({ ok: false, error: message });
+    }
+  });
 
   router.get("/:roomId/worker-state", requireWorkerAuth, async (req, res) => {
     const { roomId } = req.params;

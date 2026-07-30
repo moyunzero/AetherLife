@@ -24,3 +24,20 @@ def test_audit_allows_greeting():
 
 def test_audit_blocks_chinese_immediate_action_without_tools():
     assert audit_reply("我现在就去把门打开。", []) == FALLBACK_REPLY
+
+
+def test_audit_allows_chat_age_question_style_replies():
+    """Pure dialogue must not be replaced by room-interact fallback (false positives)."""
+    samples = [
+        "问年龄不太礼貌吧，我可不轻易说。",
+        "I'm moved that you asked, but a lady never tells.",
+        "I've left that number behind me.",
+        "我现在就去告诉你？不，保密。",
+        "别乱问，我走向你是为了聊天不是受审。",
+    ]
+    for reply in samples:
+        assert audit_reply(reply, []) == reply, reply
+
+
+def test_fallback_reply_is_chat_neutral():
+    assert "房间" not in FALLBACK_REPLY

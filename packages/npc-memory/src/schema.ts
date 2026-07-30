@@ -110,6 +110,12 @@ export const npcAttitudes = pgTable(
     npcId: text("npc_id").notNull(),
     playerId: text("player_id").notNull(),
     reputation: integer("reputation").notNull().default(0),
+    /** Closed Chinese 8-mood whitelist (D-BELIEF-08); default 平静. */
+    currentMood: text("current_mood").notNull().default("平静"),
+    /** First-person belief strings ≤5×40 chars (D-BELIEF-04/12). */
+    keyBeliefs: jsonb("key_beliefs").$type<string[]>().notNull().default([]),
+    /** LLM-visible attitude summary ≤200 chars (D-BELIEF-04). */
+    summary: text("summary").notNull().default(""),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

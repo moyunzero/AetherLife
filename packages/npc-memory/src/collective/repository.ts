@@ -31,12 +31,34 @@ export type InsertCollectiveEventInput = {
   createdAt?: Date;
 };
 
+/** Full attitude row including semantic columns (D-BELIEF / 29-07 feed). */
+export type AttitudeRow = {
+  roomId: string;
+  npcId: string;
+  playerId: string;
+  reputation: number;
+  currentMood: string;
+  keyBeliefs: string[];
+  summary: string;
+  updatedAt: Date;
+};
+
+/** Patch for semantic upsert — omitted keys are not written (D-BELIEF-07). */
+export type SemanticStatePatch = {
+  mood?: string;
+  beliefs?: string[];
+  summary?: string;
+};
+
 type InMemoryEvent = CollectiveEventRow;
 type InMemoryAttitude = {
   roomId: string;
   npcId: string;
   playerId: string;
   reputation: number;
+  currentMood: string;
+  keyBeliefs: string[];
+  summary: string;
   updatedAt: Date;
 };
 
@@ -49,6 +71,10 @@ class InMemoryCollectiveStore {
     this.seq += 1;
     return `ce-${this.seq}`;
   }
+}
+
+function defaultSemanticFields(): Pick<InMemoryAttitude, "currentMood" | "keyBeliefs" | "summary"> {
+  return { currentMood: "平静", keyBeliefs: [], summary: "" };
 }
 
 export class CollectiveRepository {
@@ -162,16 +188,46 @@ export class CollectiveRepository {
     return set.size;
   }
 
+  /** Reputation-only helper — callers that need semantic use getAttitudeRow. */
   async getAttitude(roomId: string, npcId: string, playerId: string): Promise<number | null> {
+    const row = await this.getAttitudeRow(roomId, npcId, playerId);
+    return row?.reputation ?? null;
+  }
+
+  async getAttitudeRow(
+    roomId: string,
+    npcId: string,
+    playerId: string,
+  ): Promise<AttitudeRow | null> {
     if (this.store) {
       const row = this.store.attitudes.find(
         (a) => a.roomId === roomId && a.npcId === npcId && a.playerId === playerId,
       );
-      return row?.reputation ?? null;
+      return row
+        ? {
+            roomId: row.roomId,
+            npcId: row.npcId,
+            playerId: row.playerId,
+            reputation: row.reputation,
+            currentMood: row.currentMood,
+            keyBeliefs: [...row.keyBeliefs],
+            summary: row.summary,
+            updatedAt: row.updatedAt,
+          }
+        : null;
     }
 
     const rows = await this.db!
-      .select({ reputation: npcAttitudes.reputation })
+      .select({
+        roomId: npcAttitudes.roomId,
+        npcId: npcAttitudes.npcId,
+        playerId: npcAttitudes.playerId,
+        reputation: npcAttitudes.reputation,
+        currentMood: npcAttitudes.currentMood,
+        keyBeliefs: npcAttitudes.keyBeliefs,
+        summary: npcAttitudes.summary,
+        updatedAt: npcAttitudes.updatedAt,
+      })
       .from(npcAttitudes)
       .where(
         and(
@@ -181,7 +237,94 @@ export class CollectiveRepository {
         ),
       )
       .limit(1);
-    return rows[0]?.reputation ?? null;
+
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      roomId: row.roomId,
+      npcId: row.npcId,
+      playerId: row.playerId,
+      reputation: row.reputation,
+      currentMood: row.currentMood,
+      keyBeliefs: Array.isArray(row.keyBeliefs) ? [...row.keyBeliefs] : [],
+      summary: row.summary,
+      updatedAt: row.updatedAt,
+    };
+  }
+
+  /**
+   * Write semantic columns only for keys present in patch (D-BELIEF-07/09/13).
+   * Success path replaces beliefs entirely when `beliefs` is provided.
+   */
+  async upsertSemanticState(
+    roomId: string,
+    npcId: string,
+    playerId: string,
+    patch: SemanticStatePatch,
+  ): Promise<void> {
+    const hasMood = patch.mood !== undefined;
+    const hasBeliefs = patch.beliefs !== undefined;
+    const hasSummary = patch.summary !== undefined;
+    if (!hasMood && !hasBeliefs && !hasSummary) return;
+
+    const now = new Date();
+    const existing = await this.getAttitudeRow(roomId, npcId, playerId);
+    const reputation = existing?.reputation ?? personalitySeedForNpc(npcId);
+    const nextMood = hasMood ? patch.mood! : (existing?.currentMood ?? "平静");
+    const nextBeliefs = hasBeliefs ? [...patch.beliefs!] : [...(existing?.keyBeliefs ?? [])];
+    const nextSummary = hasSummary ? patch.summary! : (existing?.summary ?? "");
+
+    if (this.store) {
+      const idx = this.store.attitudes.findIndex(
+        (a) => a.roomId === roomId && a.npcId === npcId && a.playerId === playerId,
+      );
+      if (idx >= 0) {
+        const row = this.store.attitudes[idx]!;
+        if (hasMood) row.currentMood = patch.mood!;
+        if (hasBeliefs) row.keyBeliefs = [...patch.beliefs!];
+        if (hasSummary) row.summary = patch.summary!;
+        row.updatedAt = now;
+      } else {
+        this.store.attitudes.push({
+          roomId,
+          npcId,
+          playerId,
+          reputation,
+          currentMood: nextMood,
+          keyBeliefs: nextBeliefs,
+          summary: nextSummary,
+          updatedAt: now,
+        });
+      }
+      return;
+    }
+
+    const conflictSet: {
+      updatedAt: Date;
+      currentMood?: string;
+      keyBeliefs?: string[];
+      summary?: string;
+    } = { updatedAt: now };
+    if (hasMood) conflictSet.currentMood = patch.mood;
+    if (hasBeliefs) conflictSet.keyBeliefs = patch.beliefs;
+    if (hasSummary) conflictSet.summary = patch.summary;
+
+    await this.db!
+      .insert(npcAttitudes)
+      .values({
+        roomId,
+        npcId,
+        playerId,
+        reputation,
+        currentMood: nextMood,
+        keyBeliefs: nextBeliefs,
+        summary: nextSummary,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [npcAttitudes.roomId, npcAttitudes.npcId, npcAttitudes.playerId],
+        set: conflictSet,
+      });
   }
 
   async applyReputationDelta(
@@ -200,10 +343,18 @@ export class CollectiveRepository {
         (a) => a.roomId === roomId && a.npcId === npcId && a.playerId === playerId,
       );
       if (idx >= 0) {
+        // Pitfall 3: only reputation + updatedAt — never wipe semantic.
         this.store.attitudes[idx]!.reputation = next;
         this.store.attitudes[idx]!.updatedAt = now;
       } else {
-        this.store.attitudes.push({ roomId, npcId, playerId, reputation: next, updatedAt: now });
+        this.store.attitudes.push({
+          roomId,
+          npcId,
+          playerId,
+          reputation: next,
+          ...defaultSemanticFields(),
+          updatedAt: now,
+        });
       }
       return next;
     }
@@ -219,6 +370,7 @@ export class CollectiveRepository {
       })
       .onConflictDoUpdate({
         target: [npcAttitudes.roomId, npcAttitudes.npcId, npcAttitudes.playerId],
+        // Pitfall 3: set list must not include mood/beliefs/summary.
         set: {
           reputation: next,
           updatedAt: now,

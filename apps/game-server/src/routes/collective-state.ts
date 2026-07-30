@@ -9,6 +9,7 @@ export function createCollectiveStateRouter(): Router {
   const router = Router();
 
   router.get("/:roomId/collective-state", async (req, res) => {
+    // D-BELIEF-11: payload from getCollectiveState — band/reputation only; no mood/beliefs/summary.
     const { roomId } = req.params;
     const npcId = typeof req.query.npcId === "string" ? req.query.npcId : undefined;
 

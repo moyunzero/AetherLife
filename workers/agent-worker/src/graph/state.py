@@ -22,6 +22,9 @@ class GraphState(TypedDict, total=False):
     effective_score: int
     allowed_tools: list[str]
     collective_summaries: list[str]
+    current_mood: str
+    key_beliefs: list[str]
+    attitude_summary: str
     turn_importance: int
     collective_ambiguous: bool
     gate_rejected: bool

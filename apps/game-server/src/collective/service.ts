@@ -2,14 +2,17 @@ import {
   COLLECTIVE_EVENT_TTL_MS,
   DEFAULT_COLLECTIVE_WINDOW_MS,
   KIND_FIXED_DELTA,
+  PROPAGATION_MAX_FANOUT,
   bandFromEffectiveScore,
   collectiveWindowMsFromEnv,
   computeEffectiveScore,
+  computeRelationshipPropagationDeltas,
   computeWitnessDeltas,
   personalitySeedForNpc,
   type AttitudeBand,
   type CollectiveEventKind,
   type CollectivePosition,
+  type WitnessDeltaUpdate,
 } from "@aetherlife/shared";
 import {
   CollectiveRepository,
@@ -21,6 +24,7 @@ import { allowedToolsForBand, type AllowedTool } from "./gate.js";
 import { detectSpeakRule } from "./rule-detector.js";
 import { getOrCreate } from "../room/store.js";
 import { recordCollectiveEvent } from "../world/world-vote-trigger.js";
+import { listRelationshipsForRoom } from "../world/npc-relationships-repository.js";
 
 export type RecordRuleEventInput = {
   roomId: string;
@@ -44,6 +48,10 @@ export type CollectiveContext = {
   playerReputation: number;
   allowedTools: AllowedTool[];
   recentSummaries: string[];
+  /** Semantic state for worker/speak only (D-BELIEF-05); null when no attitude row. */
+  currentMood: string | null;
+  keyBeliefs: string[] | null;
+  summary: string | null;
 };
 
 export type CollectiveStateAttitude = {
@@ -99,6 +107,49 @@ export class CollectiveService {
     return collectiveWindowMsFromEnv(process.env.COLLECTIVE_WINDOW_MS);
   }
 
+  /**
+   * 2-hop relationship reputation after witness (D-PROP).
+   * Reputation-only via applyReputationDelta — never insertEvent / recordCollectiveEvent.
+   */
+  private async applyRelationshipPropagation(args: {
+    roomId: string;
+    targetNpcId: string;
+    eventDelta: number;
+    playerIds: readonly string[];
+    witnessUpdates: readonly WitnessDeltaUpdate[];
+  }): Promise<void> {
+    const alreadyUpdated = new Set(args.witnessUpdates.map((u) => u.npcId));
+    let edges;
+    try {
+      // Overfetch past FANOUT so alreadyUpdated / polarity / MIN_AFFECTION filters
+      // can still fill up to PROPAGATION_MAX_FANOUT neighbors (D-PROP / CR).
+      edges = await listRelationshipsForRoom(args.roomId, {
+        npcId: args.targetNpcId,
+        limit: PROPAGATION_MAX_FANOUT * 5,
+      });
+    } catch (err) {
+      console.error("[collective] relationship propagation list failed", err);
+      return;
+    }
+
+    const propUpdates = computeRelationshipPropagationDeltas({
+      targetNpcId: args.targetNpcId,
+      eventDelta: args.eventDelta,
+      playerIds: args.playerIds,
+      edges,
+      alreadyUpdated,
+    });
+
+    for (const update of propUpdates) {
+      await this.repo.applyReputationDelta(
+        args.roomId,
+        update.npcId,
+        update.playerId,
+        update.delta,
+      );
+    }
+  }
+
   async recordRuleEvent(input: RecordRuleEventInput): Promise<RecordRuleEventResult> {
     const distinct = new Set(input.playerIds);
     if (distinct.size < 2 && !input.singlePlayerOk) {
@@ -126,8 +177,9 @@ export class CollectiveService {
 
     const eventId = await this.repo.insertEvent(eventInput);
     recordCollectiveEvent(input.roomId, deltaScore);
+    const playerIds = [...distinct];
     const witnessUpdates = computeWitnessDeltas(
-      { kind: input.kind, deltaScore, playerIds: [...distinct] },
+      { kind: input.kind, deltaScore, playerIds },
       input.npcId,
       input.npcPositions,
     );
@@ -140,6 +192,14 @@ export class CollectiveService {
         update.delta,
       );
     }
+
+    await this.applyRelationshipPropagation({
+      roomId: input.roomId,
+      targetNpcId: input.npcId,
+      eventDelta: deltaScore,
+      playerIds,
+      witnessUpdates,
+    });
 
     await this.repo.pruneExpired();
     return { recorded: true, eventId };
@@ -183,6 +243,14 @@ export class CollectiveService {
       );
     }
 
+    await this.applyRelationshipPropagation({
+      roomId: input.roomId,
+      targetNpcId: input.npcId,
+      eventDelta: deltaScore,
+      playerIds: distinct,
+      witnessUpdates,
+    });
+
     await this.repo.pruneExpired();
     return { eventId };
   }
@@ -207,8 +275,9 @@ export class CollectiveService {
       windowDeltas.length === 0
         ? 0
         : windowDeltas.reduce((sum, d) => sum + d, 0) / windowDeltas.length;
+    const attitudeRow = await this.repo.getAttitudeRow(roomId, npcId, playerId);
     const playerReputation =
-      (await this.repo.getAttitude(roomId, npcId, playerId)) ?? personalitySeedForNpc(npcId);
+      attitudeRow?.reputation ?? personalitySeedForNpc(npcId);
     const effectiveScore = computeEffectiveScore(playerReputation, windowDeltas);
     const band = bandFromEffectiveScore(effectiveScore);
 
@@ -219,6 +288,9 @@ export class CollectiveService {
       playerReputation,
       allowedTools: allowedToolsForBand(band),
       recentSummaries: events.slice(0, 5).map((e) => e.summary),
+      currentMood: attitudeRow?.currentMood ?? null,
+      keyBeliefs: attitudeRow ? [...attitudeRow.keyBeliefs] : null,
+      summary: attitudeRow?.summary ?? null,
     };
   }
 
@@ -230,6 +302,7 @@ export class CollectiveService {
     const record = getOrCreate(roomId);
     const npcIds = filterNpcId ? [filterNpcId] : record.state.npcs.map((n) => n.id);
 
+    // D-BELIEF-11: public DTO — reputation/band only; never mood/keyBeliefs/summary.
     const attitudes = await Promise.all(
       npcIds.map(async (npcId) => {
         const ctx = await this.getCollectiveContext(roomId, npcId, playerId);
@@ -240,7 +313,7 @@ export class CollectiveService {
           collectiveWindowMean: ctx.collectiveWindowMean,
           effectiveScore: ctx.effectiveScore,
           band: ctx.band,
-        };
+        } satisfies CollectiveStateAttitude;
       }),
     );
 

@@ -18,10 +18,130 @@ export type AppendMemoryInput = {
   embedding?: number[];
 };
 
-/** Weighted retrieval score from 03-RESEARCH.md */
-export function computeWeightedScore(cosineSimilarity: number, importance: number): number {
-  const factor = 0.5 + (importance || 5) / 20;
-  return cosineSimilarity * factor;
+/** Ebbinghaus recency knobs (D-DECAY-02/02b/03). */
+export type RecencyConfig = {
+  /** Baseline half-life hours S₀ (default 72). */
+  s0: number;
+  /** Floor for recencyFactor (default 0.3). */
+  floor: number;
+  /** Min S when importance→0 (default 1e-3). */
+  sEpsilon: number;
+};
+
+const DEFAULT_RECENCY: RecencyConfig = {
+  s0: 72,
+  floor: 0.3,
+  sEpsilon: 1e-3,
+};
+
+function parsePositiveNumber(raw: string | undefined, fallback: number): number {
+  if (raw === undefined || raw === "") return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return n;
+}
+
+function envSource(): Record<string, string | undefined> {
+  const g = globalThis as { process?: { env?: Record<string, string | undefined> } };
+  return g.process?.env ?? {};
+}
+
+/** Read MEMORY_RECENCY_* env; invalid values → defaults. */
+export function resolveRecencyConfig(
+  env: Record<string, string | undefined> = envSource(),
+): RecencyConfig {
+  const s0 = parsePositiveNumber(env.MEMORY_RECENCY_HALFLIFE_HOURS, DEFAULT_RECENCY.s0);
+  const floorRaw = env.MEMORY_RECENCY_FLOOR;
+  let floor = DEFAULT_RECENCY.floor;
+  if (floorRaw !== undefined && floorRaw !== "") {
+    const n = Number(floorRaw);
+    if (Number.isFinite(n) && n >= 0 && n <= 1) floor = n;
+  }
+  const sEpsilon = parsePositiveNumber(env.MEMORY_RECENCY_S_EPSILON, DEFAULT_RECENCY.sEpsilon);
+  return { s0, floor, sEpsilon };
+}
+
+/**
+ * recencyFactor = max(FLOOR, exp(-ageHours × ln2 / S))
+ * S = max(ε, S0 × importance/5)
+ */
+export function computeRecencyFactor(
+  ageHours: number,
+  importance: number,
+  cfg: RecencyConfig = resolveRecencyConfig(),
+): number {
+  const S = Math.max(cfg.sEpsilon, cfg.s0 * (importance / 5));
+  return Math.max(cfg.floor, Math.exp((-ageHours * Math.LN2) / S));
+}
+
+/**
+ * Weighted retrieval score.
+ * Two-arg: legacy cos × (0.5 + (importance||5)/20).
+ * With ageHours: cos × (0.5 + importance/20) × recencyFactor (D-DECAY-01).
+ */
+export function computeWeightedScore(
+  cosineSimilarity: number,
+  importance: number,
+  ageHours?: number,
+  cfg?: RecencyConfig,
+): number {
+  if (ageHours === undefined) {
+    const factor = 0.5 + (importance || 5) / 20;
+    return cosineSimilarity * factor;
+  }
+  const importanceFactor = 0.5 + importance / 20;
+  const recency = computeRecencyFactor(ageHours, importance, cfg ?? resolveRecencyConfig());
+  return cosineSimilarity * importanceFactor * recency;
+}
+
+/** Hard cap for ANN overfetch (T-29-04-02 DoS mitigation). */
+export const DEFAULT_K_OVERFETCH_CAP = 200;
+
+/**
+ * Candidate pool size for distance ORDER BY before forgetting-curve rerank.
+ * Default: max(20, 4*k), capped (D-ANN-03 / RESEARCH Open Q2).
+ */
+export function resolveKOverfetch(
+  k: number,
+  env: Record<string, string | undefined> = envSource(),
+): number {
+  const safeK = Number.isFinite(k) && k > 0 ? Math.floor(k) : 5;
+  const rawCap = env.MEMORY_K_OVERFETCH_CAP;
+  let cap = DEFAULT_K_OVERFETCH_CAP;
+  if (rawCap !== undefined && rawCap !== "") {
+    const n = Number(rawCap);
+    if (Number.isFinite(n) && n >= 1) cap = Math.floor(n);
+  }
+  return Math.min(cap, Math.max(20, 4 * safeK));
+}
+
+/** Distance-ordered ANN candidate before weighted rerank. */
+export type AnnCandidate = {
+  id: string;
+  text: string;
+  importance: number;
+  cosineSimilarity: number;
+  ageHours: number;
+};
+
+/**
+ * Re-score distance candidates with forgetting-curve formula; return top k (D-ANN-03).
+ */
+export function rerankCandidatesByForgettingCurve(
+  candidates: AnnCandidate[],
+  k: number,
+  cfg: RecencyConfig = resolveRecencyConfig(),
+): Array<SimilarMemory & { id: string }> {
+  const safeK = Number.isFinite(k) && k > 0 ? Math.floor(k) : 5;
+  return candidates
+    .map((c) => ({
+      id: c.id,
+      text: c.text,
+      importance: c.importance,
+      score: computeWeightedScore(c.cosineSimilarity, c.importance, c.ageHours, cfg),
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, safeK);
 }
 
 export class MemoryRepository {
@@ -74,20 +194,45 @@ export class MemoryRepository {
   }): Promise<SimilarMemory[]> {
     const npcId = input.npcId ?? DEFAULT_NPC_ID;
     const k = input.k ?? 5;
+    const kOverfetch = resolveKOverfetch(k);
     const vectorLiteral = `[${input.queryEmbedding.join(",")}]`;
+    const cfg = resolveRecencyConfig();
 
+    // D-ANN-03: ORDER BY halfvec distance ASC LIMIT k_overfetch so HNSW can be used,
+    // then re-score with forgetting-curve and take top k.
     const result = await this.db.execute(sql`
+      WITH candidates AS (
+        SELECT
+          text,
+          importance,
+          created_at,
+          (embedding::halfvec(2048) <=> ${vectorLiteral}::halfvec(2048)) AS dist
+        FROM npc_memories
+        WHERE room_id = ${input.roomId}
+          AND player_id = ${input.playerId}
+          AND npc_id = ${npcId}
+          AND summarized_at IS NULL
+          AND embedding IS NOT NULL
+        ORDER BY embedding::halfvec(2048) <=> ${vectorLiteral}::halfvec(2048) ASC
+        LIMIT ${kOverfetch}
+      )
       SELECT
         text,
         importance,
-        (1 - (embedding <=> ${vectorLiteral}::vector))
-          * (0.5 + COALESCE(importance, 5) / 20.0) AS score
-      FROM npc_memories
-      WHERE room_id = ${input.roomId}
-        AND player_id = ${input.playerId}
-        AND npc_id = ${npcId}
-        AND summarized_at IS NULL
-        AND embedding IS NOT NULL
+        (1 - dist)
+          * (0.5 + COALESCE(importance, 5) / 20.0)
+          * GREATEST(
+              ${cfg.floor}::float8,
+              EXP(
+                - (EXTRACT(EPOCH FROM (now() - created_at)) / 3600.0)
+                  * LN(2)
+                  / GREATEST(
+                      ${cfg.sEpsilon}::float8,
+                      ${cfg.s0}::float8 * COALESCE(importance, 5) / 5.0
+                    )
+              )
+            ) AS score
+      FROM candidates
       ORDER BY score DESC
       LIMIT ${k}
     `);

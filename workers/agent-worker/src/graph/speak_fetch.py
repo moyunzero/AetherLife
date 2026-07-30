@@ -58,6 +58,9 @@ _MEMORY_MERGE_KEYS = (
     "effective_score",
     "allowed_tools",
     "collective_summaries",
+    "current_mood",
+    "key_beliefs",
+    "attitude_summary",
 )
 
 
@@ -173,6 +176,9 @@ def _load_collective_gate_fields(
             "effective_score",
             "allowed_tools",
             "collective_summaries",
+            "current_mood",
+            "key_beliefs",
+            "attitude_summary",
         )
         if key in parsed
     }

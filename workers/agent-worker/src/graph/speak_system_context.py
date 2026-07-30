@@ -35,6 +35,9 @@ def build_speak_system_context(
         just_happened=(
             state.get("just_happened_summary") if include_just_happened else None
         ),
+        mood=state.get("current_mood"),
+        beliefs=state.get("key_beliefs"),
+        summary=state.get("attitude_summary"),
     )
     npc_id = state.get("npc_id") or "npc-1"
     persona_block = build_persona_block(

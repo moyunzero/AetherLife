@@ -210,6 +210,11 @@
 117. **关系 apply-deltas 与 belief day-key 须带 room clock**：`POST .../npc-relationships/apply-deltas` **必须** `noteInteractAbs` 用 `getRoomVoteState(roomId).absoluteGameMinute`（**禁止** fallback `0` 导致 idle decay 误判）；`worker-state.state` **必须** 含 `absoluteGameMinute`；`day_key_from_snapshot` **优先** `absoluteGameMinute // 1440`（D-PLAYER-04/06 per-day cap）。回归：`npc-relationships.test.ts` apply-deltas stamp · `index.test.ts` worker-state clock · `test_belief_gate.py::test_day_key_from_snapshot_prefers_absolute_game_minute` · `test_manipulation_cap_resets_on_next_game_day`。
 118. **Decay stamp / belief cap 进程重启与长跑**：`maybeRunRelationshipDecay` 启动时 **必须** `hydrateInteractAbsFromEdges`（有 `last_interact_at`）+ `hydrateSeedAbsFromEdges`；`lastDecayMonthByRoom` 有 `REDIS_URL` 时持久化，防同月重复 decay。Belief `_pair_claims` / `_player_claims` / `_reject_counts` / `_trust_penalty_claims` 在 claim/note 时 **必须** prune 非当前 `day_key`。回归：`npc-relationship-decay.test.ts` hydrate · `test_belief_gate.py::test_prune_stale_day_keys_on_claim`。
 119. **Campfire 等多 tile volume 须共用南缘 Y-sort**：`HomeMapBackground` 对 `VOLUME_CLUSTER_TILESETS`（当前仅 `Campfire`）用 `clusterSouthSortWorldY` 把相邻 tile object 的 sort Y 抬到集群最南底边；**禁止**全局改 `YSORT_LAYER.PLAYER`/`OBJECT` 来「修」篝火。勿把 collection-of-images 道具加入该集合。回归：`entityLayout.test.ts` · 实机站北侧火焰须盖住腿。
+120. **`audit_reply` 状态声称规则须窄匹配**：禁止裸词 `moved`/`left`/`picked`/`走向`/`我现在就去`（无动作宾语）误伤闲聊；兜底文案禁止「与房间互动」。改 `reply_audit.py` / gateway `guards/reply.py` 须两侧同步 + `tests/test_reply_audit.py`（含 age-chat 假阳性用例）。
+121. **遗忘曲线检索公式 SSOT 在 `packages/npc-memory` helpers**：`S=max(ε,72h×importance/5)`，`score∝exp(-age·ln2/S)`；SQL 与 `TestMemoryBackend` 必须镜像同一公式；禁止在 worker 另写一套衰减。
+122. **公开 API 禁止泄漏 Semantic / PROP**：`collective-state` 等公开路由须 strip mood/beliefs/summary；PROP 常量不得进 `ChatState` / worker-state 级联；改公开序列化时对照 CONTRACTS C-05 / D-BELIEF-11。
+123. **ANN 检索须 overfetch 再遗忘曲线重排**：`k_overfetch=max(20,4*k)`；禁止假装「加权 ORDER BY」能用 HNSW；召回门用 live overlap，不靠 EXPLAIN 必现 Index Scan。
+124. **D-SESS UAT 用 Map-evict，不杀进程**：`POST .../dialogue-map-evict` + `GET .../dialogue-turns` 验证 Redis→Map 回填；命令 `pnpm uat:phase29:dialogue-restart`。Speak 引用 seed 在 LLM 配额耗尽时可 soft-skip，硬门是 turns rehydrate。
 
 ## 记录
 
@@ -2984,6 +2989,40 @@ Worker 主循环仅在 npc-turn 队列 **连续 5s 为空** 时才 `BLPOP` chunk
 **防复发**
 
 - Guardrail #119 · [BEGINNING-FIELDS.md](./BEGINNING-FIELDS.md) Y-sort 注记
+
+---
+
+### ISSUE-112 — 闲聊被 audit_reply 替换成「与房间互动」
+
+- **状态:** fixed
+- **发现:** 2026-07-30
+- **阶段/范围:** worker `reply_audit` / gateway `guards/reply`
+- **严重性:** major（对话 UX）
+
+**复现**
+
+1. 对阿斯托利亚说「美女，你多大了」。
+2. UI 显示「我还不能确定能否那样做——让我先试着与房间互动。」（与提问无关）。
+
+**根因**
+
+- Social LLM（Groq）已成功生成回复。
+- `audit_reply` 英文规则含过宽词 `moved`/`left`，中文含裸 `走向`/`我现在就去`，闲聊误判为「无 tool 却声称状态变更」并整句替换。
+- 兜底文案写「与房间互动」，观感像答非所问。
+
+**修复**
+
+- 收窄 `STATE_CHANGE_PATTERNS`（`moved to`、动作宾语版「我现在就去…」等）；兜底改为「抱歉，我这边还做不到。」
+- worker / gateway 两侧同步；补假阳性单测。
+
+**验证**
+
+- `cd workers/agent-worker && LLM_MOCK=1 uv run pytest -q tests/test_reply_audit.py`
+- `cd apps/ai-gateway && uv run pytest -q tests/test_check_reply.py`
+
+**防复发**
+
+- Guardrail #120
 
 ---
 
